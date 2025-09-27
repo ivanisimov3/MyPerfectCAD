@@ -54,9 +54,17 @@ class MainWindow:
         ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees").pack(anchor=tk.W)
         ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians").pack(anchor=tk.W)
         
-        # === Информационная панель (пока без изменений) ===
+        # === ИНФОРМАЦИОННАЯ ПАНЕЛЬ (ИСПРАВЛЕНИЕ) === ### ИЗМЕНЕНИЕ ###
         info_panel = ttk.LabelFrame(root, text="Информация", padding="5")
         info_panel.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
+        
+        # Создаем переменные для текста, чтобы легко их обновлять
+        self.length_var = tk.StringVar(value="Длина: N/A")
+        self.angle_var = tk.StringVar(value="Угол: N/A")
+
+        # Привязываем переменные к меткам
+        ttk.Label(info_panel, textvariable=self.length_var).pack(side=tk.LEFT, padx=5, pady=2)
+        ttk.Label(info_panel, textvariable=self.angle_var).pack(side=tk.LEFT, padx=5, pady=2)
         
         # === Логика камеры и привязки событий ===
         self.pan_x, self.pan_y, self.zoom = 0, 0, 1.0
@@ -113,9 +121,14 @@ class MainWindow:
         self.hint_label.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor='se') # Показываем подсказку
         self.redraw_all()
 
-    def finalize_segment(self, event=None):
+    def finalize_segment(self, event=None): ### ИЗМЕНЕНИЕ ###
         if self.preview_segment:
             self.segments.append(self.preview_segment)
+            
+            # Очищаем поля ввода после успешного сохранения
+            for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
+                entry.delete(0, tk.END)
+
             self.set_app_state('IDLE')
 
     def on_delete_segment(self, event=None):
