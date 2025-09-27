@@ -49,6 +49,18 @@ class Segment:
         """
         self.p1 = p1
         self.p2 = p2
+        
+    #Этот декоратор превращает метод в "умное" свойство. 
+    # Мы можем обращаться к my_segment.length как к обычной переменной, а код внутри метода будет выполняться каждый раз при обращении.
+    @property 
+    def length(self):
+        """Вычисляет и возвращает длину отрезка."""
+        return math.sqrt((self.p2.x - self.p1.x)**2 + (self.p2.y - self.p1.y)**2)
+
+    @property
+    def angle(self):
+        """Вычисляет и возвращает угол наклона отрезка в радианах."""
+        return math.atan2(self.p2.y - self.p1.y, self.p2.x - self.p1.x)
 
     def __repr__(self):
         return f"Segment({self.p1}, {self.p2})"
