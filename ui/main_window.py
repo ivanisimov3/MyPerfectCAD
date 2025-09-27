@@ -27,7 +27,6 @@ class MainWindow:
         # === Рабочая область ===
         self.canvas = tk.Canvas(root, bg='white', borderwidth=2, relief="sunken")
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
-        self.hint_label = ttk.Label(self.canvas, text="Нажмите Enter, чтобы построить отрезок", background='lightyellow', padding=5)
         
         # === Панель настроек ===
         settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
@@ -66,10 +65,18 @@ class MainWindow:
         # Привязываем переменные к меткам
         ttk.Label(info_panel, textvariable=self.length_var).pack(side=tk.LEFT, padx=5, pady=2)
         ttk.Label(info_panel, textvariable=self.angle_var).pack(side=tk.LEFT, padx=5, pady=2)
+
+        # Создаем фрейм для подсказок, чтобы он был справа
+        self.hotkey_frame = ttk.Frame(info_panel)
+        # Unicode: ⏎ (Enter), ⎋ (Escape)
+        ttk.Label(self.hotkey_frame, text="⏎ Enter - Ввод").pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.hotkey_frame, text="⎋ Esc - Отмена").pack(side=tk.LEFT, padx=5)
         
         # === Логика камеры и привязки событий ===
-        self.pan_x, self.pan_y, self.zoom = 0, 0, 1.0
+        self.pan_x, self.pan_y, self.zoom = 0, 0, 5.0
         self._drag_start_x, self._drag_start_y = 0, 0
+        self.grid_step = 10 # Уменьшаем шаг сетки
+
         self.canvas.bind("<Configure>", self.on_canvas_resize)
         self.canvas.bind("<ButtonPress-2>", self.on_mouse_press)
         self.canvas.bind("<B2-Motion>", self.on_mouse_drag)
@@ -86,26 +93,25 @@ class MainWindow:
         entry.bind("<KeyRelease>", self.update_preview_segment)
         return entry
 
-    def set_app_state(self, state): ### ИЗМЕНЕНИЕ: Полностью переработанный метод
+    def set_app_state(self, state): ### ИЗМЕНЕНИЕ ###
         self.app_state = state
         
         if state == 'CREATING_SEGMENT':
-            # Включаем поля и глобальные привязки
             for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
                 entry.config(state='normal')
             self.root.bind("<Return>", self.finalize_segment)
             self.root.bind("<Escape>", self.cancel_creation)
+            self.hotkey_frame.pack(side=tk.RIGHT, padx=5) # Показываем подсказки
         
         elif state == 'IDLE':
-            # Выключаем поля, очищаем их и убираем глобальные привязки
             for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
             self.root.unbind("<Return>")
             self.root.unbind("<Escape>")
+            self.hotkey_frame.pack_forget() # Прячем подсказки
             
             self.preview_segment = None
-            self.hint_label.place_forget()
             self.redraw_all()
 
     # --- Обработчики Workflow ---
@@ -121,13 +127,11 @@ class MainWindow:
             p2_val2 = float(self.p2_y_entry.get())
         except ValueError:
             self.preview_segment = None
-            self.hint_label.place_forget()
             self.redraw_all()
             return
         
         p1, p2 = self._create_points_from_entries()
         self.preview_segment = Segment(p1, p2)
-        self.hint_label.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor='se') # Показываем подсказку
         self.redraw_all()
 
     def finalize_segment(self, event=None): ### ИЗМЕНЕНИЕ: Упрощенный метод
@@ -206,28 +210,39 @@ class MainWindow:
         sx2, sy2 = self.world_to_screen(segment.p2.x, segment.p2.y)
         self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=width)
 
-    # ... (методы камеры, сетки и мыши остаются без изменений) ...
+    # --- Преобразования координат с учетом ЗУМА --- ### ИЗМЕНЕНИЕ ###
     def world_to_screen(self, world_x, world_y):
         center_x = self.canvas.winfo_width() / 2
         center_y = self.canvas.winfo_height() / 2
-        return (center_x + self.pan_x + world_x, center_y + self.pan_y - world_y)
-
+        
+        screen_x = center_x + self.pan_x + (world_x * self.zoom)
+        screen_y = center_y + self.pan_y - (world_y * self.zoom)
+        return screen_x, screen_y
+    
     def screen_to_world(self, screen_x, screen_y):
         center_x = self.canvas.winfo_width() / 2
         center_y = self.canvas.winfo_height() / 2
-        return (screen_x - center_x - self.pan_x, -(screen_y - center_y - self.pan_y))
+
+        world_x = (screen_x - center_x - self.pan_x) / self.zoom
+        world_y = -(screen_y - center_y - self.pan_y) / self.zoom
+        return world_x, world_y
     
-    def draw_grid_and_axes(self, grid_step=50):
+    # --- Отрисовка сетки с учетом self.grid_step --- ### ИЗМЕНЕНИЕ ###
+    def draw_grid_and_axes(self):
+        # ... (метод теперь использует self.grid_step вместо параметра)
         width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
         if width < 2 or height < 2: return
+        
         world_tl_x, world_tl_y = self.screen_to_world(0, 0)
         world_br_x, world_br_y = self.screen_to_world(width, height)
-        start_x = math.ceil(world_tl_x / grid_step) * grid_step
-        for wx in range(start_x, int(world_br_x), grid_step):
+        
+        start_x = math.ceil(world_tl_x / self.grid_step) * self.grid_step
+        for wx in range(start_x, int(world_br_x), self.grid_step):
             sx, _ = self.world_to_screen(wx, 0)
             self.canvas.create_line(sx, 0, sx, height, fill='black' if wx==0 else'#e0e0e0', width=2 if wx==0 else 1)
-        start_y = math.ceil(world_br_y / grid_step) * grid_step
-        for wy in range(start_y, int(world_tl_y), grid_step):
+            
+        start_y = math.ceil(world_br_y / self.grid_step) * self.grid_step
+        for wy in range(start_y, int(world_tl_y), self.grid_step):
             _, sy = self.world_to_screen(0, wy)
             self.canvas.create_line(0, sy, width, sy, fill='black' if wy==0 else '#e0e0e0', width=2 if wy==0 else 1)
 
