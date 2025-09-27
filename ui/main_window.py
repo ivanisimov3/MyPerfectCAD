@@ -7,6 +7,7 @@ from logic.geometry import Point, Segment
 
 class MainWindow:
     def __init__(self, root):
+        self.root = root ### ИЗМЕНЕНИЕ: Сохраняем root для глобальных привязок
         root.title("MyPerfectCAD: ЛР №1")
         root.minsize(950, 600)
         root.columnconfigure(0, weight=1)
@@ -83,26 +84,34 @@ class MainWindow:
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         # Привязываем события к полям ввода
         entry.bind("<KeyRelease>", self.update_preview_segment)
-        entry.bind("<Return>", self.finalize_segment)
         return entry
 
-    def set_app_state(self, state):
+    def set_app_state(self, state): ### ИЗМЕНЕНИЕ: Полностью переработанный метод
         self.app_state = state
-        entry_state = 'normal' if state == 'CREATING_SEGMENT' else 'disabled'
-        for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
-            entry.config(state=entry_state)
         
-        if state == 'IDLE':
+        if state == 'CREATING_SEGMENT':
+            # Включаем поля и глобальные привязки
+            for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
+                entry.config(state='normal')
+            self.root.bind("<Return>", self.finalize_segment)
+            self.root.bind("<Escape>", self.cancel_creation)
+        
+        elif state == 'IDLE':
+            # Выключаем поля, очищаем их и убираем глобальные привязки
+            for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
+            self.root.unbind("<Return>")
+            self.root.unbind("<Escape>")
+            
             self.preview_segment = None
-            self.hint_label.place_forget() # Прячем подсказку
+            self.hint_label.place_forget()
             self.redraw_all()
 
     # --- Обработчики Workflow ---
-    def on_new_segment_mode(self, event=None):
+    def on_new_segment_mode(self, event=None): ### ИЗМЕНЕНИЕ: Упрощенный метод
         self.set_app_state('CREATING_SEGMENT')
-        for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
-            entry.delete(0, tk.END)
-        self.p1_x_entry.focus_set() # Ставим курсор в первое поле
+        self.p1_x_entry.focus_set()
 
     def update_preview_segment(self, event=None):
         try:
@@ -121,15 +130,14 @@ class MainWindow:
         self.hint_label.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor='se') # Показываем подсказку
         self.redraw_all()
 
-    def finalize_segment(self, event=None): ### ИЗМЕНЕНИЕ ###
+    def finalize_segment(self, event=None): ### ИЗМЕНЕНИЕ: Упрощенный метод
         if self.preview_segment:
             self.segments.append(self.preview_segment)
-            
-            # Очищаем поля ввода после успешного сохранения
-            for entry in [self.p1_x_entry, self.p1_y_entry, self.p2_x_entry, self.p2_y_entry]:
-                entry.delete(0, tk.END)
-
             self.set_app_state('IDLE')
+
+    def cancel_creation(self, event=None): ### ИЗМЕНЕНИЕ: Новый метод
+        """Отменяет создание отрезка и возвращает в состояние IDLE."""
+        self.set_app_state('IDLE')
 
     def on_delete_segment(self, event=None):
         if self.segments:
