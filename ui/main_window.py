@@ -69,10 +69,11 @@ class MainWindow:
         self.p2_label2, self.p2_y_entry = self.create_coord_entry(p2_frame, "Y₂:")
         ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=self.on_coord_system_change).pack(anchor=tk.W)
         ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=self.on_coord_system_change).pack(anchor=tk.W)
+        # Стало:
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
         angle_frame.pack(padx=5, pady=10, fill=tk.X)
-        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=self.redraw_all).pack(anchor=tk.W)
-        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=self.redraw_all).pack(anchor=tk.W)
+        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=self.update_preview_segment).pack(anchor=tk.W)
+        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=self.update_preview_segment).pack(anchor=tk.W)
         grid_frame = ttk.LabelFrame(parent, text="Сетка")
         grid_frame.pack(padx=5, pady=10, fill=tk.X)
         self.grid_step_var = tk.StringVar(value="10")
