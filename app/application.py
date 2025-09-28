@@ -2,7 +2,6 @@
 
 import tkinter as tk
 from ui.main_window import MainWindow
-import sv_ttk
 
 class Application:
     def __init__(self):
@@ -11,10 +10,6 @@ class Application:
         Создает главное окно и инициализирует интерфейс.
         """
         self.root = tk.Tk()
-        
-        # Устанавливаем тему ПЕРЕД созданием главного окна
-        sv_ttk.set_theme("dark")
-        
         self.main_window = MainWindow(self.root)
 
     def run(self):

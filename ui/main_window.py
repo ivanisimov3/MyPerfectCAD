@@ -4,7 +4,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import math
 from logic.geometry import Point, Segment
-import sv_ttk
 
 class MainWindow:
     def __init__(self, root):
@@ -22,7 +21,7 @@ class MainWindow:
         self.is_fullscreen = False
         self.active_p1 = None
         self.active_p2 = None
-        self.bg_color, self.grid_color, self.segment_color = '#2b2b2b', '#404040', '#ff8080'
+        self.bg_color, self.grid_color, self.segment_color = 'white', '#e0e0e0', 'red'
 
         # === Панели интерфейса ===
         toolbar = ttk.Frame(root, padding="5")
@@ -30,7 +29,7 @@ class MainWindow:
         ttk.Button(toolbar, text="Отрезок", command=self.on_new_segment_mode).pack(side=tk.LEFT, padx=5, pady=2)
         ttk.Button(toolbar, text="Удалить", command=self.on_delete_segment).pack(side=tk.LEFT, padx=5, pady=2)
 
-        self.canvas = tk.Canvas(root, bg=self.bg_color, borderwidth=0, highlightthickness=0)
+        self.canvas = tk.Canvas(root, bg=self.bg_color, borderwidth=2, relief="sunken")
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
         settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
@@ -80,12 +79,11 @@ class MainWindow:
         ttk.Label(grid_frame, text="Шаг:").pack(side=tk.LEFT, padx=(0,5))
         ttk.Entry(grid_frame, textvariable=self.grid_step_var, width=5).pack(side=tk.LEFT, padx=5)
         ttk.Button(grid_frame, text="Применить", command=self.on_apply_settings).pack(side=tk.LEFT, padx=5)
-        color_frame = ttk.LabelFrame(parent, text="Цвета и Тема")
+        color_frame = ttk.LabelFrame(parent, text="Цвета")
         color_frame.pack(padx=5, pady=10, fill=tk.X)
         self.bg_swatch = self.create_color_chooser(color_frame, "Фон:", self.bg_color, self.on_choose_bg_color)
         self.grid_swatch = self.create_color_chooser(color_frame, "Сетка:", self.grid_color, self.on_choose_grid_color)
         self.segment_swatch = self.create_color_chooser(color_frame, "Отрезок:", self.segment_color, self.on_choose_segment_color)
-        ttk.Button(color_frame, text="Сменить тему", command=self.toggle_theme).pack(fill=tk.X, pady=(10, 2))
     
     def setup_info_panel(self, parent):
         self.length_var = tk.StringVar(value="Длина: N/A")
@@ -163,20 +161,6 @@ class MainWindow:
     def toggle_fullscreen(self, event=None):
         self.is_fullscreen = not self.is_fullscreen
         self.root.attributes("-fullscreen", self.is_fullscreen)
-
-    def toggle_theme(self):
-        if sv_ttk.get_theme() == "dark":
-            sv_ttk.set_theme("light")
-            self.bg_color, self.grid_color, self.segment_color = 'white', '#e0e0e0', 'red'
-        else:
-            sv_ttk.set_theme("dark")
-            self.bg_color, self.grid_color, self.segment_color = '#2b2b2b', '#404040', '#ff8080'
-        
-        self.canvas.config(bg=self.bg_color)
-        self.bg_swatch.config(background=self.bg_color)
-        self.grid_swatch.config(background=self.grid_color)
-        self.segment_swatch.config(background=self.segment_color)
-        self.redraw_all()
 
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
@@ -259,15 +243,17 @@ class MainWindow:
             self.points_clicked = 0
         self.update_preview_segment()
 
+    # Стало:
     def on_mouse_wheel(self, event):
         world_before_zoom_x, world_before_zoom_y = self.screen_to_world(event.x, event.y)
-        if hasattr(event, 'delta') and event.delta != 0:
-            zoom_factor = 1.2 if event.delta > 0 else 1 / 1.2
-        elif event.num == 4:
-            zoom_factor = 1.2
-        elif event.num == 5:
-            zoom_factor = 1 / 1.2
+        if hasattr(event, 'delta') and event.delta != 0: # Для Windows и macOS
+            zoom_factor = 1 / 1.2 if event.delta > 0 else 1.2 # Вверх -> отдалить, Вниз -> приблизить
+        elif event.num == 4: # Для Linux
+            zoom_factor = 1 / 1.2 # Вверх -> отдалить
+        elif event.num == 5: # Для Linux
+            zoom_factor = 1.2 # Вниз -> приблизить
         else: return
+        
         self.zoom *= zoom_factor
         self.zoom = max(0.1, min(self.zoom, 100))
         screen_after_zoom_x, screen_after_zoom_y = self.world_to_screen(world_before_zoom_x, world_before_zoom_y)
