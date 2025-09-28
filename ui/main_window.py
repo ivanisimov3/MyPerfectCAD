@@ -235,13 +235,20 @@ class MainWindow:
             self.points_clicked = 2
         self.update_preview_segment()
     
+    # Стало:
     def on_rmb_click(self, event):
-        if self.points_clicked == 2:
-            self.p2_x_entry.delete(0, tk.END); self.p2_y_entry.delete(0, tk.END)
-            self.points_clicked = 1
-        elif self.points_clicked == 1:
-            self.p1_x_entry.delete(0, tk.END); self.p1_y_entry.delete(0, tk.END)
+        # Проверяем, есть ли что-то в полях для второй точки
+        if self.p2_x_entry.get() or self.p2_y_entry.get():
+            self.p2_x_entry.delete(0, tk.END)
+            self.p2_y_entry.delete(0, tk.END)
+            # Синхронизируем счетчик кликов на случай, если пользователь захочет продолжить с мыши
+            self.points_clicked = 1 
+        # Если поля второй точки уже пустые, проверяем первую
+        elif self.p1_x_entry.get() or self.p1_y_entry.get():
+            self.p1_x_entry.delete(0, tk.END)
+            self.p1_y_entry.delete(0, tk.END)
             self.points_clicked = 0
+        
         self.update_preview_segment()
 
     # Стало:
