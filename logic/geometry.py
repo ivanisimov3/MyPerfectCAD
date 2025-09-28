@@ -3,56 +3,43 @@
 import math
 
 class Point:
+    # Устанавливаем точку в декартовых по умолчанию
     def __init__(self, x=0.0, y=0.0):
-        """
-        Конструктор точки. По умолчанию создается в начале координат (0,0).
-        Хранит координаты всегда в декартовой системе.
-        """
         self.x = float(x)
         self.y = float(y)
 
-    def set_from_polar(self, r, theta_rad):
-        """
-        Устанавливает декартовы координаты точки, принимая на вход полярные.
-        r: расстояние от начала координат (радиус).
-        theta_rad: угол в радианах.
-        """
-        self.x = r * math.cos(theta_rad)
-        self.y = r * math.sin(theta_rad)
-
+    # Перевод из декартовых в полярные координаты
     def get_polar_coords(self):
-        """
-        Возвращает полярные координаты точки, вычисленные из декартовых.
-        Возвращает кортеж (r, theta_rad).
-        """
         r = math.sqrt(self.x**2 + self.y**2)
-        # atan2 - более "умный" арктангенс, который правильно определяет четверть
         theta_rad = math.atan2(self.y, self.x)
         return r, theta_rad
 
+    # Перевод из полярных в декартовы координаты
+    def set_from_polar(self, r, theta_rad):
+        self.x = r * math.cos(theta_rad)
+        self.y = r * math.sin(theta_rad)
+
     def __repr__(self):
-        """
-        Строковое представление объекта. Полезно для отладки.
-        Вызывается, когда мы делаем print(my_point_object).
-        """
         return f"Point(x={self.x:.2f}, y={self.y:.2f})"
 
 class Segment:
+    # Инициализация отрезка по умолчанию
     def __init__(self, p1: Point, p2: Point, color='red'):
-        """Конструктор отрезка. Принимает две точки и цвет."""
         self.p1 = p1
         self.p2 = p2
         self.color = color
 
+    # @property - декоратор для обращения к методу объекта без ()
+
+    # Метод вычисляет и возвращает длину отрезка
     @property
     def length(self):
-        """Вычисляет и возвращает длину отрезка."""
         return math.sqrt((self.p2.x - self.p1.x)**2 + (self.p2.y - self.p1.y)**2)
 
+    # Метод вычисляет и возвращает угол наклона отрезка в радианах
     @property
     def angle(self):
-        """Вычисляет и возвращает угол наклона отрезка в радианах."""
         return math.atan2(self.p2.y - self.p1.y, self.p2.x - self.p1.x)
-
+    
     def __repr__(self):
         return f"Segment({self.p1}, {self.p2}, color='{self.color}')"
