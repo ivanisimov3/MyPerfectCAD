@@ -53,6 +53,7 @@ class MainWindow:
         self.canvas.bind("<Button-4>", self.on_mouse_wheel)
         self.canvas.bind("<Button-5>", self.on_mouse_wheel)
         self.root.bind("<F11>", self.toggle_fullscreen)
+        self.root.bind("<Escape>", self.on_escape_key) # Глобальная привязка Esc
         
         self.set_app_state('IDLE')
 
@@ -134,7 +135,7 @@ class MainWindow:
                 entry.config(state='normal')
             self.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
-            self.root.bind("<Escape>", self.cancel_creation)
+
             self.canvas.bind("<Button-1>", self.on_lmb_click)
             self.canvas.bind("<Button-3>", self.on_rmb_click)
             self.hotkey_frame.pack(side=tk.RIGHT, padx=5)
@@ -145,12 +146,19 @@ class MainWindow:
                 entry.config(state='disabled')
             
             self.root.unbind("<Return>")
-            self.root.unbind("<Escape>")
             self.canvas.unbind("<Button-1>")
             self.canvas.unbind("<Button-3>")
             self.hotkey_frame.pack_forget()
             self.preview_segment = None
             self.redraw_all()
+
+    def on_escape_key(self, event=None):
+        """Обрабатывает нажатие Esc в зависимости от состояния приложения."""
+        if self.app_state == 'CREATING_SEGMENT':
+            self.cancel_creation()
+        elif self.app_state == 'IDLE':
+            if messagebox.askyesno("Выход", "Вы уверены, что хотите выйти?"):
+                self.root.destroy()
             
     def toggle_fullscreen(self, event=None):
         self.is_fullscreen = not self.is_fullscreen
@@ -314,8 +322,8 @@ class MainWindow:
                 if self.active_p1 is None: self.active_p1 = p1_for_p2
             except (ValueError, tk.TclError): pass
         elif self.segments:
-            last_segment = self.segments[-1]
-            self.active_p1, self.active_p2 = last_segment.p1, last_segment.p2
+            # Не показываем точки последнего отрезка в режиме IDLE
+            pass
         p1, p2 = self.active_p1, self.active_p2
         if p1: self.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
         else: self.p1_coord_var.set("P1: N/A")
