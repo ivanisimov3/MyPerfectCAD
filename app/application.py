@@ -2,18 +2,27 @@
 
 import tkinter as tk
 from ui.main_window import MainWindow
+from app.state import AppState
+from app.callbacks import Callbacks
 
 class Application:
     def __init__(self):
-        """
-        Конструктор класса приложения.
-        Создает главное окно и инициализирует интерфейс.
-        """
         self.root = tk.Tk()
-        self.main_window = MainWindow(self.root)
+        
+        # 1. Создаем Model (Состояние)
+        self.state = AppState()
+        
+        # 2. Создаем Controller (Обработчики) и передаем ему доступ к root и state
+        self.callbacks = Callbacks(self.root, self.state, None)
+        
+        # 3. Создаем View (Окно) и передаем ему доступ к root и callbacks
+        self.view = MainWindow(self.root, self.callbacks)
+        
+        # 4. Завершаем связку: даем Controller'у доступ к View
+        self.callbacks.view = self.view
+
+        # 5. Даем команду контроллеру инициализировать виджеты начальными данными
+        self.callbacks.initialize_view()
 
     def run(self):
-        """
-        Запускает главный цикл приложения.
-        """
         self.root.mainloop()
