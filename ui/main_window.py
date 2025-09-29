@@ -8,17 +8,17 @@ class MainWindow:
         self.root = root
         root.title("MyPerfectCAD")
         root.minsize(950, 600)
+        
+        # Приоритет при изменении размеров приложения
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
 
-        # Панели интерфейса
+        # ПАНЕЛИ ИНТЕРФЕЙСА
         toolbar = ttk.Frame(root, padding="5")
         toolbar.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
 
         self.canvas = tk.Canvas(root, borderwidth=2, relief="sunken")
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
-        # self.canvas = tk.Canvas(root, borderwidth=0, highlightthickness=0)
-        # self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
         settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
         settings_panel.grid(row=1, column=1, sticky=('E', 'N', 'S'), padx=5, pady=5)
