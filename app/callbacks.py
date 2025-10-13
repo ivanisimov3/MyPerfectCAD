@@ -211,6 +211,7 @@ class Callbacks:
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
         self.view.segment_swatch.config(background=self.state.segment_color)
+        self.set_app_state(self.state.app_mode)
 
     # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
     # Вызывается после ввода значений в поля
