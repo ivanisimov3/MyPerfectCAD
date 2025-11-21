@@ -7,7 +7,7 @@ from logic.geometry import Point, Segment
 
 class Callbacks:
     def __init__(self, root, state, view):
-        self.root = root    # Глобальная настрока
+        self.root = root    # Глобальная настройка
         self.state = state  # Модель
         self.view = view    # Представление
         
@@ -26,7 +26,7 @@ class Callbacks:
         ]
         
         if is_creating: # CREATING_SEGMENT
-            for entry in entries: entry.config(state=entry_state)   # entry.config(state='normal')
+            for entry in entries: entry.config(state=entry_state)
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
@@ -35,7 +35,7 @@ class Callbacks:
         else: # IDLE
             for entry in entries:
                 entry.delete(0, tk.END)
-                entry.config(state=entry_state) # entry.config(state='disabled')
+                entry.config(state=entry_state)
             self.root.unbind("<Return>")
             self.view.canvas.unbind("<Button-1>")
             self.view.canvas.unbind("<Button-3>")
@@ -46,12 +46,10 @@ class Callbacks:
             self.redraw_all()
             
     # ОБРАБОТЧИКИ РАБОЧЕГО ПРОЦЕССА
-    # Вызывается при нажатии кнопки Отрезок
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
         self.view.p1_x_entry.focus_set()
         
-    # Отображение временного отрезка в зависимости от введенных значения в поля
     def update_preview_segment(self, event=None):
         try:
             p1, p2 = self._create_points_from_entries()
@@ -60,7 +58,6 @@ class Callbacks:
             self.state.preview_segment = None
         self.redraw_all()
 
-    # Вызывается при нажатии кнопки Enter
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -71,7 +68,6 @@ class Callbacks:
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
-    # События при нажатии ESC
     def on_escape_key(self, event=None):
         if self.state.app_mode == 'CREATING_SEGMENT':
             self.cancel_creation()
@@ -79,17 +75,14 @@ class Callbacks:
             if messagebox.askyesno("Выход", "Вы уверены, что хотите выйти?"):
                 self.root.destroy()
 
-    # Вызывается при нажатии ESC в режиме создания отрезка
     def cancel_creation(self): self.set_app_state('IDLE')
     
-    # Вызывается при нажатии кнопки Удалить
     def on_delete_segment(self, event=None):
         if self.state.segments:
             self.state.segments.pop()
             self.redraw_all()
 
     # ОБРАБОТЧИКИ ПАНЕЛИ НАСТРОЕК
-    # Вызывается при нажатии кнопки применить у масштаба сетки
     def on_apply_settings(self):
         try:
             new_step = int(self.view.grid_step_var.get())
@@ -108,23 +101,43 @@ class Callbacks:
         else:
             self.view.p2_label1.config(text="X₂:")
             self.view.p2_label2.config(text="Y₂:")
+            
         try:
+            # Получаем текущие значения из полей (это старые данные до переключения)
             val1 = float(self.view.p2_x_entry.get())
             val2 = float(self.view.p2_y_entry.get())
+            
+            # Нам нужна P1, чтобы правильно сконвертировать
+            try:
+                p1_x = float(self.view.p1_x_entry.get())
+                p1_y = float(self.view.p1_y_entry.get())
+            except ValueError:
+                p1_x, p1_y = 0.0, 0.0 # Если P1 еще не задана, считаем от (0,0)
+
             p2 = Point()
+            
+            # Логика переключения:
             if new_system == 'cartesian':
+                # Мы переключились НА Декартову -> значит были в Полярной.
+                # val1 - это R, val2 - это Угол.
+                # Нужно вычислить P2 относительно P1.
                 angle = val2
                 if self.view.angle_units.get() == 'degrees': angle = math.radians(angle)
-                p2.set_from_polar(val1, angle)
+                
+                p2.x = p1_x + val1 * math.cos(angle)
+                p2.y = p1_y + val1 * math.sin(angle)
             else:
+                # Мы переключились НА Полярную -> значит были в Декартовой.
+                # val1 - это X, val2 - это Y (абсолютные).
                 p2 = Point(val1, val2)
+                
         except (ValueError, tk.TclError):
             return
+            
         self._update_p2_entries(p2)
         self.redraw_all()
 
     # ОБРАБОТЧКИ МЫШИ
-    # Построение точек отрезка - ЛКМ
     def on_lmb_click(self, event):
         wx, wy = self.screen_to_world(event.x, event.y)
         if self.state.points_clicked == 0:
@@ -136,7 +149,6 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_segment()
     
-    # Удаление точек отрезка - ПКМ
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get() or self.view.p2_y_entry.get():
             self.view.p2_x_entry.delete(0, tk.END)
@@ -148,11 +160,9 @@ class Callbacks:
             self.state.points_clicked = 0
         self.update_preview_segment()
 
-    # Фиксируем где находился курсор (невидимый) по x, y после зажатия колесика
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
-    # Фиксируем где находился курсор (невидимый) по x, y после отжатия колесика и вычисляем смещение
     def on_mouse_drag(self, event):
         dx, dy = event.x - self._drag_start_x, event.y - self._drag_start_y
         self.state.pan_x += dx
@@ -160,12 +170,11 @@ class Callbacks:
         self._drag_start_x, self._drag_start_y = event.x, event.y
         self.redraw_all()
 
-    # Вызывается при прокруте колесика
     def on_mouse_wheel(self, event):
         wx, wy = self.screen_to_world(event.x, event.y)
-        if hasattr(event, 'delta') and event.delta != 0:    # Определяем направление прокрутки
+        if hasattr(event, 'delta') and event.delta != 0:
             zoom_factor = 1.2 if event.delta > 0 else 1 / 1.2
-        elif event.num == 4: zoom_factor = 1.2  # Проверить работает ли на Windows
+        elif event.num == 4: zoom_factor = 1.2
         elif event.num == 5: zoom_factor = 1 / 1.2
         else: return
         
@@ -176,11 +185,9 @@ class Callbacks:
         self.state.pan_y += event.y - sy_after
         self.redraw_all()
 
-    # Вызывается при изменении размеров окна
     def on_canvas_resize(self, event): self.redraw_all()
 
     # ОБРАБОТЧИКИ КАСТОМИЗАЦИИ
-    # Вызывается при нажатии F11
     def toggle_fullscreen(self, event=None):
         self.state.is_fullscreen = not self.state.is_fullscreen
         self.root.attributes("-fullscreen", self.state.is_fullscreen)
@@ -214,46 +221,66 @@ class Callbacks:
         self.set_app_state(self.state.app_mode)
 
     # ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    # Вызывается после ввода значений в поля
     def _create_points_from_entries(self):
         p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
-        p2 = Point()
+        
         val1 = float(self.view.p2_x_entry.get())
         val2 = float(self.view.p2_y_entry.get())
-        if self.view.coord_system.get() == 'cartesian': p2 = Point(val1, val2)
+        
+        p2 = Point()
+        if self.view.coord_system.get() == 'cartesian':
+            # Декартова система - абсолютные координаты
+            p2 = Point(val1, val2)
         else:
+            # Полярная система - ОТНОСИТЕЛЬНЫЕ координаты (от P1)
+            r = val1
             angle = val2
             if self.view.angle_units.get() == 'degrees': angle = math.radians(angle)
-            p2.set_from_polar(val1, angle)
+            
+            # Исправленная логика: прибавляем смещение к P1
+            p2.x = p1.x + r * math.cos(angle)
+            p2.y = p1.y + r * math.sin(angle)
+            
         return p1, p2
 
-    # Обновление значений в поле точки 1
     def _update_p1_entries(self, x, y):
         self.view.p1_x_entry.delete(0, tk.END); self.view.p1_x_entry.insert(0, f"{x:.2f}")
         self.view.p1_y_entry.delete(0, tk.END); self.view.p1_y_entry.insert(0, f"{y:.2f}")
 
-    # Обновление значений в поле точки 2
     def _update_p2_entries(self, p2_point):
         entries = [self.view.p2_x_entry, self.view.p2_y_entry]
         is_polar = (self.view.coord_system.get() == 'polar')
+        
         if is_polar:
-            r, theta = p2_point.get_polar_coords()
+            # Нам нужно рассчитать полярные координаты вектора P1->P2
+            try:
+                p1_x = float(self.view.p1_x_entry.get())
+                p1_y = float(self.view.p1_y_entry.get())
+            except ValueError:
+                p1_x, p1_y = 0.0, 0.0
+            
+            dx = p2_point.x - p1_x
+            dy = p2_point.y - p1_y
+            
+            r = math.sqrt(dx**2 + dy**2)
+            theta = math.atan2(dy, dx)
+            
             if self.view.angle_units.get() == 'degrees': theta = math.degrees(theta)
             values = [r, theta]
-        else: values = [p2_point.x, p2_point.y]
+        else:
+            values = [p2_point.x, p2_point.y]
+            
         for entry, value in zip(entries, values):
             entry.config(state='normal'); entry.delete(0, tk.END); entry.insert(0, f"{value:.2f}")
             if self.state.app_mode == 'IDLE': entry.config(state='disabled')
 
     # ПРЕОБРАЗОВАНИЯ КООРДИНАТ
-    # Из мировых в экранные координаты
     def world_to_screen(self, world_x, world_y):
         cx = self.view.canvas.winfo_width() / 2
         cy = self.view.canvas.winfo_height() / 2
         return (cx + self.state.pan_x + (world_x * self.state.zoom), 
                 cy + self.state.pan_y - (world_y * self.state.zoom))
 
-    # Из экранных в мировые координаты
     def screen_to_world(self, screen_x, screen_y):
         cx = self.view.canvas.winfo_width() / 2
         cy = self.view.canvas.winfo_height() / 2
@@ -261,7 +288,6 @@ class Callbacks:
                 -(screen_y - cy - self.state.pan_y) / self.state.zoom)
     
     # ЛОГИКА ОТРИСОВКИ
-    # Главный метод отрисовки, вызывается при любом изменении
     def redraw_all(self):
         self.view.canvas.delete("all")
         self.draw_grid_and_axes()
@@ -273,15 +299,14 @@ class Callbacks:
         for segment in self.state.segments: self.draw_segment(segment, width=4)
         if self.state.preview_segment: self.draw_segment(self.state.preview_segment, width=2, color='blue')
     
-    # Обновление информационной панели
     def update_info_panel(self):
         self.state.active_p1, self.state.active_p2 = None, None
-        # length, angle_rad = None, None
 
         if self.state.app_mode == 'CREATING_SEGMENT':
             try: self.state.active_p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
             except (ValueError, tk.TclError): pass
             try:
+                # Используем обновленный метод создания точек
                 p1_for_p2, self.state.active_p2 = self._create_points_from_entries()
                 if self.state.active_p1 is None: self.state.active_p1 = p1_for_p2
             except (ValueError, tk.TclError): pass
@@ -295,7 +320,12 @@ class Callbacks:
         
         if p2:
             if self.view.coord_system.get() == 'polar':
-                r, theta = p2.get_polar_coords()
+                # Для инфо-панели тоже показываем относительные полярные координаты
+                dx = p2.x - (p1.x if p1 else 0)
+                dy = p2.y - (p1.y if p1 else 0)
+                r = math.sqrt(dx**2 + dy**2)
+                theta = math.atan2(dy, dx)
+                
                 unit = self.view.angle_units.get()
                 sym = "°" if unit == 'degrees' else " rad"
                 if unit == 'degrees': theta = math.degrees(theta)
@@ -315,7 +345,6 @@ class Callbacks:
             self.view.length_var.set("Длина: N/A")
             self.view.angle_var.set("Угол: N/A")
 
-    # Строим сетку и оси
     def draw_grid_and_axes(self):
         w, h = self.view.canvas.winfo_width(), self.view.canvas.winfo_height()
         if w < 2 or h < 2: return
@@ -337,14 +366,12 @@ class Callbacks:
         if 0 < sx < w: self.view.canvas.create_text(sx + 10, 10, text="Y", font=("Arial", 10), anchor='nw', fill='gray')
         if 0 < sy < h: self.view.canvas.create_text(w - 10, sy - 10, text="X", font=("Arial", 10), anchor='se', fill='gray')
 
-    # Вызывается при построении отрезка
     def draw_segment(self, segment, width, color=None):
         draw_color = color if color else segment.color
         sx1, sy1 = self.world_to_screen(segment.p1.x, segment.p1.y)
         sx2, sy2 = self.world_to_screen(segment.p2.x, segment.p2.y)
         self.view.canvas.create_line(sx1, sy1, sx2, sy2, fill=draw_color, width=width)
     
-    # Вызывается при построении крайней точки отрезка
     def draw_point(self, point, size=4, color='black'):
         x, y = self.world_to_screen(point.x, point.y)
         self.view.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
