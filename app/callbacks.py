@@ -192,16 +192,84 @@ class Callbacks:
         self._drag_start_x, self._drag_start_y = event.x, event.y
         self.redraw_all()
 
-    # Осуществляет масштабирование (зум) холста к курсору мыши
-    def on_mouse_wheel(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
-        factor = 1.2 if (hasattr(event, 'delta') and event.delta > 0) or event.num == 4 else 1/1.2
-        self.state.zoom = max(0.1, min(self.state.zoom * factor, 100))
+    # Универсальный внутренний метод для применения зума относительно конкретной точки экрана
+    def _perform_zoom(self, factor, center_screen_x, center_screen_y):
+        # Запоминаем, какая мировая координата была под курсором ДО зума
+        wx, wy = self.converter.screen_to_world(center_screen_x, center_screen_y)
         
+        # Применяем зум 
+        self.state.zoom = max(0.1, min(self.state.zoom * factor, 1000.0))
+        
+        # Вычисляем, где эта мировая точка оказалась бы на экране ПОСЛЕ зума, если бы мы не двигали камеру
         sx_new, sy_new = self.converter.world_to_screen(wx, wy)
-        self.state.pan_x += event.x - sx_new
-        self.state.pan_y += event.y - sy_new
+        
+        # Корректируем смещение, чтобы вернуть точку под курсор
+        self.state.pan_x += center_screen_x - sx_new
+        self.state.pan_y += center_screen_y - sy_new
+        
         self.redraw_all()
+
+    # Обработка колесика мыши (Зуммируем к позиции курсора)
+    def on_mouse_wheel(self, event):
+        factor = 1.2 if (hasattr(event, 'delta') and event.delta > 0) or event.num == 4 else 1/1.2
+        self._perform_zoom(factor, event.x, event.y)
+
+    # Зум Плюс (к центру экрана)
+    def on_zoom_in(self, event=None):
+        cx, cy = self.view.canvas.winfo_width() / 2, self.view.canvas.winfo_height() / 2
+        self._perform_zoom(1.2, cx, cy)
+        self.view.canvas.focus_set()
+
+    # Зум Минус (от центра экрана)
+    def on_zoom_out(self, event=None):
+        cx, cy = self.view.canvas.winfo_width() / 2, self.view.canvas.winfo_height() / 2
+        self._perform_zoom(1/1.2, cx, cy)
+        self.view.canvas.focus_set()
+
+    # Вписать чертеж в экран
+    def on_fit_to_view(self, event=None):
+        if not self.state.segments:
+            # Если пусто, сбрасываем в дефолт
+            self.state.pan_x, self.state.pan_y = 0, 0
+            self.state.zoom = 10.0
+            self.redraw_all()
+            self.view.canvas.focus_set()
+            return
+
+        # Ищем границы (Bounding Box) всех отрезков
+        xs = [s.p1.x for s in self.state.segments] + [s.p2.x for s in self.state.segments]
+        ys = [s.p1.y for s in self.state.segments] + [s.p2.y for s in self.state.segments]
+        
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        
+        # Размеры сцены и центральная точка
+        world_w = max_x - min_x
+        world_h = max_y - min_y
+        center_wx = (min_x + max_x) / 2
+        center_wy = (min_y + max_y) / 2
+        
+        # Размеры экрана (с отступом 10% чтобы не прилипало к краям)
+        screen_w = self.view.canvas.winfo_width() * 0.9
+        screen_h = self.view.canvas.winfo_height() * 0.9
+        
+        # Вычисляем нужный зум (берем минимальный, чтобы влезло и по ширине, и по высоте)
+        if world_w == 0: world_w = 1
+        if world_h == 0: world_h = 1
+        
+        scale_x = screen_w / world_w
+        scale_y = screen_h / world_h
+        self.state.zoom = min(scale_x, scale_y)
+        
+        # Центрируем камеру: Pan должен компенсировать координаты центра сцены
+        # Формула выводится из уравнения: screen_center = canvas_center + pan + world_center * zoom
+        # Нам нужно, чтобы screen_center совпадал с canvas_center.
+        # 0 = pan + world * zoom  =>  pan = -world * zoom
+        self.state.pan_x = -center_wx * self.state.zoom
+        self.state.pan_y = center_wy * self.state.zoom 
+        
+        self.redraw_all()
+        self.view.canvas.focus_set()
 
     # Перерисовывает сцену при изменении размеров окна
     def on_canvas_resize(self, event): self.redraw_all()

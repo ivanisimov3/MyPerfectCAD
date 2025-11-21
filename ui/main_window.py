@@ -30,6 +30,10 @@ class MainWindow:
         ttk.Button(toolbar, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=5, pady=2)
         ttk.Button(toolbar, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=5, pady=2)
         ttk.Button(toolbar, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=5, pady=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        ttk.Button(toolbar, text="+", width=3, command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="-", width=3, command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Показать все", command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=5)
         
         # Настраиваемые виджеты
         self.setup_settings_panel(settings_panel, callbacks)
@@ -44,6 +48,11 @@ class MainWindow:
         self.canvas.bind("<Button-5>", callbacks.on_mouse_wheel)
         self.root.bind("<F11>", callbacks.toggle_fullscreen)
         self.root.bind("<Escape>", callbacks.on_escape_key)
+        self.root.bind("<plus>", callbacks.on_zoom_in)
+        self.root.bind("<equal>", callbacks.on_zoom_in)
+        self.root.bind("<KP_Add>", callbacks.on_zoom_in) 
+        self.root.bind("<minus>", callbacks.on_zoom_out)
+        self.root.bind("<KP_Subtract>", callbacks.on_zoom_out)
 
     # Создает все элементы на панели настроек
     def setup_settings_panel(self, parent, callbacks):
