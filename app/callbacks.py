@@ -76,7 +76,6 @@ class Callbacks:
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
-            self.view.canvas.bind("<Button-3>", self.on_rmb_click)
             self.view.canvas.config(cursor="crosshair") # Курсор-прицел 
             
         elif is_panning:
@@ -368,6 +367,7 @@ class Callbacks:
     # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):
         self.update_info_panel()
+        self.update_status_bar()
         if self.renderer:
             self.renderer.render_scene()
     
@@ -409,3 +409,44 @@ class Callbacks:
             self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
         else:
             self.view.length_var.set("Длина: N/A"); self.view.angle_var.set("Угол: N/A")
+
+    def on_reset_view(self, event=None):
+        self.state.pan_x = 0
+        self.state.pan_y = 0
+        self.state.zoom = 10.0 # Возвращаем исходный зум
+        self.state.rotation = 0.0
+        self.redraw_all()
+        self.view.canvas.focus_set()
+
+    def on_mouse_move_stats(self, event):
+        # Переводим экранные координаты в мировые
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        self.view.status_coords.config(text=f"X: {wx:.2f}  Y: {wy:.2f}")
+
+    # Обновляет остальные поля статус-бара (вызывать внутри redraw_all)
+    def update_status_bar(self):
+        # 1. Масштаб (в процентах, считаем 10.0 за 100%)
+        zoom_pct = int((self.state.zoom / 10.0) * 100)
+        self.view.status_zoom.config(text=f"Zoom: {zoom_pct}%")
+        
+        # 2. Угол
+        deg = math.degrees(self.state.rotation)
+        self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
+        
+        # 3. Режим
+        modes = {
+            'IDLE': "Ожидание",
+            'CREATING_SEGMENT': "Создание отрезка",
+            'PANNING': "Панорамирование"
+        }
+        mode_text = modes.get(self.state.app_mode, self.state.app_mode)
+        self.view.status_mode.config(text=f"Режим: {mode_text}")
+
+    def show_context_menu(self, event):
+        # Меню показываем только если мы НЕ рисуем отрезок
+        if self.state.app_mode != 'CREATING_SEGMENT':
+            self.view.context_menu.post(event.x_root, event.y_root)
+        else:
+            # Если мы рисуем, то ПКМ должна работать как on_rmb_click (отмена точки)
+            # Вызываем его вручную
+            self.on_rmb_click(event)
