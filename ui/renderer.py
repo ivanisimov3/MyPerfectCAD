@@ -13,36 +13,100 @@ class Renderer:
     def draw_grid_and_axes(self):
         w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
         if w < 2 or h < 2: return
+
+        # Определяем видимую область, чтобы не рисовать лишнего
+        # Берем 4 угла экрана и переводим их в мир
+        corners = [
+            self.converter.screen_to_world(0, 0),
+            self.converter.screen_to_world(w, 0),
+            self.converter.screen_to_world(w, h),
+            self.converter.screen_to_world(0, h)
+        ]
         
-        # Получаем границы видимой области в мировых координатах
-        world_tl_x, world_tl_y = self.converter.screen_to_world(0, 0)
-        world_br_x, world_br_y = self.converter.screen_to_world(w, h)
+        # Находим min/max координаты, которые сейчас видны
+        min_wx = min(p[0] for p in corners)
+        max_wx = max(p[0] for p in corners)
+        min_wy = min(p[1] for p in corners)
+        max_wy = max(p[1] for p in corners)
+
+        step = self.state.grid_step
         
-        # Рисуем вертикальные линии
-        start_x = math.ceil(world_tl_x / self.state.grid_step) * self.state.grid_step
-        # range не работает с float, используем while или адаптацию
-        wx = start_x
-        while wx < world_br_x:
-            sx, _ = self.converter.world_to_screen(wx, 0)
-            color = 'black' if abs(wx) < 1e-9 else self.state.grid_color
-            width = 2 if abs(wx) < 1e-9 else 1
-            self.canvas.create_line(sx, 0, sx, h, fill=color, width=width)
-            wx += self.state.grid_step
+        # "Бесконечные" границы для линий (чтобы при повороте они не обрывались на экране)
+        # Берем с запасом, превышающим размер экрана
+        infinity = max(max_wx - min_wx, max_wy - min_wy) * 2 + 1000
+
+        # 1. Вертикальные линии (шагаем по X)
+        start_x = math.floor(min_wx / step) * step
+        curr_x = start_x
+        while curr_x <= max_wx:
+            # Линия идет от (x, -inf) до (x, +inf)
+            p1 = self.converter.world_to_screen(curr_x, -infinity)
+            p2 = self.converter.world_to_screen(curr_x, infinity)
             
-        # Рисуем горизонтальные линии
-        start_y = math.ceil(world_br_y / self.state.grid_step) * self.state.grid_step
-        wy = start_y
-        while wy < world_tl_y:
-            _, sy = self.converter.world_to_screen(0, wy)
-            color = 'black' if abs(wy) < 1e-9 else self.state.grid_color
-            width = 2 if abs(wy) < 1e-9 else 1
-            self.canvas.create_line(0, sy, w, sy, fill=color, width=width)
-            wy += self.state.grid_step
+            color = 'black' if abs(curr_x) < 1e-9 else self.state.grid_color
+            width = 2 if abs(curr_x) < 1e-9 else 1
+            self.canvas.create_line(p1[0], p1[1], p2[0], p2[1], fill=color, width=width)
+            curr_x += step
+
+        # 2. Горизонтальные линии (шагаем по Y)
+        start_y = math.floor(min_wy / step) * step
+        curr_y = start_y
+        while curr_y <= max_wy:
+            # Линия идет от (-inf, y) до (+inf, y)
+            p1 = self.converter.world_to_screen(-infinity, curr_y)
+            p2 = self.converter.world_to_screen(infinity, curr_y)
+            
+            color = 'black' if abs(curr_y) < 1e-9 else self.state.grid_color
+            width = 2 if abs(curr_y) < 1e-9 else 1
+            self.canvas.create_line(p1[0], p1[1], p2[0], p2[1], fill=color, width=width)
+            curr_y += step
+            
+        # Подписи осей (X и Y)
+        x_pos = self.converter.world_to_screen(step * 3, 0)
+        y_pos = self.converter.world_to_screen(0, step * 3)
         
-        # Подписи осей
-        sx, sy = self.converter.world_to_screen(0,0)
-        if 0 < sx < w: self.canvas.create_text(sx + 10, 10, text="Y", font=("Arial", 10), anchor='nw', fill='gray')
-        if 0 < sy < h: self.canvas.create_text(w - 10, sy - 10, text="X", font=("Arial", 10), anchor='se', fill='gray')
+        font_style = ("Arial", 14, "bold")
+        
+        # Определяем размер видимой области в мире, чтобы знать, сколько отступить от края
+        world_width = max_wx - min_wx
+        world_height = max_wy - min_wy
+        
+        # Отступ от края экрана (5% от ширины/высоты видимой области)
+        pad_x = world_width * 0.05
+        pad_y = world_height * 0.05
+
+        # --- РИСУЕМ X ---
+        # Ось X (линия y=0) видна, если видимый диапазон Y включает 0
+        if min_wy < 0 < max_wy:
+            # Мы хотим поставить букву в конце положительной стороны.
+            # Проверяем, виден ли вообще "плюс" по иксу (то есть правая граница > 0)
+            if max_wx > 0:
+                # Ставим метку у правого края видимой области минус отступ
+                lbl_x_pos = max_wx - pad_x
+                
+                # Но метка не должна уезжать влево за ноль (если мы сильно приблизили начало координат)
+                # Пусть она будет хотя бы на расстоянии 2 шагов от нуля
+                lbl_x_pos = max(lbl_x_pos, step * 2)
+                
+                # Переводим в экранные
+                sx, sy = self.converter.world_to_screen(lbl_x_pos, 0)
+                
+                self.canvas.create_text(sx, sy + 5, text="X", font=font_style, 
+                                      fill="red", anchor="nw")
+
+        # --- РИСУЕМ Y ---
+        # Ось Y (линия x=0) видна, если видимый диапазон X включает 0
+        if min_wx < 0 < max_wx:
+            # Проверяем, виден ли "верх" по игреку
+            if max_wy > 0:
+                # Ставим метку у верхнего края видимой области минус отступ
+                lbl_y_pos = max_wy - pad_y
+                lbl_y_pos = max(lbl_y_pos, step * 2)
+                
+                sx, sy = self.converter.world_to_screen(0, lbl_y_pos)
+                
+                self.canvas.create_text(sx + 5, sy, text="Y", font=font_style, 
+                                      fill="green", anchor="nw")
 
     def draw_segment(self, segment, width=4, color=None):
         draw_color = color if color else segment.color

@@ -25,6 +25,7 @@ class AppState:
         self.pan_x, self.pan_y = 0, 0   # Смещение камеры
         self.zoom = 5.0 # Зум камеры
         self.grid_step = 10 # Шаг сетки
+        self.rotation = 0.0
         
         # Настройки цветов
         self.bg_color = 'white'

@@ -271,6 +271,41 @@ class Callbacks:
         self.redraw_all()
         self.view.canvas.focus_set()
 
+    def rotate_view(self, angle_delta_deg, event=None):
+        # Проверяем, зажат ли Shift
+        # В Tkinter event.state содержит маску модификаторов. 1 - это Shift (бит 0x0001).
+        is_shift = False
+        if event and (event.state & 0x0001): 
+            is_shift = True
+            
+        if is_shift:
+            # Логика Shift: Шаг 90 градусов
+            current_deg = math.degrees(self.state.rotation)
+            # Округляем текущий угол до кратного 90
+            snapped_deg = round(current_deg / 90) * 90
+            
+            # Если мы уже на 90, сразу шагаем к следующему.
+            # Если мы были на 45, snapped станет 0 (или 90), и мы выровняемся.
+            if abs(snapped_deg - current_deg) < 1.0:
+                target_deg = snapped_deg + (90 if angle_delta_deg > 0 else -90)
+            else:
+                # Если угол был "кривой" (например, 13 градусов), Shift сначала выровняет его
+                target_deg = snapped_deg
+                
+            self.state.rotation = math.radians(target_deg)
+        else:
+            # Плавный поворот
+            self.state.rotation += math.radians(angle_delta_deg)
+            
+        self.redraw_all()
+        self.view.canvas.focus_set() # Сброс фокуса
+
+    def on_rotate_left(self, event=None):
+        self.rotate_view(1, event) # Против часовой
+
+    def on_rotate_right(self, event=None):
+        self.rotate_view(-1, event) # По часовой
+
     # Перерисовывает сцену при изменении размеров окна
     def on_canvas_resize(self, event): self.redraw_all()
     
