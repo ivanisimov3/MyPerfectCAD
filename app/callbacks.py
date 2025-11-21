@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
 from logic.geometry import Point, Segment
-from logic.converter import CoordinateConverter # Импортируем новые модули
+from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 
 class Callbacks:
@@ -13,19 +13,19 @@ class Callbacks:
         self.state = state
         self.view = view
         
-        # Будут инициализированы в initialize_view, когда Canvas будет готов
+        # Ссылки на вспомогательные модули
         self.converter = None
         self.renderer = None
         
+        # Переменные для логики перетаскивания холста
         self._drag_start_x = 0
         self._drag_start_y = 0
 
+    # Инициализирует вспомогательные контроллеры (конвертер, рендерер) и применяет стартовые настройки цветов
     def initialize_view(self):
-        # Инициализация вспомогательных систем
         self.converter = CoordinateConverter(self.state, self.view.canvas)
         self.renderer = Renderer(self.view.canvas, self.state, self.converter)
         
-        # Применение начальных цветов
         self.view.canvas.config(background=self.state.bg_color)
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
@@ -33,6 +33,7 @@ class Callbacks:
         
         self.set_app_state(self.state.app_mode)
 
+    # Управляет машиной состояний приложения, переключая интерфейс между режимом ожидания и создания
     def set_app_state(self, mode):
         self.state.app_mode = mode
         is_creating = (mode == 'CREATING_SEGMENT')
@@ -60,11 +61,12 @@ class Callbacks:
             self.state.active_p2 = None
             self.redraw_all()
 
-    # --- ОБРАБОТЧИКИ ---
+    # Активирует режим создания нового отрезка при нажатии кнопки на панели инструментов
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
         self.view.p1_x_entry.focus_set()
 
+    # Динамически обновляет временный отрезок (превью) при вводе координат или движении мыши
     def update_preview_segment(self, event=None):
         try:
             p1, p2 = self._create_points_from_entries()
@@ -73,21 +75,25 @@ class Callbacks:
             self.state.preview_segment = None
         self.redraw_all()
 
+    # Завершает построение отрезка, сохраняя его в список готовых объектов
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(self.state.preview_segment.p1, self.state.preview_segment.p2, color=self.state.segment_color)
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
+    # Обрабатывает нажатие клавиши ESC (отмена построения или выход из программы)
     def on_escape_key(self, event=None):
         if self.state.app_mode == 'CREATING_SEGMENT': self.set_app_state('IDLE')
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"): self.root.destroy()
 
+    # Удаляет последний построенный отрезок
     def on_delete_segment(self, event=None):
         if self.state.segments:
             self.state.segments.pop()
             self.redraw_all()
 
+    # Применяет настройки шага сетки из панели настроек
     def on_apply_settings(self):
         try:
             new_step = int(self.view.grid_step_var.get())
@@ -96,6 +102,7 @@ class Callbacks:
             self.redraw_all()
         except ValueError: messagebox.showerror("Ошибка", "Шаг сетки должен быть > 0")
 
+    # Обрабатывает переключение системы координат (Декартова/Полярная), пересчитывая значения в полях ввода
     def on_coord_system_change(self):
         new_system = self.view.coord_system.get()
         self.view.p2_label1.config(text="R₂:" if new_system == 'polar' else "X₂:")
@@ -108,18 +115,18 @@ class Callbacks:
             except ValueError: p1_x, p1_y = 0.0, 0.0
             
             p2 = Point()
-            if new_system == 'cartesian': # Были в полярной
+            if new_system == 'cartesian': # Переход ИЗ полярной В декартову
                 angle = math.radians(val2) if self.view.angle_units.get() == 'degrees' else val2
                 p2.x = p1_x + val1 * math.cos(angle)
                 p2.y = p1_y + val1 * math.sin(angle)
-            else: # Были в декартовой
+            else: # Переход ИЗ декартовой В полярную
                 p2 = Point(val1, val2)
         except (ValueError, tk.TclError): return
         
         self._update_p2_entries(p2)
         self.redraw_all()
 
-    # --- МЫШЬ ---
+    # Обрабатывает клик левой кнопкой мыши: задает первую или вторую точку построения
     def on_lmb_click(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
         if self.state.points_clicked == 0:
@@ -130,8 +137,8 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_segment()
 
+    # Обрабатывает клик правой кнопкой мыши: сбрасывает текущую точку
     def on_rmb_click(self, event):
-        # Логика очистки полей
         if self.view.p2_x_entry.get(): 
             self.view.p2_x_entry.delete(0, tk.END); self.view.p2_y_entry.delete(0, tk.END)
             self.state.points_clicked = 1
@@ -140,15 +147,18 @@ class Callbacks:
             self.state.points_clicked = 0
         self.update_preview_segment()
 
+    # Запоминает позицию мыши для начала перетаскивания (панорамирования)
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
+    # Осуществляет панорамирование (сдвиг) холста при движении мыши с зажатым колесиком
     def on_mouse_drag(self, event):
         dx, dy = event.x - self._drag_start_x, event.y - self._drag_start_y
         self.state.pan_x += dx; self.state.pan_y += dy
         self._drag_start_x, self._drag_start_y = event.x, event.y
         self.redraw_all()
 
+    # Осуществляет масштабирование (зум) холста к курсору мыши
     def on_mouse_wheel(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
         factor = 1.2 if (hasattr(event, 'delta') and event.delta > 0) or event.num == 4 else 1/1.2
@@ -159,28 +169,32 @@ class Callbacks:
         self.state.pan_y += event.y - sy_new
         self.redraw_all()
 
+    # Перерисовывает сцену при изменении размеров окна
     def on_canvas_resize(self, event): self.redraw_all()
     
+    # Переключает полноэкранный режим по клавише F11
     def toggle_fullscreen(self, event=None):
         self.state.is_fullscreen = not self.state.is_fullscreen
         self.root.attributes("-fullscreen", self.state.is_fullscreen)
 
-    # --- ЦВЕТА ---
+    # Открывает диалог выбора цвета фона
     def on_choose_bg_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.bg_color)
         if c: 
             self.state.bg_color = c
             self.view.canvas.config(bg=c); self.view.bg_swatch.config(bg=c)
 
+    # Открывает диалог выбора цвета сетки
     def on_choose_grid_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.grid_color)
         if c: self.state.grid_color = c; self.view.grid_swatch.config(bg=c); self.redraw_all()
 
+    # Открывает диалог выбора цвета отрезков
     def on_choose_segment_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.segment_color)
         if c: self.state.segment_color = c; self.view.segment_swatch.config(bg=c); self.redraw_all()
 
-    # --- ЛОГИКА ДАННЫХ ---
+    # Считывает данные из полей ввода и возвращает объекты точек P1 и P2, учитывая выбранную систему координат
     def _create_points_from_entries(self):
         p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
         val1, val2 = float(self.view.p2_x_entry.get()), float(self.view.p2_y_entry.get())
@@ -193,10 +207,12 @@ class Callbacks:
             p2.y = p1.y + val1 * math.sin(angle)
         return p1, p2
 
+    # Вспомогательный метод для обновления значений в полях ввода точки P1
     def _update_p1_entries(self, x, y):
         self.view.p1_x_entry.delete(0, tk.END); self.view.p1_x_entry.insert(0, f"{x:.2f}")
         self.view.p1_y_entry.delete(0, tk.END); self.view.p1_y_entry.insert(0, f"{y:.2f}")
 
+    # Вспомогательный метод для обновления значений в полях ввода точки P2 (с конвертацией в полярные при необходимости)
     def _update_p2_entries(self, p2):
         is_polar = (self.view.coord_system.get() == 'polar')
         if is_polar:
@@ -212,13 +228,13 @@ class Callbacks:
             entry.config(state='normal'); entry.delete(0, tk.END); entry.insert(0, f"{v:.2f}")
             if self.state.app_mode == 'IDLE': entry.config(state='disabled')
 
-    # --- ГЛАВНЫЙ МЕТОД ОТРИСОВКИ ---
+    # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):
-        # Теперь это просто делегирование
         self.update_info_panel()
         if self.renderer:
             self.renderer.render_scene()
     
+    # Вычисляет и обновляет текстовую информацию на нижней панели (длина, угол, координаты)
     def update_info_panel(self):
         self.state.active_p1, self.state.active_p2 = None, None
         if self.state.app_mode == 'CREATING_SEGMENT':
