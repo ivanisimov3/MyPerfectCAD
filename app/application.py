@@ -2,7 +2,7 @@
 
 import tkinter as tk
 from ui.main_window import MainWindow
-from app.state import AppState
+from logic.state import AppState
 from app.callbacks import Callbacks
 
 class Application:
