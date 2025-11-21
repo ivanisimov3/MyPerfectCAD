@@ -17,7 +17,7 @@ class MainWindow:
         toolbar = ttk.Frame(root, padding="5")
         toolbar.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
 
-        self.canvas = tk.Canvas(root, borderwidth=2, relief="sunken")
+        self.canvas = tk.Canvas(root, borderwidth=2, relief="sunken", highlightthickness=0)
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
         settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
@@ -29,6 +29,7 @@ class MainWindow:
         # Кнопки на панели инструментов
         ttk.Button(toolbar, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=5, pady=2)
         ttk.Button(toolbar, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=5, pady=2)
+        ttk.Button(toolbar, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=5, pady=2)
         
         # Настраиваемые виджеты
         self.setup_settings_panel(settings_panel, callbacks)
@@ -89,8 +90,12 @@ class MainWindow:
         for var in [self.length_var, self.angle_var, self.p1_coord_var, self.p2_coord_var]:
             ttk.Label(parent, textvariable=var).pack(side=tk.LEFT, padx=10, pady=2)
         self.hotkey_frame = ttk.Frame(parent)
-        ttk.Label(self.hotkey_frame, text="⏎ Enter - Ввод").pack(side=tk.LEFT, padx=5)
-        ttk.Label(self.hotkey_frame, text="⎋ Esc - Отмена").pack(side=tk.LEFT, padx=5)
+        # Сохраняем ссылки на лейблы в self, чтобы обращаться к ним из контроллера
+        self.lbl_enter = ttk.Label(self.hotkey_frame, text="⏎ Enter - Ввод")
+        self.lbl_enter.pack(side=tk.LEFT, padx=5)
+        
+        self.lbl_esc = ttk.Label(self.hotkey_frame, text="⎋ Esc - Отмена")
+        self.lbl_esc.pack(side=tk.LEFT, padx=5)
     
     # Вспомогательный метод для создания пары Label + Entry
     def _create_coord_entry(self, parent, label_text, key_release_callback):

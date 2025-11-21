@@ -33,38 +33,69 @@ class Callbacks:
         
         self.set_app_state(self.state.app_mode)
 
-    # Управляет машиной состояний приложения, переключая интерфейс между режимом ожидания и создания
+    # Управляет машиной состояний приложения, переключая интерфейс между режимом ожидания, создания, панорамирования
     def set_app_state(self, mode):
         self.state.app_mode = mode
         is_creating = (mode == 'CREATING_SEGMENT')
-        entry_state = 'normal' if is_creating else 'disabled'
+        is_panning = (mode == 'PANNING')
         
+        # Управление доступностью полей ввода
+        entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
         
+        # Сбрасываем старые бинды ЛКМ и курсор
+        self.view.canvas.unbind("<Button-1>")
+        self.view.canvas.unbind("<B1-Motion>")
+        self.view.canvas.unbind("<ButtonRelease-1>")
+        self.view.canvas.config(cursor="") # Cтандартный курсор
+        self.root.unbind("<Return>")
+        
+        # Очищаем поля, если мы не создаем отрезок
+        if not is_creating:
+            for entry in entries:
+                entry.delete(0, tk.END)
+                entry.config(state=entry_state)
+            self.state.preview_segment = None
+            self.state.active_p1 = None
+            self.state.active_p2 = None
+
+        if is_creating or is_panning:
+            self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
+            self.view.lbl_esc.pack(side=tk.LEFT, padx=5)
+            
+            if is_creating:
+                self.view.lbl_enter.pack(side=tk.LEFT, padx=5)
+            else:
+                self.view.lbl_enter.pack_forget()
+        else:
+            self.view.hotkey_frame.pack_forget()
+
+        # ЛОГИКА ДЛЯ РЕЖИМОВ
         if is_creating:
             for entry in entries: entry.config(state=entry_state)
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
             self.view.canvas.bind("<Button-3>", self.on_rmb_click)
-            self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
-        else:
-            for entry in entries:
-                entry.delete(0, tk.END)
-                entry.config(state=entry_state)
-            self.root.unbind("<Return>")
-            self.view.canvas.unbind("<Button-1>")
-            self.view.canvas.unbind("<Button-3>")
-            self.view.hotkey_frame.pack_forget()
-            self.state.preview_segment = None
-            self.state.active_p1 = None
-            self.state.active_p2 = None
-            self.redraw_all()
+            self.view.canvas.config(cursor="crosshair") # Курсор-прицел 
+            
+        elif is_panning:
+            # В режиме "Рука" ЛКМ работает так же, как СКМ
+            self.view.canvas.bind("<Button-1>", self.on_mouse_press)
+            self.view.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+            self.view.canvas.config(cursor="fleur") # Курсор перемещения
+        
+        self.redraw_all()
 
     # Активирует режим создания нового отрезка при нажатии кнопки на панели инструментов
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
         self.view.p1_x_entry.focus_set()
+
+    # Активирует режим "Рука"
+    def on_hand_mode(self, event=None):
+        self.set_app_state('PANNING')
+        self.view.canvas.focus_set()
 
     # Динамически обновляет временный отрезок (превью) при вводе координат или движении мыши
     def update_preview_segment(self, event=None):
@@ -82,10 +113,13 @@ class Callbacks:
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
-    # Обрабатывает нажатие клавиши ESC (отмена построения или выход из программы)
+    # Обрабатывает нажатие клавиши ESC (отмена построения, панорамирования или выход из программы)
     def on_escape_key(self, event=None):
-        if self.state.app_mode == 'CREATING_SEGMENT': self.set_app_state('IDLE')
-        elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"): self.root.destroy()
+        # Если мы что-то создаем ИЛИ панорамируем — выходим в режим ожидания
+        if self.state.app_mode in ['CREATING_SEGMENT', 'PANNING']: 
+            self.set_app_state('IDLE')
+        elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"): 
+            self.root.destroy()
 
     # Удаляет последний построенный отрезок
     def on_delete_segment(self, event=None):
@@ -147,7 +181,7 @@ class Callbacks:
             self.state.points_clicked = 0
         self.update_preview_segment()
 
-    # Запоминает позицию мыши для начала перетаскивания (панорамирования)
+    # Запоминает позицию мыши для начала панорамирования
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
