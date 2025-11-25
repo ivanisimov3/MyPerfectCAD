@@ -162,29 +162,26 @@ class Callbacks:
             self.view.segment_swatch.config(bg="#cccccc")
 
     def on_style_selected(self, event=None):
-        # Получаем то, что выбрал юзер в ComboBox
-        display_name = self.view.style_combobox.get()
+        # Получаем индекс выбранного элемента
+        idx = self.view.style_combobox.current()
         
-        if display_name == "Разные":
-            return # Ничего не делаем
+        # Если индекс -1, значит ничего не выбрано или текст введен вручную (например "Разные")
+        if idx == -1:
+            return 
 
-        # Ищем ключ стиля по display_name
-        new_style_name = 'solid_main'
-        for key, style in self.state.line_styles.items():
-            if style.display_name == display_name:
-                new_style_name = key
-                break
-        
+        # Берем ID стиля напрямую из списка ключей View
+        try:
+            new_style_name = self.view.style_ids[idx]
+        except IndexError:
+            return # На всякий случай
+
         self.state.current_style_name = new_style_name
         
-        # Если есть выделение -> меняем стиль ВСЕМ выделенным
         if self.state.selected_segments:
             for seg in self.state.selected_segments:
                 seg.style_name = new_style_name
-            # Обновляем UI, так как теперь у всех один стиль
             self._sync_ui_with_selection()
         else:
-            # Если выделения нет -> просто обновляем превью для будущей линии
             self.view.update_style_preview(new_style_name)
 
         self.update_preview_segment()
@@ -510,6 +507,18 @@ class Callbacks:
         else:
             self.on_rmb_click(event)
 
-    # Открывает окно менеджера стилей
+    # НОВЫЙ МЕТОД: Вызывается, когда в Менеджере нажали "Применить"
+    def on_styles_updated(self):
+        # 1. Обновляем список в главном окне (чтобы появился новый стиль)
+        self.view.refresh_style_combobox_values(self.state.line_styles)
+        
+        # 2. Перерисовываем холст
+        self.redraw_all()
+        
+        # 3. Синхронизируем панель свойств (если вдруг удалили текущий стиль)
+        self._sync_ui_with_selection()
+
+    # ИСПРАВЛЕННЫЙ МЕТОД открытия окна
     def on_open_style_manager(self):
-        StyleManagerWindow(self.root, self.state, self.redraw_all)
+        # Передаем НЕ redraw_all, а наш новый метод
+        StyleManagerWindow(self.root, self.state, self.on_styles_updated)

@@ -204,27 +204,22 @@ class Renderer:
                 line_width = max(1, int(s_px / 2))
             
             # --- ЛОГИКА РАСШИФРОВКИ ПАТТЕРНА ---
+            # Логика паттернов на основе base_type
             if style.dash_pattern:
                 main_dash = style.dash_pattern[0]
                 main_gap = style.dash_pattern[1]
                 
-                # 1. Штрих-пунктир (2 точки) - ПРОВЕРЯЕМ ПЕРВЫМ!
-                if style.name == 'dash_dot_dot':
+                if style.base_type == 'dash_dot_dot':
                     part = main_gap / 5.0
-                    # Dash, Space, Dot, Space, Dot, Space
                     dash_pattern = [main_dash, part, part, part, part, part]
-
-                # 2. Штрих-пунктир (1 точка) - остальные, начинающиеся на dash_dot_
-                elif style.name.startswith('dash_dot_'):
+                elif style.base_type == 'dash_dot':
                     part = main_gap / 3.0
-                    # Dash, Space, Dot, Space
                     dash_pattern = [main_dash, part, part, part]
-                
-                # 3. Обычная штриховая
-                elif style.name == 'dashed':
+                else: # 'dashed' или любой другой по умолчанию
                     dash_pattern = [main_dash, main_gap]
             
-            if style.name in ['solid_wave', 'solid_zigzag']:
+            # Логика сложных линий
+            if style.base_type in ['wave', 'zigzag']:
                 is_complex_geo = True
 
         if override_width:
@@ -239,10 +234,10 @@ class Renderer:
         if is_complex_geo:
             coords = []
             smooth_flag = False
-            if style.name == 'solid_wave':
+            if style.base_type == 'wave': # Проверяем тип!
                 coords = self._generate_wave_coords(sx1, sy1, sx2, sy2)
                 smooth_flag = True
-            elif style.name == 'solid_zigzag':
+            elif style.base_type == 'zigzag':
                 coords = self._generate_zigzag_coords(sx1, sy1, sx2, sy2)
                 smooth_flag = False
             
