@@ -478,50 +478,64 @@ class Callbacks:
         style = self.state.line_styles.get(self.state.current_style_name)
         if not style: return
 
-        # Если у стиля есть паттерн (это штриховая линия)
-        if style.dash_pattern:
-            self.view.sb_dash.config(state='normal')
-            self.view.sb_gap.config(state='normal')
+        # Если у стиля есть лимиты (значит это штриховая линия)
+        if style.limits:
+            min_d, max_d, min_g, max_g = style.limits
             
-            # Берем первые два значения (штрих, пробел)
-            # Паттерн может быть (5, 3) или (8, 3, 2, 3) и т.д.
-            d = style.dash_pattern[0]
-            g = style.dash_pattern[1]
+            # 1. Активируем поля
+            self.view.sb_dash.config(state='normal', from_=min_d, to=max_d)
+            self.view.sb_gap.config(state='normal', from_=min_g, to=max_g)
             
-            self.view.dash_len_var.set(str(d))
-            self.view.gap_len_var.set(str(g))
+            # 2. Получаем текущие значения из паттерна
+            # (dash_pattern всегда хранит dash и gap первыми элементами)
+            if style.dash_pattern:
+                current_dash = style.dash_pattern[0]
+                current_gap = style.dash_pattern[1]
+                
+                # Проверяем, чтобы текущие значения тоже влезали в лимиты (на всякий случай)
+                current_dash = max(min_d, min(current_dash, max_d))
+                current_gap = max(min_g, min(current_gap, max_g))
+                
+                # Записываем в поля
+                self.view.dash_len_var.set(str(current_dash))
+                self.view.gap_len_var.set(str(current_gap))
         else:
-            # Если линия сплошная, волнистая или зигзаг - блокируем
+            # Если лимитов нет (сплошная, волна и т.д.) - блокируем
             self.view.dash_len_var.set("")
             self.view.gap_len_var.set("")
             self.view.sb_dash.config(state='disabled')
             self.view.sb_gap.config(state='disabled')
 
-    # Вызывается при изменении значений в Spinbox штриха или пробела.
-    def on_dash_params_changed(self):
+    # Вызывается при изменении значений в Spinbox
+    def on_dash_params_changed(self, event=None):
         style = self.state.line_styles.get(self.state.current_style_name)
-        # Меняем только если это штриховая линия
-        if style and style.dash_pattern:
+        
+        # Меняем только если у стиля есть лимиты (значит это настраиваемая линия)
+        if style and style.limits:
+            min_d, max_d, min_g, max_g = style.limits
+            
             try:
-                new_dash = int(self.view.dash_len_var.get())
-                new_gap = int(self.view.gap_len_var.get())
-                if new_dash < 1: new_dash = 1
-                if new_gap < 1: new_gap = 1
+                # Получаем числа (поддержка запятой)
+                val_dash = self.view.dash_len_var.get().replace(',', '.')
+                val_gap = self.view.gap_len_var.get().replace(',', '.')
                 
-                # Обновляем паттерн стиля. 
-                # Если паттерн сложный (штрих-пунктир: 8, 3, 2, 3), мы обновляем только 
-                # ОСНОВНОЙ штрих (0) и ОСНОВНОЙ пробел (1), остальное оставляем как хвост.
-                old_pattern = style.dash_pattern
+                raw_dash = float(val_dash)
+                raw_gap = float(val_gap)
                 
-                # Создаем новый кортеж: (новый_штрих, новый_пробел, ...старый_хвост...)
-                if len(old_pattern) > 2:
-                    # Например для штрих-пунктира сохраняем точку и второй пробел
-                    new_pattern = (new_dash, new_gap) + old_pattern[2:]
-                else:
-                    new_pattern = (new_dash, new_gap)
+                # --- ГЛАВНОЕ: ОГРАНИЧИВАЕМ (CLAMP) ---
+                # Если ввели меньше минимума -> ставим минимум
+                # Если больше максимума -> ставим максимум
+                new_dash = max(min_d, min(raw_dash, max_d))
+                new_gap = max(min_g, min(raw_gap, max_g))
                 
-                # Записываем обратно в объект стиля
-                style.dash_pattern = new_pattern
+                # Если мы "исправили" число пользователя (например, он ввел 99, а мы сделали 8),
+                # нужно обновить текст в поле, чтобы он видел реальное значение.
+                # Но делаем это аккуратно, только если событие завершено (например Enter), 
+                # иначе будет мешать печатать.
+                # Для простоты пока просто обновляем модель.
+                
+                # Сохраняем паттерн (dash, gap)
+                style.dash_pattern = (new_dash, new_gap)
                 
                 self.redraw_all()
                 

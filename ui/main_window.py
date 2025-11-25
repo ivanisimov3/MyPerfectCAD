@@ -183,6 +183,7 @@ class MainWindow:
         self.sb_dash = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.dash_len_var, width=3, command=callbacks.on_dash_params_changed)
         self.sb_dash.pack(side=tk.LEFT, padx=(2, 10))
         self.sb_dash.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
+        self.sb_dash.bind("<KeyRelease>", callbacks.on_dash_params_changed)
 
         # Пробел
         ttk.Label(self.dash_frame, text="Пробел:").pack(side=tk.LEFT)
@@ -190,6 +191,7 @@ class MainWindow:
         self.sb_gap = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.gap_len_var, width=3, command=callbacks.on_dash_params_changed)
         self.sb_gap.pack(side=tk.LEFT, padx=(2, 0))
         self.sb_gap.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
+        self.sb_gap.bind("<KeyRelease>", callbacks.on_dash_params_changed)
 
         # Настройки систем координат
         self.coord_system = tk.StringVar(value="cartesian")
