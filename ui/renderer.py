@@ -193,10 +193,15 @@ class Renderer:
         is_complex_geo = False
         
         if style:
+            # --- ПЕРЕВОД ММ -> ПИКСЕЛИ ---
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            
             if style.is_main:
-                line_width = self.state.base_thickness_s
+                # Основная линия: S (но не меньше 1 пикселя)
+                line_width = max(1, int(s_px))
             else:
-                line_width = max(1, int(self.state.base_thickness_s / 2))
+                # Тонкая линия: S / 2 (но не меньше 1 пикселя)
+                line_width = max(1, int(s_px / 2))
             
             # --- ЛОГИКА РАСШИФРОВКИ ПАТТЕРНА ---
             if style.dash_pattern:
@@ -265,7 +270,7 @@ class Renderer:
         self.clear()
         self.draw_grid_and_axes()
         for seg in self.state.selected_segments:
-            self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_s + 6))
+            self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
         for segment in self.state.segments:
             self.draw_segment(segment)
         if self.state.preview_segment:

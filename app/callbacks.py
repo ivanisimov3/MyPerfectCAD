@@ -465,13 +465,20 @@ class Callbacks:
 
     def on_thickness_changed(self):
         try:
-            # Получаем значение из Spinbox
-            val = int(self.view.thickness_var.get())
-            if val < 1: val = 1
-            self.state.base_thickness_s = val
-            self.redraw_all() # Перерисовываем всё, так как толщина S глобальна
+            # Читаем float, заменяя запятую на точку
+            val_str = self.view.thickness_var.get().replace(',', '.')
+            val = float(val_str)
+            
+            # Ограничиваем по ГОСТ (0.5 ... 1.4 мм)
+            if val < 0.5: val = 0.5
+            if val > 1.4: val = 1.4
+            
+            # Обновляем состояние
+            self.state.base_thickness_mm = val
+            
+            self.redraw_all()
         except ValueError:
-            pass # Если ввели не число, игнорируем
+            pass
 
     # Обновляет поля ввода штриха/пробела в зависимости от текущего стиля.
     def _update_dash_controls_state(self):

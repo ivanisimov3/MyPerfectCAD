@@ -44,8 +44,13 @@ class AppState:
         self.grid_color = '#e0e0e0'
         self.current_color = 'black'
 
-        # Глобальная толщина 's' по ГОСТ (0.5 ... 1.4 мм). По умолчанию 0.8. То есть 2 пикселя: 0.8 мм; 2.5 пиеселя: 1 мм.
-        self.base_thickness_s = 2  # В пикселях экрана! 
+        # Глобальная толщина 's' по ГОСТ (0.5 ... 1.4 мм).
+        self.base_thickness_mm = 0.8
+
+        # Коэффициент: сколько пикселей в 1 мм экрана?
+        # Стандарт Windows (96 DPI): 1 дюйм = 25.4 мм = 96 px.
+        # Значит 1 мм = 96 / 25.4 ≈ 3.78 px.
+        self.mm_to_px_ratio = 3.78
 
         self.current_style_name = 'solid_main'  # Текущий выбранный стиль для НОВЫХ объектов (храним ключ словаря)
         self.line_styles = GOST_STYLES.copy()   # Словарь всех загруженных стилей

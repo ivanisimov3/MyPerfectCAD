@@ -166,12 +166,11 @@ class MainWindow:
         thick_frame = ttk.Frame(style_frame)
         thick_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         ttk.Label(thick_frame, text="Толщина (S):").pack(side=tk.LEFT)
-        self.thickness_var = tk.StringVar(value=str(callbacks.state.base_thickness_s))
+        self.thickness_var = tk.StringVar(value=str(callbacks.state.base_thickness_mm))
         # Spinbox - поле ввода со стрелочками
-        sb = ttk.Spinbox(thick_frame, from_=1, to=10, textvariable=self.thickness_var, width=5, command=callbacks.on_thickness_changed)
-        sb.pack(side=tk.RIGHT)
-        # Биндим Enter на случай ручного ввода цифр
-        sb.bind("<Return>", lambda e: callbacks.on_thickness_changed())
+        sb_thick = ttk.Spinbox(thick_frame, from_=0.5, to=1.4, increment=0.1, textvariable=self.thickness_var, width=5, command=callbacks.on_thickness_changed)
+        sb_thick.pack(side=tk.RIGHT)
+        sb_thick.bind("<Return>", lambda e: callbacks.on_thickness_changed())
 
         # Настройка штриха и пробела
         self.dash_frame = ttk.Frame(style_frame)
