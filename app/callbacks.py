@@ -37,6 +37,7 @@ class Callbacks:
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
         self.view.segment_swatch.config(background=self.state.current_color)
+        self._update_dash_controls_state()
         
         self.set_app_state(self.state.app_mode)
 
@@ -97,7 +98,7 @@ class Callbacks:
         
         self.redraw_all()
 
-    # ### НОВОЕ: Обработка клика для выделения
+    # Обработка клика для выделения
     def on_selection_click(self, event):
         # 1. Получаем мировые координаты клика
         wx, wy = self.converter.screen_to_world(event.x, event.y)
@@ -131,12 +132,15 @@ class Callbacks:
                 self.view.segment_swatch.config(bg=found_segment.color)
                 self.state.current_color = found_segment.color
                 self.state.current_style_name = found_segment.style_name
+
+                self._update_dash_controls_state()
                 
         else:
             # Если кликнули в пустоту -> Снимаем выделение
             self.state.selected_segments = []
             
         self.redraw_all()
+        
 
     # Активирует режим создания нового отрезка при нажатии кнопки на панели инструментов
     def on_new_segment_mode(self, event=None):
@@ -452,6 +456,8 @@ class Callbacks:
         if self.state.selected_segments:
             for seg in self.state.selected_segments:
                 seg.style_name = new_style_name
+
+        self._update_dash_controls_state()
                 
         # 4. Обновляем превью
         self.update_preview_segment()
@@ -466,6 +472,61 @@ class Callbacks:
             self.redraw_all() # Перерисовываем всё, так как толщина S глобальна
         except ValueError:
             pass # Если ввели не число, игнорируем
+
+    # Обновляет поля ввода штриха/пробела в зависимости от текущего стиля.
+    def _update_dash_controls_state(self):
+        style = self.state.line_styles.get(self.state.current_style_name)
+        if not style: return
+
+        # Если у стиля есть паттерн (это штриховая линия)
+        if style.dash_pattern:
+            self.view.sb_dash.config(state='normal')
+            self.view.sb_gap.config(state='normal')
+            
+            # Берем первые два значения (штрих, пробел)
+            # Паттерн может быть (5, 3) или (8, 3, 2, 3) и т.д.
+            d = style.dash_pattern[0]
+            g = style.dash_pattern[1]
+            
+            self.view.dash_len_var.set(str(d))
+            self.view.gap_len_var.set(str(g))
+        else:
+            # Если линия сплошная, волнистая или зигзаг - блокируем
+            self.view.dash_len_var.set("")
+            self.view.gap_len_var.set("")
+            self.view.sb_dash.config(state='disabled')
+            self.view.sb_gap.config(state='disabled')
+
+    # Вызывается при изменении значений в Spinbox штриха или пробела.
+    def on_dash_params_changed(self):
+        style = self.state.line_styles.get(self.state.current_style_name)
+        # Меняем только если это штриховая линия
+        if style and style.dash_pattern:
+            try:
+                new_dash = int(self.view.dash_len_var.get())
+                new_gap = int(self.view.gap_len_var.get())
+                if new_dash < 1: new_dash = 1
+                if new_gap < 1: new_gap = 1
+                
+                # Обновляем паттерн стиля. 
+                # Если паттерн сложный (штрих-пунктир: 8, 3, 2, 3), мы обновляем только 
+                # ОСНОВНОЙ штрих (0) и ОСНОВНОЙ пробел (1), остальное оставляем как хвост.
+                old_pattern = style.dash_pattern
+                
+                # Создаем новый кортеж: (новый_штрих, новый_пробел, ...старый_хвост...)
+                if len(old_pattern) > 2:
+                    # Например для штрих-пунктира сохраняем точку и второй пробел
+                    new_pattern = (new_dash, new_gap) + old_pattern[2:]
+                else:
+                    new_pattern = (new_dash, new_gap)
+                
+                # Записываем обратно в объект стиля
+                style.dash_pattern = new_pattern
+                
+                self.redraw_all()
+                
+            except ValueError:
+                pass
 
     # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):

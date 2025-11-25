@@ -153,7 +153,6 @@ class MainWindow:
         
         # Подготовка списка имен для Combobox
         style_names = [s.display_name for s in GOST_STYLES.values()]
-        
         # Выпадающий список
         self.style_combobox = ttk.Combobox(style_frame, values=style_names, state="readonly")
         # Ставим значение по умолчанию (берем из текущего состояния)
@@ -166,9 +165,7 @@ class MainWindow:
         # Настройка толщины (S)
         thick_frame = ttk.Frame(style_frame)
         thick_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        
         ttk.Label(thick_frame, text="Толщина (S):").pack(side=tk.LEFT)
-        
         self.thickness_var = tk.StringVar(value=str(callbacks.state.base_thickness_s))
         # Spinbox - поле ввода со стрелочками
         sb = ttk.Spinbox(thick_frame, from_=1, to=10, textvariable=self.thickness_var, width=5, command=callbacks.on_thickness_changed)
@@ -176,6 +173,25 @@ class MainWindow:
         # Биндим Enter на случай ручного ввода цифр
         sb.bind("<Return>", lambda e: callbacks.on_thickness_changed())
 
+        # Настройка штриха и пробела
+        self.dash_frame = ttk.Frame(style_frame)
+        self.dash_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        # Штрих
+        ttk.Label(self.dash_frame, text="Штрих:").pack(side=tk.LEFT)
+        self.dash_len_var = tk.StringVar(value="0")
+        self.sb_dash = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.dash_len_var, width=3, command=callbacks.on_dash_params_changed)
+        self.sb_dash.pack(side=tk.LEFT, padx=(2, 10))
+        self.sb_dash.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
+
+        # Пробел
+        ttk.Label(self.dash_frame, text="Пробел:").pack(side=tk.LEFT)
+        self.gap_len_var = tk.StringVar(value="0")
+        self.sb_gap = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.gap_len_var, width=3, command=callbacks.on_dash_params_changed)
+        self.sb_gap.pack(side=tk.LEFT, padx=(2, 0))
+        self.sb_gap.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
+
+        # Настройки систем координат
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
         
