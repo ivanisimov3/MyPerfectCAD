@@ -1,5 +1,10 @@
 # ui/main_window.py
 
+'''
+Создает окна, кнопки, поля ввода, меню и сам холст (Canvas). 
+Он отвечает за компоновку (где какая кнопка лежит), но не за то, что происходит при нажатии (это делегируется в Callbacks).
+'''
+
 import tkinter as tk
 from tkinter import ttk
 
@@ -77,9 +82,9 @@ class MainWindow:
 
     def _setup_toolbar_buttons(self, parent, callbacks):
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        ttk.Button(parent, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа+", command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа-", command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Показать все", command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)

@@ -1,5 +1,10 @@
 # app/application.py
 
+'''
+Создает экземпляры всех главных классов (AppState, MainWindow, Callbacks) и связывает их друг с другом (Dependency Injection). 
+Гарантирует, что у Контроллера есть доступ к Виду, а у Вида — к Контроллеру.
+'''
+
 import tkinter as tk
 from ui.main_window import MainWindow
 from logic.state import AppState

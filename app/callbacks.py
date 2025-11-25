@@ -1,5 +1,11 @@
 # app/callbacks.py
 
+'''
+Этот файл решает, что делать, если пользователь нажал кнопку мыши, покрутил колесико или нажал "Enter". 
+Он меняет данные в state и дает команду renderer перерисовать экран. 
+Он связывает кнопки из main_window с действиями.
+'''
+
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
