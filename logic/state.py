@@ -18,6 +18,8 @@ class AppState:
         # LIFO-очередь для хранения построенных отрезков
         self.segments = []
         
+        self.selected_segments = []
+        
         # Временный отрезок для предпросмотра в реальном времени
         self.preview_segment = None
         

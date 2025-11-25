@@ -47,5 +47,28 @@ class Segment:
     def angle(self):
         return math.atan2(self.p2.y - self.p1.y, self.p2.x - self.p1.x)
     
+    def distance_to_point(self, mx, my):
+        x1, y1 = self.p1.x, self.p1.y
+        x2, y2 = self.p2.x, self.p2.y
+        
+        # Длина отрезка в квадрате
+        l2 = (x1 - x2)**2 + (y1 - y2)**2
+        if l2 == 0: 
+            # Отрезок - это точка
+            return math.sqrt((mx - x1)**2 + (my - y1)**2)
+
+        # Проекция точки на прямую (параметр t от 0 до 1)
+        t = ((mx - x1) * (x2 - x1) + (my - y1) * (y2 - y1)) / l2
+        
+        # Ограничиваем t, чтобы не улететь за границы отрезка
+        t = max(0, min(1, t))
+        
+        # Координаты ближайшей точки на отрезке
+        proj_x = x1 + t * (x2 - x1)
+        proj_y = y1 + t * (y2 - y1)
+        
+        # Расстояние от курсора до проекции
+        return math.sqrt((mx - proj_x)**2 + (my - proj_y)**2)
+    
     def __repr__(self):
         return f"Segment({self.p1}, {self.p2}, style='{self.style_name}')"

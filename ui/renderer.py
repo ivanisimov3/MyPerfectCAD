@@ -156,6 +156,12 @@ class Renderer:
         self.clear()
         self.draw_grid_and_axes()
         
+        # 1. РИСУЕМ ПОДСВЕТКУ ВЫДЕЛЕНИЯ
+        # Рисуем её ПОД основными линиями, широкой и полупрозрачной
+        for seg in self.state.selected_segments:
+            # Рисуем копию линии, но очень толстую и цвета выделения
+            self.draw_segment(seg, override_color='#00FFFF', override_width=10) # 10px толщина подсветки
+
         # Рисуем готовые сегменты
         for segment in self.state.segments:
             self.draw_segment(segment)
