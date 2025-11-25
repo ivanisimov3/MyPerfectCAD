@@ -29,13 +29,14 @@ class Point:
 
 class Segment:
     # Инициализация отрезка по умолчанию
-    def __init__(self, p1: Point, p2: Point, color='red'):
+    def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black'):
         self.p1 = p1
         self.p2 = p2
+        self.style_name = style_name # Ссылка на ключ в словаре стилей
         self.color = color
 
     # @property - декоратор для обращения к методу объекта без ()
-
+    
     # Метод вычисляет и возвращает длину отрезка
     @property
     def length(self):
@@ -47,4 +48,4 @@ class Segment:
         return math.atan2(self.p2.y - self.p1.y, self.p2.x - self.p1.x)
     
     def __repr__(self):
-        return f"Segment({self.p1}, {self.p2}, color='{self.color}')"
+        return f"Segment({self.p1}, {self.p2}, style='{self.style_name}')"

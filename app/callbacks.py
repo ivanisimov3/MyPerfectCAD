@@ -35,7 +35,7 @@ class Callbacks:
         self.view.canvas.config(background=self.state.bg_color)
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
-        self.view.segment_swatch.config(background=self.state.segment_color)
+        # self.view.segment_swatch.config(background=self.state.segment_color)
         
         self.set_app_state(self.state.app_mode)
 
@@ -106,7 +106,11 @@ class Callbacks:
     def update_preview_segment(self, event=None):
         try:
             p1, p2 = self._create_points_from_entries()
-            self.state.preview_segment = Segment(p1, p2)
+            self.state.preview_segment = Segment(
+                p1, p2, 
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
         except (ValueError, tk.TclError):
             self.state.preview_segment = None
         self.redraw_all()
@@ -114,7 +118,12 @@ class Callbacks:
     # Завершает построение отрезка, сохраняя его в список готовых объектов
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
-            final_segment = Segment(self.state.preview_segment.p1, self.state.preview_segment.p2, color=self.state.segment_color)
+            final_segment = Segment(
+                self.state.preview_segment.p1, 
+                self.state.preview_segment.p2, 
+                style_name=self.state.current_style_name, # Берем текущий стиль
+                color=self.state.current_color
+            )
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
@@ -333,7 +342,7 @@ class Callbacks:
 
     # Открывает диалог выбора цвета отрезков
     def on_choose_segment_color(self):
-        _, c = colorchooser.askcolor(initialcolor=self.state.segment_color)
+        _, c = colorchooser.askcolor(initialcolor=self.state.current_color)
         if c: self.state.segment_color = c; self.view.segment_swatch.config(bg=c); self.redraw_all()
 
     # Считывает данные из полей ввода и возвращает объекты точек P1 и P2, учитывая выбранную систему координат

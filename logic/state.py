@@ -1,5 +1,7 @@
 # app/state.py
 
+from logic.styles import GOST_STYLES
+
 '''
 Хранит все переменные, которые описывают текущий момент работы программы: 
     1) список нарисованных отрезков (segments), 
@@ -38,4 +40,10 @@ class AppState:
         # Настройки цветов
         self.bg_color = 'white'
         self.grid_color = '#e0e0e0'
-        self.segment_color = 'red'
+        self.current_color = 'black'
+
+        # Глобальная толщина 's' по ГОСТ (0.5 ... 1.4 мм). По умолчанию 0.8. То есть 2 пикселя: 0.8 мм; 2.5 пиеселя: 1 мм.
+        self.base_thickness_s = 2  # В пикселях экрана! 
+
+        self.current_style_name = 'solid_main'  # Текущий выбранный стиль для НОВЫХ объектов (храним ключ словаря)
+        self.line_styles = GOST_STYLES.copy()   # Словарь всех загруженных стилей
