@@ -429,16 +429,11 @@ class Callbacks:
             self.renderer.render_scene()
     
     def update_info_panel(self):
+        # Сбрасываем активные точки (по умолчанию ничего не рисуем)
         self.state.active_p1, self.state.active_p2 = None, None
 
-        if self.state.selected_segments:
-            seg = self.state.selected_segments[0]
-            self.state.active_p1, self.state.active_p2 = seg.p1, seg.p2
-            self.view.p1_coord_var.set(f"P1({seg.p1.x:.2f}, {seg.p1.y:.2f})")
-            self.view.p2_coord_var.set(f"P2({seg.p2.x:.2f}, {seg.p2.y:.2f})")
-            self.view.length_var.set(f"Длина: {seg.length:.2f}")
-            return
-        
+        # ПРИОРИТЕТ 1: РЕЖИМ СОЗДАНИЯ
+        # Если мы строим отрезок, нам важно видеть именно ЕГО точки и размеры
         if self.state.app_mode == 'CREATING_SEGMENT':
             try: self.state.active_p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
             except (ValueError, tk.TclError): pass
@@ -447,33 +442,65 @@ class Callbacks:
                 if self.state.active_p1 is None: self.state.active_p1 = p1_for_p2
             except (ValueError, tk.TclError): pass
             
-        p1, p2 = self.state.active_p1, self.state.active_p2
-        
-        if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
-        else: self.view.p1_coord_var.set("P1: N/A")
-        
-        if p2:
-            if self.view.coord_system.get() == 'polar':
-                dx = p2.x - (p1.x if p1 else 0)
-                dy = p2.y - (p1.y if p1 else 0)
-                r = math.sqrt(dx**2 + dy**2)
-                theta = math.atan2(dy, dx)
-                unit = self.view.angle_units.get()
-                sym = "°" if unit == 'degrees' else " rad"
-                if unit == 'degrees': theta = math.degrees(theta)
-                self.view.p2_coord_var.set(f"P2(r={r:.2f}, θ={theta:.2f}{sym})")
-            else: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
-        else: self.view.p2_coord_var.set("P2: N/A")
+            # Обновляем текст для создаваемого отрезка
+            p1, p2 = self.state.active_p1, self.state.active_p2
+            
+            if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
+            else: self.view.p1_coord_var.set("P1: N/A")
+            
+            if p2:
+                if self.view.coord_system.get() == 'polar':
+                    dx = p2.x - (p1.x if p1 else 0)
+                    dy = p2.y - (p1.y if p1 else 0)
+                    r = math.sqrt(dx**2 + dy**2)
+                    theta = math.atan2(dy, dx)
+                    unit = self.view.angle_units.get()
+                    sym = "°" if unit == 'degrees' else " rad"
+                    if unit == 'degrees': theta = math.degrees(theta)
+                    self.view.p2_coord_var.set(f"P2(r={r:.2f}, θ={theta:.2f}{sym})")
+                else: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
+            else: self.view.p2_coord_var.set("P2: N/A")
 
-        if p1 and p2:
-            seg = Segment(p1, p2)
+            if p1 and p2:
+                seg = Segment(p1, p2)
+                self.view.length_var.set(f"Длина: {seg.length:.2f}")
+                angle = seg.angle
+                val = math.degrees(angle) if self.view.angle_units.get() == 'degrees' else angle
+                sym = "°" if self.view.angle_units.get() == 'degrees' else " rad"
+                self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
+            else:
+                self.view.length_var.set("Длина: N/A"); self.view.angle_var.set("Угол: N/A")
+            
+            return # Выходим, чтобы не перетереть данные выделением
+
+        # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
+        # Если мы НЕ строим, но что-то выделено
+        if self.state.selected_segments:
+            seg = self.state.selected_segments[0]
+            
+            # ОБНОВЛЕНИЕ ТЕКСТА
+            self.view.p1_coord_var.set(f"P1({seg.p1.x:.2f}, {seg.p1.y:.2f})")
+            self.view.p2_coord_var.set(f"P2({seg.p2.x:.2f}, {seg.p2.y:.2f})")
             self.view.length_var.set(f"Длина: {seg.length:.2f}")
+            
             angle = seg.angle
-            val = math.degrees(angle) if self.view.angle_units.get() == 'degrees' else angle
-            sym = "°" if self.view.angle_units.get() == 'degrees' else " rad"
+            if self.view.angle_units.get() == 'degrees':
+                val = math.degrees(angle)
+                sym = "°"
+            else:
+                val = angle
+                sym = " rad"
             self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
-        else:
-            self.view.length_var.set("Длина: N/A"); self.view.angle_var.set("Угол: N/A")
+            
+            # ВАЖНО: Мы НЕ устанавливаем self.state.active_p1/p2
+            # Поэтому точки на краях выделенного отрезка рисоваться НЕ БУДУТ.
+            return 
+
+        # ПРИОРИТЕТ 3: ПУСТОТА
+        self.view.length_var.set("Длина: N/A")
+        self.view.angle_var.set("Угол: N/A")
+        self.view.p1_coord_var.set("P1: N/A")
+        self.view.p2_coord_var.set("P2: N/A")
 
     def on_reset_view(self, event=None):
         self.state.pan_x = 0
