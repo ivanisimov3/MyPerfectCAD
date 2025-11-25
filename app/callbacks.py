@@ -12,6 +12,7 @@ import math
 from logic.geometry import Point, Segment
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
+from logic.styles import GOST_STYLES
 
 class Callbacks:
     def __init__(self, root, state, view):
@@ -35,7 +36,7 @@ class Callbacks:
         self.view.canvas.config(background=self.state.bg_color)
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
-        # self.view.segment_swatch.config(background=self.state.segment_color)
+        self.view.segment_swatch.config(background=self.state.current_color)
         
         self.set_app_state(self.state.app_mode)
 
@@ -89,7 +90,52 @@ class Callbacks:
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
             self.view.canvas.bind("<B1-Motion>", self.on_mouse_drag)
             self.view.canvas.config(cursor="fleur") # Курсор перемещения
+
+        else:
+            self.view.canvas.bind("<Button-1>", self.on_selection_click)
+            self.view.canvas.config(cursor="arrow") # Обычная стрелка
         
+        self.redraw_all()
+
+    # ### НОВОЕ: Обработка клика для выделения
+    def on_selection_click(self, event):
+        # 1. Получаем мировые координаты клика
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        
+        # 2. Ищем ближайший отрезок
+        # Порог чувствительности (сколько пикселей от мыши до линии считается попаданием)
+        hit_threshold_pixels = 8 
+        # Переводим порог в мировые единицы (делим на зум), чтобы точность была одинаковой при любом приближении
+        hit_threshold_world = hit_threshold_pixels / self.state.zoom
+        
+        found_segment = None
+        # Проходим по всем сегментам и ищем тот, до которого расстояние меньше порога
+        for segment in self.state.segments:
+            dist = segment.distance_to_point(wx, wy)
+            if dist < hit_threshold_world:
+                found_segment = segment
+                # Можно прервать поиск на первом найденном (или искать самый близкий, если их несколько)
+                break 
+        
+        # 3. Обновляем выделение
+        if found_segment:
+            # Если попали в линию -> Выделяем ТОЛЬКО её (для множественного нужен Ctrl)
+            self.state.selected_segments = [found_segment]
+            
+            # --- СИНХРОНИЗАЦИЯ ИНТЕРФЕЙСА ---
+            # Когда выделили линию, нужно, чтобы в панели "Стиль" показался её текущий стиль
+            style_obj = self.state.line_styles.get(found_segment.style_name)
+            if style_obj:
+                self.view.style_combobox.set(style_obj.display_name)
+                # Обновляем и цвет в панели (если надо)
+                self.view.segment_swatch.config(bg=found_segment.color)
+                self.state.current_color = found_segment.color
+                self.state.current_style_name = found_segment.style_name
+                
+        else:
+            # Если кликнули в пустоту -> Снимаем выделение
+            self.state.selected_segments = []
+            
         self.redraw_all()
 
     # Активирует режим создания нового отрезка при нажатии кнопки на панели инструментов
@@ -137,9 +183,14 @@ class Callbacks:
 
     # Удаляет последний построенный отрезок
     def on_delete_segment(self, event=None):
-        if self.state.segments:
+        if self.state.selected_segments:
+            for seg in self.state.selected_segments:
+                if seg in self.state.segments:
+                    self.state.segments.remove(seg)
+            self.state.selected_segments = [] # Очищаем список выделения
+        elif self.state.segments:
             self.state.segments.pop()
-            self.redraw_all()
+        self.redraw_all()
 
     # Применяет настройки шага сетки из панели настроек
     def on_apply_settings(self):
@@ -343,7 +394,13 @@ class Callbacks:
     # Открывает диалог выбора цвета отрезков
     def on_choose_segment_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.current_color)
-        if c: self.state.segment_color = c; self.view.segment_swatch.config(bg=c); self.redraw_all()
+        if c: 
+            self.state.current_color = c
+            self.view.segment_swatch.config(bg=c)
+            # Если что-то выделено, перекрашиваем!
+            for seg in self.state.selected_segments:
+                seg.color = c
+            self.redraw_all()
 
     # Считывает данные из полей ввода и возвращает объекты точек P1 и P2, учитывая выбранную систему координат
     def _create_points_from_entries(self):
@@ -380,17 +437,25 @@ class Callbacks:
             if self.state.app_mode == 'IDLE': entry.config(state='disabled')
 
     def on_style_selected(self, event=None):
-        # Получаем выбранное название из выпадающего списка
         display_name = self.view.style_combobox.get()
-        
-        # Ищем ключ стиля в словаре по его отображаемому имени
+        # 1. Находим id стиля
+        new_style_name = 'solid_main'
         for key, style in self.state.line_styles.items():
             if style.display_name == display_name:
-                self.state.current_style_name = key
+                new_style_name = key
                 break
         
-        # Если прямо сейчас рисуем линию (превью), обновляем её вид
+        # 2. Обновляем текущее состояние (для будущих линий)
+        self.state.current_style_name = new_style_name
+        
+        # 3. Если есть ВЫДЕЛЕННЫЕ объекты, меняем стиль им
+        if self.state.selected_segments:
+            for seg in self.state.selected_segments:
+                seg.style_name = new_style_name
+                
+        # 4. Обновляем превью
         self.update_preview_segment()
+        self.redraw_all()
 
     def on_thickness_changed(self):
         try:
@@ -412,6 +477,15 @@ class Callbacks:
     # Вычисляет и обновляет текстовую информацию на нижней панели (длина, угол, координаты)
     def update_info_panel(self):
         self.state.active_p1, self.state.active_p2 = None, None
+
+        if self.state.selected_segments:
+            seg = self.state.selected_segments[0]
+            self.state.active_p1, self.state.active_p2 = seg.p1, seg.p2
+            self.view.p1_coord_var.set(f"P1({seg.p1.x:.2f}, {seg.p1.y:.2f})")
+            self.view.p2_coord_var.set(f"P2({seg.p2.x:.2f}, {seg.p2.y:.2f})")
+            self.view.length_var.set(f"Длина: {seg.length:.2f}")
+            return
+        
         if self.state.app_mode == 'CREATING_SEGMENT':
             try: self.state.active_p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
             except (ValueError, tk.TclError): pass
@@ -472,12 +546,12 @@ class Callbacks:
         self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
         
         # 3. Режим
-        modes = {
-            'IDLE': "Ожидание",
-            'CREATING_SEGMENT': "Создание отрезка",
-            'PANNING': "Панорамирование"
-        }
-        mode_text = modes.get(self.state.app_mode, self.state.app_mode)
+        if self.state.selected_segments:
+             mode_text = f"Выбрано объектов: {len(self.state.selected_segments)}"
+        else:
+            modes = {'IDLE': "Ожидание", 'CREATING_SEGMENT': "Создание отрезка", 'PANNING': "Панорамирование"}
+            mode_text = modes.get(self.state.app_mode, self.state.app_mode)
+        
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
