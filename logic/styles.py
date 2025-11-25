@@ -15,7 +15,7 @@ class LineStyle:
 GOST_STYLES = {
     'solid_main': LineStyle(
         name='solid_main',
-        display_name='Сплошная толстая основная',
+        display_name='Сплошная основная',
         is_main=True,   # True = основная толщина (s), False = тонкая (s/2)
         dash_pattern=None   # Сплошная
     ),
@@ -24,6 +24,12 @@ GOST_STYLES = {
         display_name='Сплошная тонкая',
         is_main=False,
         dash_pattern=None
+    ),
+    'solid_wave': LineStyle(
+        name='solid_wave',
+        display_name='Сплошная волнистая',
+        is_main=True,
+        dash_pattern=None   # Рисуем спец. алгоритмом
     ),
     'dashed': LineStyle(
         name='dashed',
@@ -34,7 +40,7 @@ GOST_STYLES = {
     'dash_dot_main': LineStyle(
         name='dash_dot_main',
         display_name='Штрихпунктирная утолщенная',
-        is_main=False,
+        is_main=True,
         dash_pattern=(8, 3, 3, 3) # Штрих, пробел, точка (короткий штрих), пробел
     ),
     'dash_dot_thin': LineStyle(
@@ -45,11 +51,14 @@ GOST_STYLES = {
     ),
     'dash_dot_dot': LineStyle(
         name='dash_dot_dot',
-        display_name='Штрихпунктирная с двумя точками тонкая',
+        display_name='Штрихпунктирная с двумя точками',
         is_main=False,
         dash_pattern=(13, 3, 3, 3, 3, 3) # Штрих, пробел, точка, пробел, точка, пробел
+    ),
+    'solid_zigzag': LineStyle(
+        name='solid_zigzag',
+        display_name='Сплошная тонкая с изломами',
+        is_main=False,
+        dash_pattern=None
     )
-    # Примечание: "Волнистая" и "С изломами" требуют сложной векторной генерации, 
-    # их стандартными средствами create_line (dash) не сделать идеально. 
-    # Пока оставим их за рамками базовой реализации или добавим позже как спец-рендеринг.
 }

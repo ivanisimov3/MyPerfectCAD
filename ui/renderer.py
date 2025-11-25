@@ -108,12 +108,104 @@ class Renderer:
                 self.canvas.create_text(sx + 5, sy, text="Y", font=font_style, 
                                       fill="green", anchor="nw")
 
+    def _generate_wave_coords(self, x1, y1, x2, y2):
+        # Вектор линии
+        dx, dy = x2 - x1, y2 - y1
+        length = math.sqrt(dx*dx + dy*dy)
+        if length == 0: return [x1, y1, x2, y2]
+        
+        # Нормализуем вектор направления
+        ux, uy = dx/length, dy/length
+        # Нормаль (перпендикуляр) к вектору (-uy, ux)
+        nx, ny = -uy, ux
+        
+        points = []
+        step = 5  # Шаг в пикселях
+        amplitude = 3 # Высота волны в пикселях
+        freq = 0.2    # Частота волны
+        
+        # Генерируем точки вдоль линии
+        for t in range(0, int(length), step):
+            # Смещение по синусоиде перпендикулярно линии
+            offset = amplitude * math.sin(t * freq)
+            
+            # Координата на прямой
+            bx = x1 + ux * t
+            by = y1 + uy * t
+            
+            # Добавляем смещение
+            px = bx + nx * offset
+            py = by + ny * offset
+            points.extend([px, py])
+            
+        points.extend([x2, y2]) # Обязательно добавляем конец
+        return points
+
+    def _generate_zigzag_coords(self, x1, y1, x2, y2):
+        dx, dy = x2 - x1, y2 - y1
+        length = math.sqrt(dx*dx + dy*dy)
+        if length == 0: return [x1, y1, x2, y2]
+        
+        # Единичные векторы направления (ux, uy) и нормали (nx, ny)
+        ux, uy = dx/length, dy/length
+        nx, ny = -uy, ux
+        
+        points = [x1, y1]
+        
+        # Настройки "пульса"
+        period = 40       # Длина прямого участка между изломами
+        kink_len = 12     # Длина самого излома вдоль линии
+        amplitude = 5     # Высота излома
+        
+        current_dist = 0
+        
+        while current_dist < length:
+            # 1. Рисуем прямой участок до начала следующего излома
+            # Оставляем место под излом, но если это конец линии - идем до конца
+            dist_to_next_kink = min(length, current_dist + period)
+            
+            bx = x1 + ux * dist_to_next_kink
+            by = y1 + uy * dist_to_next_kink
+            points.extend([bx, by])
+            
+            current_dist = dist_to_next_kink
+            
+            # 2. Если осталось место для излома, рисуем "пульс"
+            if current_dist + kink_len <= length:
+                # Точка 1: Вверх (на 1/4 длины излома)
+                d1 = current_dist + kink_len * 0.25
+                px1 = x1 + ux * d1 - nx * amplitude
+                py1 = y1 + uy * d1 - ny * amplitude
+                
+                # Точка 2: Вниз (на 3/4 длины излома)
+                d2 = current_dist + kink_len * 0.75
+                px2 = x1 + ux * d2 + nx * amplitude
+                py2 = y1 + uy * d2 + ny * amplitude
+                
+                # Точка 3: Возврат на ось (конец излома)
+                d3 = current_dist + kink_len
+                px3 = x1 + ux * d3
+                py3 = y1 + uy * d3
+                
+                points.extend([px1, py1, px2, py2, px3, py3])
+                current_dist += kink_len
+            else:
+                # Если места на полный излом нет, просто дорисовываем прямую до конца
+                points.extend([x2, y2])
+                break
+                
+        return points
+
     def draw_segment(self, segment, override_color=None, override_width=None):
         # 1. Определяем цвет
         draw_color = override_color if override_color else segment.color
         
         # 2. Ищем стиль в state
         style = self.state.line_styles.get(segment.style_name)
+
+        line_width = 1
+        dash_pattern = None
+        is_complex = False # Флаг: сложная геометрия?
         
         # 3. Вычисляем толщину и пунктир
         if style:
@@ -125,28 +217,49 @@ class Renderer:
                 line_width = max(1, int(self.state.base_thickness_s / 2))
             
             dash_pattern = style.dash_pattern
-        else:
-            # Фолбэк (если вдруг стиль удалили или имя кривое)
-            line_width = 1
-            dash_pattern = None
 
-        # Разрешаем принудительно менять толщину (например, для подсветки выделения в будущем)
+            # Проверяем на спец. стили
+            if style.name in ['solid_wave', 'solid_zigzag']:
+                is_complex = True
+
         if override_width:
             line_width = override_width
 
-        # 4. Перевод координат
+        # Экранные координаты начала и конца
         sx1, sy1 = self.converter.world_to_screen(segment.p1.x, segment.p1.y)
         sx2, sy2 = self.converter.world_to_screen(segment.p2.x, segment.p2.y)
-        
-        # 5. Рисуем с учетом dash
-        # Параметр dash в Tkinter требует кортежа (5, 2) или None
-        self.canvas.create_line(
-            sx1, sy1, sx2, sy2, 
-            fill=draw_color, 
-            width=line_width, 
-            dash=dash_pattern,
-            capstyle=tk.ROUND # Скругляем концы линий для красоты
-        )
+
+        if is_complex and not dash_pattern:
+            # Генерация сложной геометрии
+            coords = []
+            smooth_flag = False
+            
+            if style.name == 'solid_wave':
+                coords = self._generate_wave_coords(sx1, sy1, sx2, sy2)
+                smooth_flag = True # Tkinter умеет сглаживать ломаные в кривые (B-spline)
+            elif style.name == 'solid_zigzag':
+                coords = self._generate_zigzag_coords(sx1, sy1, sx2, sy2)
+                smooth_flag = False
+            
+            # Рисуем полилинию (много точек)
+            # *coords распаковывает список в аргументы (x1, y1, x2, y2...)
+            if len(coords) >= 4:
+                self.canvas.create_line(
+                    *coords,
+                    fill=draw_color,
+                    width=line_width,
+                    capstyle=tk.ROUND,
+                    smooth=smooth_flag 
+                )
+        else:
+            # Обычная прямая (сплошная или штриховая)
+            self.canvas.create_line(
+                sx1, sy1, sx2, sy2, 
+                fill=draw_color, 
+                width=line_width, 
+                dash=dash_pattern,
+                capstyle=tk.ROUND
+            )
 
     def draw_point(self, point, size=4, color='black'):
         x, y = self.converter.world_to_screen(point.x, point.y)
