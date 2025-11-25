@@ -13,6 +13,7 @@ from logic.geometry import Point, Segment
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
+from ui.style_manager import StyleManagerWindow
 
 class Callbacks:
     def __init__(self, root, state, view):
@@ -37,7 +38,6 @@ class Callbacks:
         self.view.bg_swatch.config(background=self.state.bg_color)
         self.view.grid_swatch.config(background=self.state.grid_color)
         self.view.segment_swatch.config(background=self.state.current_color)
-        self._update_dash_controls_state()
         
         self.set_app_state(self.state.app_mode)
 
@@ -133,7 +133,6 @@ class Callbacks:
                 self.state.current_color = found_segment.color
                 self.state.current_style_name = found_segment.style_name
 
-                self._update_dash_controls_state()
                 
         else:
             # Если кликнули в пустоту -> Снимаем выделение
@@ -456,98 +455,10 @@ class Callbacks:
         if self.state.selected_segments:
             for seg in self.state.selected_segments:
                 seg.style_name = new_style_name
-
-        self._update_dash_controls_state()
                 
         # 4. Обновляем превью
         self.update_preview_segment()
         self.redraw_all()
-
-    def on_thickness_changed(self):
-        try:
-            # Читаем float, заменяя запятую на точку
-            val_str = self.view.thickness_var.get().replace(',', '.')
-            val = float(val_str)
-            
-            # Ограничиваем по ГОСТ (0.5 ... 1.4 мм)
-            if val < 0.5: val = 0.5
-            if val > 1.4: val = 1.4
-            
-            # Обновляем состояние
-            self.state.base_thickness_mm = val
-            
-            self.redraw_all()
-        except ValueError:
-            pass
-
-    # Обновляет поля ввода штриха/пробела в зависимости от текущего стиля.
-    def _update_dash_controls_state(self):
-        style = self.state.line_styles.get(self.state.current_style_name)
-        if not style: return
-
-        # Если у стиля есть лимиты (значит это штриховая линия)
-        if style.limits:
-            min_d, max_d, min_g, max_g = style.limits
-            
-            # 1. Активируем поля
-            self.view.sb_dash.config(state='normal', from_=min_d, to=max_d)
-            self.view.sb_gap.config(state='normal', from_=min_g, to=max_g)
-            
-            # 2. Получаем текущие значения из паттерна
-            # (dash_pattern всегда хранит dash и gap первыми элементами)
-            if style.dash_pattern:
-                current_dash = style.dash_pattern[0]
-                current_gap = style.dash_pattern[1]
-                
-                # Проверяем, чтобы текущие значения тоже влезали в лимиты (на всякий случай)
-                current_dash = max(min_d, min(current_dash, max_d))
-                current_gap = max(min_g, min(current_gap, max_g))
-                
-                # Записываем в поля
-                self.view.dash_len_var.set(str(current_dash))
-                self.view.gap_len_var.set(str(current_gap))
-        else:
-            # Если лимитов нет (сплошная, волна и т.д.) - блокируем
-            self.view.dash_len_var.set("")
-            self.view.gap_len_var.set("")
-            self.view.sb_dash.config(state='disabled')
-            self.view.sb_gap.config(state='disabled')
-
-    # Вызывается при изменении значений в Spinbox
-    def on_dash_params_changed(self, event=None):
-        style = self.state.line_styles.get(self.state.current_style_name)
-        
-        # Меняем только если у стиля есть лимиты (значит это настраиваемая линия)
-        if style and style.limits:
-            min_d, max_d, min_g, max_g = style.limits
-            
-            try:
-                # Получаем числа (поддержка запятой)
-                val_dash = self.view.dash_len_var.get().replace(',', '.')
-                val_gap = self.view.gap_len_var.get().replace(',', '.')
-                
-                raw_dash = float(val_dash)
-                raw_gap = float(val_gap)
-                
-                # --- ГЛАВНОЕ: ОГРАНИЧИВАЕМ (CLAMP) ---
-                # Если ввели меньше минимума -> ставим минимум
-                # Если больше максимума -> ставим максимум
-                new_dash = max(min_d, min(raw_dash, max_d))
-                new_gap = max(min_g, min(raw_gap, max_g))
-                
-                # Если мы "исправили" число пользователя (например, он ввел 99, а мы сделали 8),
-                # нужно обновить текст в поле, чтобы он видел реальное значение.
-                # Но делаем это аккуратно, только если событие завершено (например Enter), 
-                # иначе будет мешать печатать.
-                # Для простоты пока просто обновляем модель.
-                
-                # Сохраняем паттерн (dash, gap)
-                style.dash_pattern = (new_dash, new_gap)
-                
-                self.redraw_all()
-                
-            except ValueError:
-                pass
 
     # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):
@@ -644,3 +555,9 @@ class Callbacks:
             # Если мы рисуем, то ПКМ должна работать как on_rmb_click (отмена точки)
             # Вызываем его вручную
             self.on_rmb_click(event)
+
+    # Открывает окно менеджера стилей
+    def on_open_style_manager(self):
+        # Передаем self.redraw_all как колбэк, чтобы при нажатии "Применить"
+        # основной чертеж сразу обновлялся
+        StyleManagerWindow(self.root, self.state, self.redraw_all)

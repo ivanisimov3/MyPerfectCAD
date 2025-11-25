@@ -99,12 +99,17 @@ class MainWindow:
         menubar = tk.Menu(root)
         root.config(menu=menubar)
         
-        # Меню "Файл" (для приличия)
+        # Меню "Файл"
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Выход", command=root.quit)
         menubar.add_cascade(label="Файл", menu=file_menu)
+
+        # Меню "Стили"
+        style_menu = tk.Menu(menubar, tearoff=0)
+        style_menu.add_command(label="Менеджер стилей...", command=callbacks.on_open_style_manager)
+        menubar.add_cascade(label="Стили", menu=style_menu)
         
-        # Меню "Вид" (Требование задания)
+        # Меню "Вид"
         view_menu = tk.Menu(menubar, tearoff=0)
         view_menu.add_command(label="Рука (Панорама)", command=callbacks.on_hand_mode)
         view_menu.add_separator()
@@ -148,51 +153,26 @@ class MainWindow:
 
     # Создает все элементы на панели настроек
     def setup_settings_panel(self, parent, callbacks):
-        style_frame = ttk.LabelFrame(parent, text="Стиль линии (ГОСТ)")
+        # --- 1. СТИЛИ ЛИНИЙ ---
+        style_frame = ttk.LabelFrame(parent, text="Стиль линии")
         style_frame.pack(padx=5, pady=5, fill=tk.X)
         
-        # Подготовка списка имен для Combobox
+        # Только выпадающий список. Все остальное - в Менеджере.
         style_names = [s.display_name for s in GOST_STYLES.values()]
-        # Выпадающий список
         self.style_combobox = ttk.Combobox(style_frame, values=style_names, state="readonly")
-        # Ставим значение по умолчанию (берем из текущего состояния)
-        current_display = GOST_STYLES[callbacks.state.current_style_name].display_name
-        self.style_combobox.set(current_display)
-        self.style_combobox.pack(fill=tk.X, padx=5, pady=5)
-        # Привязываем событие выбора
+        
+        # Безопасная установка текущего значения
+        current_style = GOST_STYLES.get(callbacks.state.current_style_name)
+        if current_style:
+            self.style_combobox.set(current_style.display_name)
+            
+        self.style_combobox.pack(fill=tk.X, padx=5, pady=10)
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
         
-        # Настройка толщины (S)
-        thick_frame = ttk.Frame(style_frame)
-        thick_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        ttk.Label(thick_frame, text="Толщина (S):").pack(side=tk.LEFT)
-        self.thickness_var = tk.StringVar(value=str(callbacks.state.base_thickness_mm))
-        # Spinbox - поле ввода со стрелочками
-        sb_thick = ttk.Spinbox(thick_frame, from_=0.5, to=1.4, increment=0.1, textvariable=self.thickness_var, width=5, command=callbacks.on_thickness_changed)
-        sb_thick.pack(side=tk.RIGHT)
-        sb_thick.bind("<Return>", lambda e: callbacks.on_thickness_changed())
+        # Кнопка для открытия менеджера (дублирует меню)
+        ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        # Настройка штриха и пробела
-        self.dash_frame = ttk.Frame(style_frame)
-        self.dash_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        
-        # Штрих
-        ttk.Label(self.dash_frame, text="Штрих:").pack(side=tk.LEFT)
-        self.dash_len_var = tk.StringVar(value="0")
-        self.sb_dash = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.dash_len_var, width=3, command=callbacks.on_dash_params_changed)
-        self.sb_dash.pack(side=tk.LEFT, padx=(2, 10))
-        self.sb_dash.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
-        self.sb_dash.bind("<KeyRelease>", callbacks.on_dash_params_changed)
-
-        # Пробел
-        ttk.Label(self.dash_frame, text="Пробел:").pack(side=tk.LEFT)
-        self.gap_len_var = tk.StringVar(value="0")
-        self.sb_gap = ttk.Spinbox(self.dash_frame, from_=1, to=100, textvariable=self.gap_len_var, width=3, command=callbacks.on_dash_params_changed)
-        self.sb_gap.pack(side=tk.LEFT, padx=(2, 0))
-        self.sb_gap.bind("<Return>", lambda e: callbacks.on_dash_params_changed())
-        self.sb_gap.bind("<KeyRelease>", callbacks.on_dash_params_changed)
-
-        # Настройки систем координат
+        # --- 2. КООРДИНАТЫ ---
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
         
@@ -209,6 +189,7 @@ class MainWindow:
         ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
         ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
         
+        # --- 3. ОСТАЛЬНОЕ ---
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
         angle_frame.pack(padx=5, pady=5, fill=tk.X)
         ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=callbacks.update_preview_segment).pack(anchor=tk.W)
@@ -225,7 +206,7 @@ class MainWindow:
         color_frame.pack(padx=5, pady=5, fill=tk.X)
         self.bg_swatch = self._create_color_chooser(color_frame, "Фон:", callbacks.on_choose_bg_color)
         self.grid_swatch = self._create_color_chooser(color_frame, "Сетка:", callbacks.on_choose_grid_color)
-        self.segment_swatch = self._create_color_chooser(color_frame, "Отрезок:", callbacks.on_choose_segment_color)
+        self.segment_swatch = self._create_color_chooser(color_frame, "Линии:", callbacks.on_choose_segment_color)
 
     # Создает все элементы на информационной панели
     def setup_info_panel(self, parent):
