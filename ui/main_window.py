@@ -67,17 +67,40 @@ class MainWindow:
         self.root.bind("<Shift-Right>", callbacks.on_rotate_right)
 
     def _setup_toolbar_buttons(self, parent, callbacks):
+        # Группа 1: Рисование
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
+        
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        
+        # Группа 2: Навигация
         ttk.Button(parent, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа+", command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа-", command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Показать все", command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
+        
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        
+        # Группа 3: Поворот и сброс
         ttk.Button(parent, text="↶", width=3, command=callbacks.on_rotate_left).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="↷", width=3, command=callbacks.on_rotate_right).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Сброс", command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)
+
+        # Группа 4: БЫСТРЫЕ СТИЛИ (НОВОЕ)
+        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
+        
+        # Кнопка "Основная" (S)
+        # Используем lambda, чтобы передать аргумент в функцию
+        ttk.Button(parent, text="Основная", command=lambda: callbacks.on_quick_style_set('solid_main')).pack(side=tk.LEFT, padx=1)
+        
+        # Кнопка "Тонкая" (S/2)
+        ttk.Button(parent, text="Тонкая", command=lambda: callbacks.on_quick_style_set('solid_thin')).pack(side=tk.LEFT, padx=1)
+        
+        # Кнопка "Штриховая"
+        ttk.Button(parent, text="Штриховая", command=lambda: callbacks.on_quick_style_set('dashed')).pack(side=tk.LEFT, padx=1)
+        
+        # Кнопка "Осевая" (Штрих-пунктир)
+        ttk.Button(parent, text="Осевая", command=lambda: callbacks.on_quick_style_set('dash_dot_thin')).pack(side=tk.LEFT, padx=1)
 
     def setup_main_menu(self, root, callbacks):
         menubar = tk.Menu(root)

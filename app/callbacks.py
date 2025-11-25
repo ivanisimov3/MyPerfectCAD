@@ -522,3 +522,24 @@ class Callbacks:
     def on_open_style_manager(self):
         # Передаем НЕ redraw_all, а наш новый метод
         StyleManagerWindow(self.root, self.state, self.on_styles_updated)
+
+    # НОВЫЙ МЕТОД: Обработка кнопок быстрого доступа
+    def on_quick_style_set(self, style_key):
+        # Проверяем, есть ли такой стиль вообще (вдруг удалили)
+        if style_key not in self.state.line_styles:
+            return
+
+        self.state.current_style_name = style_key
+        
+        # Если есть выделенные объекты -> меняем стиль им всем
+        if self.state.selected_segments:
+            for seg in self.state.selected_segments:
+                seg.style_name = style_key
+            # Синхронизируем UI (Combobox и превью обновятся сами)
+            self._sync_ui_with_selection()
+        else:
+            # Если нет выделения -> просто обновляем UI для будущего рисования
+            self.view.set_style_selection(style_key)
+
+        self.update_preview_segment()
+        self.redraw_all()
