@@ -7,6 +7,7 @@
 
 import tkinter as tk
 from tkinter import ttk
+from logic.styles import GOST_STYLES
 
 class MainWindow:
     def __init__(self, root, callbacks):
@@ -147,6 +148,34 @@ class MainWindow:
 
     # Создает все элементы на панели настроек
     def setup_settings_panel(self, parent, callbacks):
+        style_frame = ttk.LabelFrame(parent, text="Стиль линии (ГОСТ)")
+        style_frame.pack(padx=5, pady=5, fill=tk.X)
+        
+        # Подготовка списка имен для Combobox
+        style_names = [s.display_name for s in GOST_STYLES.values()]
+        
+        # Выпадающий список
+        self.style_combobox = ttk.Combobox(style_frame, values=style_names, state="readonly")
+        # Ставим значение по умолчанию (берем из текущего состояния)
+        current_display = GOST_STYLES[callbacks.state.current_style_name].display_name
+        self.style_combobox.set(current_display)
+        self.style_combobox.pack(fill=tk.X, padx=5, pady=5)
+        # Привязываем событие выбора
+        self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
+        
+        # Настройка толщины (S)
+        thick_frame = ttk.Frame(style_frame)
+        thick_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        ttk.Label(thick_frame, text="Толщина (S):").pack(side=tk.LEFT)
+        
+        self.thickness_var = tk.StringVar(value=str(callbacks.state.base_thickness_s))
+        # Spinbox - поле ввода со стрелочками
+        sb = ttk.Spinbox(thick_frame, from_=1, to=10, textvariable=self.thickness_var, width=5, command=callbacks.on_thickness_changed)
+        sb.pack(side=tk.RIGHT)
+        # Биндим Enter на случай ручного ввода цифр
+        sb.bind("<Return>", lambda e: callbacks.on_thickness_changed())
+
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
         

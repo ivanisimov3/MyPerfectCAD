@@ -379,6 +379,29 @@ class Callbacks:
             entry.config(state='normal'); entry.delete(0, tk.END); entry.insert(0, f"{v:.2f}")
             if self.state.app_mode == 'IDLE': entry.config(state='disabled')
 
+    def on_style_selected(self, event=None):
+        # Получаем выбранное название из выпадающего списка
+        display_name = self.view.style_combobox.get()
+        
+        # Ищем ключ стиля в словаре по его отображаемому имени
+        for key, style in self.state.line_styles.items():
+            if style.display_name == display_name:
+                self.state.current_style_name = key
+                break
+        
+        # Если прямо сейчас рисуем линию (превью), обновляем её вид
+        self.update_preview_segment()
+
+    def on_thickness_changed(self):
+        try:
+            # Получаем значение из Spinbox
+            val = int(self.view.thickness_var.get())
+            if val < 1: val = 1
+            self.state.base_thickness_s = val
+            self.redraw_all() # Перерисовываем всё, так как толщина S глобальна
+        except ValueError:
+            pass # Если ввели не число, игнорируем
+
     # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):
         self.update_info_panel()
