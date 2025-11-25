@@ -21,15 +21,12 @@ class Callbacks:
         self.state = state
         self.view = view
         
-        # Ссылки на вспомогательные модули
         self.converter = None
         self.renderer = None
         
-        # Переменные для логики перетаскивания холста
         self._drag_start_x = 0
         self._drag_start_y = 0
 
-    # Инициализирует вспомогательные контроллеры (конвертер, рендерер) и применяет стартовые настройки цветов
     def initialize_view(self):
         self.converter = CoordinateConverter(self.state, self.view.canvas)
         self.renderer = Renderer(self.view.canvas, self.state, self.converter)
@@ -39,26 +36,25 @@ class Callbacks:
         self.view.grid_swatch.config(background=self.state.grid_color)
         self.view.segment_swatch.config(background=self.state.current_color)
         
+        # Инициализируем превью в панели свойств текущим стилем
+        self.view.update_style_preview(self.state.current_style_name)
+        
         self.set_app_state(self.state.app_mode)
 
-    # Управляет машиной состояний приложения, переключая интерфейс между режимом ожидания, создания, панорамирования
     def set_app_state(self, mode):
         self.state.app_mode = mode
         is_creating = (mode == 'CREATING_SEGMENT')
         is_panning = (mode == 'PANNING')
         
-        # Управление доступностью полей ввода
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
         
-        # Сбрасываем старые бинды ЛКМ и курсор
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
         self.view.canvas.unbind("<ButtonRelease-1>")
-        self.view.canvas.config(cursor="") # Cтандартный курсор
+        self.view.canvas.config(cursor="") 
         self.root.unbind("<Return>")
         
-        # Очищаем поля, если мы не создаем отрезок
         if not is_creating:
             for entry in entries:
                 entry.delete(0, tk.END)
@@ -70,7 +66,6 @@ class Callbacks:
         if is_creating or is_panning:
             self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
             self.view.lbl_esc.pack(side=tk.LEFT, padx=5)
-            
             if is_creating:
                 self.view.lbl_enter.pack(side=tk.LEFT, padx=5)
             else:
@@ -78,80 +73,133 @@ class Callbacks:
         else:
             self.view.hotkey_frame.pack_forget()
 
-        # ЛОГИКА ДЛЯ РЕЖИМОВ
         if is_creating:
             for entry in entries: entry.config(state=entry_state)
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
-            self.view.canvas.config(cursor="crosshair") # Курсор-прицел 
+            self.view.canvas.config(cursor="crosshair") 
             
         elif is_panning:
-            # В режиме "Рука" ЛКМ работает так же, как СКМ
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
             self.view.canvas.bind("<B1-Motion>", self.on_mouse_drag)
-            self.view.canvas.config(cursor="fleur") # Курсор перемещения
+            self.view.canvas.config(cursor="fleur")
 
         else:
+            # В режиме IDLE работает выделение
             self.view.canvas.bind("<Button-1>", self.on_selection_click)
-            self.view.canvas.config(cursor="arrow") # Обычная стрелка
+            self.view.canvas.config(cursor="arrow")
         
         self.redraw_all()
 
-    # Обработка клика для выделения
+    # --- ЛОГИКА ВЫДЕЛЕНИЯ (ОБНОВЛЕННАЯ) ---
+    
     def on_selection_click(self, event):
-        # 1. Получаем мировые координаты клика
         wx, wy = self.converter.screen_to_world(event.x, event.y)
-        
-        # 2. Ищем ближайший отрезок
-        # Порог чувствительности (сколько пикселей от мыши до линии считается попаданием)
         hit_threshold_pixels = 8 
-        # Переводим порог в мировые единицы (делим на зум), чтобы точность была одинаковой при любом приближении
         hit_threshold_world = hit_threshold_pixels / self.state.zoom
         
         found_segment = None
-        # Проходим по всем сегментам и ищем тот, до которого расстояние меньше порога
         for segment in self.state.segments:
             dist = segment.distance_to_point(wx, wy)
             if dist < hit_threshold_world:
                 found_segment = segment
-                # Можно прервать поиск на первом найденном (или искать самый близкий, если их несколько)
                 break 
         
-        # 3. Обновляем выделение
-        if found_segment:
-            # Если попали в линию -> Выделяем ТОЛЬКО её (для множественного нужен Ctrl)
-            self.state.selected_segments = [found_segment]
-            
-            # --- СИНХРОНИЗАЦИЯ ИНТЕРФЕЙСА ---
-            # Когда выделили линию, нужно, чтобы в панели "Стиль" показался её текущий стиль
-            style_obj = self.state.line_styles.get(found_segment.style_name)
-            if style_obj:
-                self.view.style_combobox.set(style_obj.display_name)
-                # Обновляем и цвет в панели (если надо)
-                self.view.segment_swatch.config(bg=found_segment.color)
-                self.state.current_color = found_segment.color
-                self.state.current_style_name = found_segment.style_name
-
-                
-        else:
-            # Если кликнули в пустоту -> Снимаем выделение
-            self.state.selected_segments = []
-            
-        self.redraw_all()
+        # Проверка нажатия Ctrl (бит 0x0004)
+        ctrl_pressed = (event.state & 0x0004)
         
+        if found_segment:
+            if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка
+                if found_segment in self.state.selected_segments:
+                    self.state.selected_segments.remove(found_segment)
+                else:
+                    self.state.selected_segments.append(found_segment)
+            else:
+                # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
+                self.state.selected_segments = [found_segment]
+        else:
+            # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
+            if not ctrl_pressed:
+                self.state.selected_segments = []
+        
+        # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
+        self._sync_ui_with_selection()
+        self.redraw_all()
 
-    # Активирует режим создания нового отрезка при нажатии кнопки на панели инструментов
+    def _sync_ui_with_selection(self):
+        """Обновляет панель свойств в зависимости от выделения."""
+        sel = self.state.selected_segments
+        
+        if not sel:
+            # Если ничего не выбрано -> показываем настройки для БУДУЩИХ линий (текущий глобальный стиль)
+            style_obj = GOST_STYLES.get(self.state.current_style_name)
+            if style_obj:
+                self.view.set_style_selection(style_obj.name) # Используем ключ стиля
+                self.view.segment_swatch.config(bg=self.state.current_color)
+            return
+
+        # Собираем все уникальные стили выделенных объектов
+        unique_styles = {seg.style_name for seg in sel}
+        
+        if len(unique_styles) == 1:
+            # Все объекты одного стиля
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            
+            # Цвет (берем у первого)
+            first_color = sel[0].color
+            self.view.segment_swatch.config(bg=first_color)
+            
+            # Обновляем глобальное состояние, чтобы новые линии рисовались так же
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+        else:
+            # Объекты разных стилей
+            self.view.set_style_selection("Разные")
+            # Цвет можно сделать нейтральным
+            self.view.segment_swatch.config(bg="#cccccc")
+
+    def on_style_selected(self, event=None):
+        # Получаем то, что выбрал юзер в ComboBox
+        display_name = self.view.style_combobox.get()
+        
+        if display_name == "Разные":
+            return # Ничего не делаем
+
+        # Ищем ключ стиля по display_name
+        new_style_name = 'solid_main'
+        for key, style in self.state.line_styles.items():
+            if style.display_name == display_name:
+                new_style_name = key
+                break
+        
+        self.state.current_style_name = new_style_name
+        
+        # Если есть выделение -> меняем стиль ВСЕМ выделенным
+        if self.state.selected_segments:
+            for seg in self.state.selected_segments:
+                seg.style_name = new_style_name
+            # Обновляем UI, так как теперь у всех один стиль
+            self._sync_ui_with_selection()
+        else:
+            # Если выделения нет -> просто обновляем превью для будущей линии
+            self.view.update_style_preview(new_style_name)
+
+        self.update_preview_segment()
+        self.redraw_all()
+
+    # --- СТАНДАРТНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
+
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
         self.view.p1_x_entry.focus_set()
 
-    # Активирует режим "Рука"
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
         self.view.canvas.focus_set()
 
-    # Динамически обновляет временный отрезок (превью) при вводе координат или движении мыши
     def update_preview_segment(self, event=None):
         try:
             p1, p2 = self._create_points_from_entries()
@@ -164,38 +212,40 @@ class Callbacks:
             self.state.preview_segment = None
         self.redraw_all()
 
-    # Завершает построение отрезка, сохраняя его в список готовых объектов
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
                 self.state.preview_segment.p1, 
                 self.state.preview_segment.p2, 
-                style_name=self.state.current_style_name, # Берем текущий стиль
+                style_name=self.state.current_style_name,
                 color=self.state.current_color
             )
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
-    # Обрабатывает нажатие клавиши ESC (отмена построения, панорамирования или выход из программы)
     def on_escape_key(self, event=None):
-        # Если мы что-то создаем ИЛИ панорамируем — выходим в режим ожидания
         if self.state.app_mode in ['CREATING_SEGMENT', 'PANNING']: 
             self.set_app_state('IDLE')
+        elif self.state.selected_segments:
+            # Если есть выделение - снимаем его
+            self.state.selected_segments = []
+            self._sync_ui_with_selection()
+            self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"): 
             self.root.destroy()
 
-    # Удаляет последний построенный отрезок
     def on_delete_segment(self, event=None):
         if self.state.selected_segments:
             for seg in self.state.selected_segments:
                 if seg in self.state.segments:
                     self.state.segments.remove(seg)
-            self.state.selected_segments = [] # Очищаем список выделения
+            self.state.selected_segments = []
         elif self.state.segments:
             self.state.segments.pop()
+        
+        self._sync_ui_with_selection()
         self.redraw_all()
 
-    # Применяет настройки шага сетки из панели настроек
     def on_apply_settings(self):
         try:
             new_step = int(self.view.grid_step_var.get())
@@ -204,31 +254,26 @@ class Callbacks:
             self.redraw_all()
         except ValueError: messagebox.showerror("Ошибка", "Шаг сетки должен быть > 0")
 
-    # Обрабатывает переключение системы координат (Декартова/Полярная), пересчитывая значения в полях ввода
     def on_coord_system_change(self):
         new_system = self.view.coord_system.get()
         self.view.p2_label1.config(text="R₂:" if new_system == 'polar' else "X₂:")
         self.view.p2_label2.config(text="θ₂:" if new_system == 'polar' else "Y₂:")
-        
         try:
             val1 = float(self.view.p2_x_entry.get())
             val2 = float(self.view.p2_y_entry.get())
             try: p1_x, p1_y = float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get())
             except ValueError: p1_x, p1_y = 0.0, 0.0
-            
             p2 = Point()
-            if new_system == 'cartesian': # Переход ИЗ полярной В декартову
+            if new_system == 'cartesian':
                 angle = math.radians(val2) if self.view.angle_units.get() == 'degrees' else val2
                 p2.x = p1_x + val1 * math.cos(angle)
                 p2.y = p1_y + val1 * math.sin(angle)
-            else: # Переход ИЗ декартовой В полярную
+            else:
                 p2 = Point(val1, val2)
         except (ValueError, tk.TclError): return
-        
         self._update_p2_entries(p2)
         self.redraw_all()
 
-    # Обрабатывает клик левой кнопкой мыши: задает первую или вторую точку построения
     def on_lmb_click(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
         if self.state.points_clicked == 0:
@@ -239,7 +284,6 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_segment()
 
-    # Обрабатывает клик правой кнопкой мыши: сбрасывает текущую точку
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get(): 
             self.view.p2_x_entry.delete(0, tk.END); self.view.p2_y_entry.delete(0, tk.END)
@@ -249,167 +293,111 @@ class Callbacks:
             self.state.points_clicked = 0
         self.update_preview_segment()
 
-    # Запоминает позицию мыши для начала панорамирования
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
-    # Осуществляет панорамирование (сдвиг) холста при движении мыши с зажатым колесиком
     def on_mouse_drag(self, event):
         dx, dy = event.x - self._drag_start_x, event.y - self._drag_start_y
         self.state.pan_x += dx; self.state.pan_y += dy
         self._drag_start_x, self._drag_start_y = event.x, event.y
         self.redraw_all()
 
-    # Универсальный внутренний метод для применения зума относительно конкретной точки экрана
     def _perform_zoom(self, factor, center_screen_x, center_screen_y):
-        # Запоминаем, какая мировая координата была под курсором ДО зума
         wx, wy = self.converter.screen_to_world(center_screen_x, center_screen_y)
-        
-        # Применяем зум 
         self.state.zoom = max(0.1, min(self.state.zoom * factor, 1000.0))
-        
-        # Вычисляем, где эта мировая точка оказалась бы на экране ПОСЛЕ зума, если бы мы не двигали камеру
         sx_new, sy_new = self.converter.world_to_screen(wx, wy)
-        
-        # Корректируем смещение, чтобы вернуть точку под курсор
         self.state.pan_x += center_screen_x - sx_new
         self.state.pan_y += center_screen_y - sy_new
-        
         self.redraw_all()
 
-    # Обработка колесика мыши (Зуммируем к позиции курсора)
     def on_mouse_wheel(self, event):
         factor = 1.2 if (hasattr(event, 'delta') and event.delta > 0) or event.num == 4 else 1/1.2
         self._perform_zoom(factor, event.x, event.y)
 
-    # Зум Плюс (к центру экрана)
     def on_zoom_in(self, event=None):
         cx, cy = self.view.canvas.winfo_width() / 2, self.view.canvas.winfo_height() / 2
         self._perform_zoom(1.2, cx, cy)
         self.view.canvas.focus_set()
 
-    # Зум Минус (от центра экрана)
     def on_zoom_out(self, event=None):
         cx, cy = self.view.canvas.winfo_width() / 2, self.view.canvas.winfo_height() / 2
         self._perform_zoom(1/1.2, cx, cy)
         self.view.canvas.focus_set()
 
-    # Вписать чертеж в экран
     def on_fit_to_view(self, event=None):
         if not self.state.segments:
-            # Если пусто, сбрасываем в дефолт
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
             self.redraw_all()
             self.view.canvas.focus_set()
             return
-
-        # Ищем границы (Bounding Box) всех отрезков
         xs = [s.p1.x for s in self.state.segments] + [s.p2.x for s in self.state.segments]
         ys = [s.p1.y for s in self.state.segments] + [s.p2.y for s in self.state.segments]
-        
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
-        
-        # Размеры сцены и центральная точка
         world_w = max_x - min_x
         world_h = max_y - min_y
         center_wx = (min_x + max_x) / 2
         center_wy = (min_y + max_y) / 2
-        
-        # Размеры экрана (с отступом 10% чтобы не прилипало к краям)
         screen_w = self.view.canvas.winfo_width() * 0.9
         screen_h = self.view.canvas.winfo_height() * 0.9
-        
-        # Вычисляем нужный зум (берем минимальный, чтобы влезло и по ширине, и по высоте)
         if world_w == 0: world_w = 1
         if world_h == 0: world_h = 1
-        
         scale_x = screen_w / world_w
         scale_y = screen_h / world_h
         self.state.zoom = min(scale_x, scale_y)
-        
-        # Центрируем камеру: Pan должен компенсировать координаты центра сцены
-        # Формула выводится из уравнения: screen_center = canvas_center + pan + world_center * zoom
-        # Нам нужно, чтобы screen_center совпадал с canvas_center.
-        # 0 = pan + world * zoom  =>  pan = -world * zoom
         self.state.pan_x = -center_wx * self.state.zoom
         self.state.pan_y = center_wy * self.state.zoom 
-        
         self.redraw_all()
         self.view.canvas.focus_set()
 
     def rotate_view(self, angle_delta_deg, event=None):
-        # Проверяем, зажат ли Shift
-        # В Tkinter event.state содержит маску модификаторов. 1 - это Shift (бит 0x0001).
         is_shift = False
         if event and (event.state & 0x0001): 
             is_shift = True
-            
         if is_shift:
-            # Логика Shift: Шаг 90 градусов
             current_deg = math.degrees(self.state.rotation)
-            # Округляем текущий угол до кратного 90
             snapped_deg = round(current_deg / 90) * 90
-            
-            # Если мы уже на 90, сразу шагаем к следующему.
-            # Если мы были на 45, snapped станет 0 (или 90), и мы выровняемся.
             if abs(snapped_deg - current_deg) < 1.0:
                 target_deg = snapped_deg + (90 if angle_delta_deg > 0 else -90)
             else:
-                # Если угол был "кривой" (например, 13 градусов), Shift сначала выровняет его
                 target_deg = snapped_deg
-                
             self.state.rotation = math.radians(target_deg)
         else:
-            # Плавный поворот
             self.state.rotation += math.radians(angle_delta_deg)
-            
         self.redraw_all()
-        self.view.canvas.focus_set() # Сброс фокуса
+        self.view.canvas.focus_set()
 
-    def on_rotate_left(self, event=None):
-        self.rotate_view(1, event) # Против часовой
-
-    def on_rotate_right(self, event=None):
-        self.rotate_view(-1, event) # По часовой
-
-    # Перерисовывает сцену при изменении размеров окна
+    def on_rotate_left(self, event=None): self.rotate_view(1, event)
+    def on_rotate_right(self, event=None): self.rotate_view(-1, event)
     def on_canvas_resize(self, event): self.redraw_all()
     
-    # Переключает полноэкранный режим по клавише F11
     def toggle_fullscreen(self, event=None):
         self.state.is_fullscreen = not self.state.is_fullscreen
         self.root.attributes("-fullscreen", self.state.is_fullscreen)
 
-    # Открывает диалог выбора цвета фона
     def on_choose_bg_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.bg_color)
         if c: 
             self.state.bg_color = c
             self.view.canvas.config(bg=c); self.view.bg_swatch.config(bg=c)
 
-    # Открывает диалог выбора цвета сетки
     def on_choose_grid_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.grid_color)
         if c: self.state.grid_color = c; self.view.grid_swatch.config(bg=c); self.redraw_all()
 
-    # Открывает диалог выбора цвета отрезков
     def on_choose_segment_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.current_color)
         if c: 
             self.state.current_color = c
             self.view.segment_swatch.config(bg=c)
-            # Если что-то выделено, перекрашиваем!
             for seg in self.state.selected_segments:
                 seg.color = c
             self.redraw_all()
 
-    # Считывает данные из полей ввода и возвращает объекты точек P1 и P2, учитывая выбранную систему координат
     def _create_points_from_entries(self):
         p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
         val1, val2 = float(self.view.p2_x_entry.get()), float(self.view.p2_y_entry.get())
-        
         p2 = Point()
         if self.view.coord_system.get() == 'cartesian': p2 = Point(val1, val2)
         else:
@@ -418,12 +406,10 @@ class Callbacks:
             p2.y = p1.y + val1 * math.sin(angle)
         return p1, p2
 
-    # Вспомогательный метод для обновления значений в полях ввода точки P1
     def _update_p1_entries(self, x, y):
         self.view.p1_x_entry.delete(0, tk.END); self.view.p1_x_entry.insert(0, f"{x:.2f}")
         self.view.p1_y_entry.delete(0, tk.END); self.view.p1_y_entry.insert(0, f"{y:.2f}")
 
-    # Вспомогательный метод для обновления значений в полях ввода точки P2 (с конвертацией в полярные при необходимости)
     def _update_p2_entries(self, p2):
         is_polar = (self.view.coord_system.get() == 'polar')
         if is_polar:
@@ -439,35 +425,12 @@ class Callbacks:
             entry.config(state='normal'); entry.delete(0, tk.END); entry.insert(0, f"{v:.2f}")
             if self.state.app_mode == 'IDLE': entry.config(state='disabled')
 
-    def on_style_selected(self, event=None):
-        display_name = self.view.style_combobox.get()
-        # 1. Находим id стиля
-        new_style_name = 'solid_main'
-        for key, style in self.state.line_styles.items():
-            if style.display_name == display_name:
-                new_style_name = key
-                break
-        
-        # 2. Обновляем текущее состояние (для будущих линий)
-        self.state.current_style_name = new_style_name
-        
-        # 3. Если есть ВЫДЕЛЕННЫЕ объекты, меняем стиль им
-        if self.state.selected_segments:
-            for seg in self.state.selected_segments:
-                seg.style_name = new_style_name
-                
-        # 4. Обновляем превью
-        self.update_preview_segment()
-        self.redraw_all()
-
-    # Главный метод отрисовки: обновляет инфо-панель и делегирует рисование графики рендереру
     def redraw_all(self):
         self.update_info_panel()
         self.update_status_bar()
         if self.renderer:
             self.renderer.render_scene()
     
-    # Вычисляет и обновляет текстовую информацию на нижней панели (длина, угол, координаты)
     def update_info_panel(self):
         self.state.active_p1, self.state.active_p2 = None, None
 
@@ -518,27 +481,21 @@ class Callbacks:
     def on_reset_view(self, event=None):
         self.state.pan_x = 0
         self.state.pan_y = 0
-        self.state.zoom = 10.0 # Возвращаем исходный зум
+        self.state.zoom = 10.0 
         self.state.rotation = 0.0
         self.redraw_all()
         self.view.canvas.focus_set()
 
     def on_mouse_move_stats(self, event):
-        # Переводим экранные координаты в мировые
         wx, wy = self.converter.screen_to_world(event.x, event.y)
         self.view.status_coords.config(text=f"X: {wx:.2f}  Y: {wy:.2f}")
 
-    # Обновляет остальные поля статус-бара (вызывать внутри redraw_all)
     def update_status_bar(self):
-        # 1. Масштаб (в процентах, считаем 10.0 за 100%)
         zoom_pct = int((self.state.zoom / 10.0) * 100)
         self.view.status_zoom.config(text=f"Zoom: {zoom_pct}%")
-        
-        # 2. Угол
         deg = math.degrees(self.state.rotation)
         self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
         
-        # 3. Режим
         if self.state.selected_segments:
              mode_text = f"Выбрано объектов: {len(self.state.selected_segments)}"
         else:
@@ -548,16 +505,11 @@ class Callbacks:
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        # Меню показываем только если мы НЕ рисуем отрезок
         if self.state.app_mode != 'CREATING_SEGMENT':
             self.view.context_menu.post(event.x_root, event.y_root)
         else:
-            # Если мы рисуем, то ПКМ должна работать как on_rmb_click (отмена точки)
-            # Вызываем его вручную
             self.on_rmb_click(event)
 
     # Открывает окно менеджера стилей
     def on_open_style_manager(self):
-        # Передаем self.redraw_all как колбэк, чтобы при нажатии "Применить"
-        # основной чертеж сразу обновлялся
         StyleManagerWindow(self.root, self.state, self.redraw_all)
