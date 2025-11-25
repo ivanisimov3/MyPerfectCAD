@@ -7,6 +7,7 @@
 '''
 
 import math
+import tkinter as tk
 
 class Renderer:
     def __init__(self, canvas, state, converter):
@@ -72,7 +73,7 @@ class Renderer:
         x_pos = self.converter.world_to_screen(step * 3, 0)
         y_pos = self.converter.world_to_screen(0, step * 3)
         
-        font_style = ("Arial", 14, "bold")
+        font_style = ("Arial", 10, "bold")
         
         # Определяем размер видимой области в мире, чтобы знать, сколько отступить от края
         world_width = max_wx - min_wx
@@ -85,17 +86,11 @@ class Renderer:
         # --- РИСУЕМ X ---
         # Ось X (линия y=0) видна, если видимый диапазон Y включает 0
         if min_wy < 0 < max_wy:
-            # Мы хотим поставить букву в конце положительной стороны.
-            # Проверяем, виден ли вообще "плюс" по иксу (то есть правая граница > 0)
             if max_wx > 0:
-                # Ставим метку у правого края видимой области минус отступ
                 lbl_x_pos = max_wx - pad_x
                 
-                # Но метка не должна уезжать влево за ноль (если мы сильно приблизили начало координат)
-                # Пусть она будет хотя бы на расстоянии 2 шагов от нуля
                 lbl_x_pos = max(lbl_x_pos, step * 2)
                 
-                # Переводим в экранные
                 sx, sy = self.converter.world_to_screen(lbl_x_pos, 0)
                 
                 self.canvas.create_text(sx, sy + 5, text="X", font=font_style, 
@@ -104,9 +99,7 @@ class Renderer:
         # --- РИСУЕМ Y ---
         # Ось Y (линия x=0) видна, если видимый диапазон X включает 0
         if min_wx < 0 < max_wx:
-            # Проверяем, виден ли "верх" по игреку
             if max_wy > 0:
-                # Ставим метку у верхнего края видимой области минус отступ
                 lbl_y_pos = max_wy - pad_y
                 lbl_y_pos = max(lbl_y_pos, step * 2)
                 
@@ -115,11 +108,45 @@ class Renderer:
                 self.canvas.create_text(sx + 5, sy, text="Y", font=font_style, 
                                       fill="green", anchor="nw")
 
-    def draw_segment(self, segment, width=4, color=None):
-        draw_color = color if color else segment.color
+    def draw_segment(self, segment, override_color=None, override_width=None):
+        # 1. Определяем цвет
+        draw_color = override_color if override_color else segment.color
+        
+        # 2. Ищем стиль в state
+        style = self.state.line_styles.get(segment.style_name)
+        
+        # 3. Вычисляем толщину и пунктир
+        if style:
+            # Если стиль найден, считаем толщину по ГОСТ
+            if style.is_main:
+                line_width = self.state.base_thickness_s
+            else:
+                # Тонкая линия = s / 2 (округляем до целого, т.к. пиксели)
+                line_width = max(1, int(self.state.base_thickness_s / 2))
+            
+            dash_pattern = style.dash_pattern
+        else:
+            # Фолбэк (если вдруг стиль удалили или имя кривое)
+            line_width = 1
+            dash_pattern = None
+
+        # Разрешаем принудительно менять толщину (например, для подсветки выделения в будущем)
+        if override_width:
+            line_width = override_width
+
+        # 4. Перевод координат
         sx1, sy1 = self.converter.world_to_screen(segment.p1.x, segment.p1.y)
         sx2, sy2 = self.converter.world_to_screen(segment.p2.x, segment.p2.y)
-        self.canvas.create_line(sx1, sy1, sx2, sy2, fill=draw_color, width=width)
+        
+        # 5. Рисуем с учетом dash
+        # Параметр dash в Tkinter требует кортежа (5, 2) или None
+        self.canvas.create_line(
+            sx1, sy1, sx2, sy2, 
+            fill=draw_color, 
+            width=line_width, 
+            dash=dash_pattern,
+            capstyle=tk.ROUND # Скругляем концы линий для красоты
+        )
 
     def draw_point(self, point, size=4, color='black'):
         x, y = self.converter.world_to_screen(point.x, point.y)
@@ -135,7 +162,7 @@ class Renderer:
             
         # Рисуем превью (если есть)
         if self.state.preview_segment:
-            self.draw_segment(self.state.preview_segment, width=2, color='blue')
+            self.draw_segment(self.state.preview_segment, override_color='blue')
             
         # Рисуем активные точки (маркеры редактирования)
         if self.state.active_p1: self.draw_point(self.state.active_p1)

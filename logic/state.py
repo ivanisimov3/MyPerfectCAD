@@ -1,7 +1,5 @@
 # app/state.py
 
-from logic.styles import GOST_STYLES
-
 '''
 Хранит все переменные, которые описывают текущий момент работы программы: 
     1) список нарисованных отрезков (segments), 
@@ -10,6 +8,8 @@ from logic.styles import GOST_STYLES
     4) цвета и выбранные единицы измерения. 
 Все остальные модули читают данные отсюда.
 '''
+
+from logic.styles import GOST_STYLES
 
 class AppState:
     def __init__(self):
