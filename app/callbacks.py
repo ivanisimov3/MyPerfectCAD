@@ -130,7 +130,6 @@ class Callbacks:
 
     def _sync_ui_with_selection(self):
         """Обновляет панель свойств в зависимости от выделения."""
-        # 1. Скрываем панель изломов по умолчанию
         self.view.kinks_frame.pack_forget()
         
         sel = self.state.selected_segments
@@ -153,38 +152,44 @@ class Callbacks:
             self.state.current_style_name = style_name
             self.state.current_color = first_color
             
-            # Проверяем, нужно ли показать настройки изломов
+            # --- ЛОГИКА ОТОБРАЖЕНИЯ ПАНЕЛИ ИЗЛОМОВ/ВОЛН ---
             style = self.state.line_styles.get(style_name)
             base_type = getattr(style, 'base_type', 'solid')
             
-            if base_type == 'zigzag' and len(sel) == 1:
+            # Если это ЗИГЗАГ или ВОЛНА и выделен ОДИН объект
+            if base_type in ['zigzag', 'wave'] and len(sel) == 1:
                 seg = sel[0]
                 self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
                 
-                if seg.kinks_count:
-                    # Если пользователь уже задал число -> показываем его
-                    self.view.kinks_var.set(str(seg.kinks_count))
+                # Меняем текст лейбла в зависимости от типа
+                if base_type == 'zigzag':
+                    self.view.lbl_kinks.config(text="Кол-во изломов:")
+                    current_val = seg.kinks_count
                 else:
-                    # ИНАЧЕ -> Рассчитываем, сколько изломов рисуется "по умолчанию"
-                    # Формула из Renderer: (period + kink_len)
-                    # period=40, kink=6 (базовые при zoom=5.0)
-                    
-                    # Математически (см. renderer):
-                    # Unit = Period + Kink
-                    # Count = Length / Unit
-                    # Масштаб (zoom) сокращается, поэтому считаем в базовых единицах.
-                    # Но чтобы быть точным, повторим логику рендерера:
-                    
+                    self.view.lbl_kinks.config(text="Кол-во волн:")
+                    current_val = seg.waves_count
+                
+                if current_val:
+                    self.view.kinks_var.set(str(current_val))
+                else:
+                    # РАСЧЕТ ДЕФОЛТА
                     zoom = self.state.zoom
-                    period_px = 40 * (zoom / 5.0)
-                    kink_px = 6 * (zoom / 5.0)
-                    total_unit_px = period_px + kink_px
                     seg_len_px = seg.length * zoom
                     
-                    if total_unit_px > 0:
-                        default_count = int(seg_len_px / total_unit_px)
+                    if base_type == 'zigzag':
+                        # Period(40) + Kink(6) = 46 (при зуме 5.0)
+                        # Реальная длина: (40 + 6) * (zoom / 5.0)
+                        unit_len = 46 * (zoom / 5.0)
+                    else: # wave
+                        # Freq = 0.2 / (zoom/5.0). Period T = 2*pi / freq
+                        # T = 2*pi / (0.2 / scale) = 10*pi * scale
+                        # 10 * 3.14 = 31.4 * scale
+                        unit_len = 31.4159 * (zoom / 5.0)
+                    
+                    if unit_len > 0.1:
+                        default_count = int(seg_len_px / unit_len)
                     else:
-                        default_count = 0
+                        default_count = 1
                         
                     self.view.kinks_var.set(str(default_count))
         else:
@@ -194,50 +199,51 @@ class Callbacks:
     # НОВЫЙ МЕТОД: Изменение количества изломов
     def on_kinks_changed(self, event=None):
         if not self.state.selected_segments: return
-        
-        # Работаем с первым выделенным (так как панель показывается только для одного)
         seg = self.state.selected_segments[0]
+        
+        # Определяем тип текущей линии
+        style = self.state.line_styles.get(seg.style_name)
+        base_type = getattr(style, 'base_type', 'solid')
         
         try:
             val_str = self.view.kinks_var.get()
             if not val_str: 
-                seg.kinks_count = None # Сброс на авто
+                if base_type == 'zigzag': seg.kinks_count = None
+                else: seg.waves_count = None
                 self.redraw_all()
                 return
                 
             val = int(val_str)
-            
-            # Рассчитываем Максимум (N)
-            # Длина излома в пикселях (примерно как в рендерере)
             zoom = self.state.zoom
-            kink_len_px = 8 * (zoom / 5.0)
-            
-            # Длина линии в пикселях
-            # Нам нужно перевести длину линии из мира в пиксели
-            # seg.length - это мировые единицы.
-            # zoom - это коэффициент масштаба.
             seg_len_px = seg.length * zoom
             
-            # Сколько влезет?
-            max_n = int(seg_len_px / kink_len_px)
+            # Считаем минимально возможную длину элемента (чтобы не зависло)
+            if base_type == 'zigzag':
+                # Минимум - только сам излом (6) без пробелов
+                min_unit = 8 * (zoom / 5.0)
+            else:
+                # Минимум - хотя бы 2 пикселя на волну
+                min_unit = 2
+            
+            # Максимум сколько влезет
+            max_n = int(seg_len_px / min_unit)
             if max_n < 1: max_n = 1
             
             # Ограничиваем
             if val < 1: val = 1
             if val > max_n: val = max_n
             
-            # Обновляем сегмент
-            seg.kinks_count = val
+            # Сохраняем
+            if base_type == 'zigzag': seg.kinks_count = val
+            else: seg.waves_count = val
             
-            # Обновляем поле ввода (чтобы юзер видел, если мы обрезали значение)
-            # (Делаем это аккуратно, чтобы не мешать вводу, если это не Enter)
             if event and (event.keysym == 'Return' or event.type == 'VirtualEvent'): 
                  self.view.kinks_var.set(str(val))
             
             self.redraw_all()
             
         except ValueError:
-            pass # Если ввели буквы
+            pass
 
     def on_style_selected(self, event=None):
         # Получаем индекс выбранного элемента

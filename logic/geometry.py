@@ -29,7 +29,7 @@ class Point:
 
 class Segment:
     # Инициализация отрезка по умолчанию
-    def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black', kinks_count=None):
+    def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black', kinks_count=None, waves_count=None):
         self.p1 = p1
         self.p2 = p2
         # Храним только ID стиля (ссылку), а не параметры. 
@@ -37,6 +37,7 @@ class Segment:
         self.style_name = style_name
         self.color = color
         self.kinks_count = kinks_count
+        self.waves_count = waves_count
 
     # @property - декоратор для обращения к методу объекта без ()
     # Метод вычисляет и возвращает длину отрезка

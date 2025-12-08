@@ -185,7 +185,8 @@ class MainWindow:
         self.kinks_frame = ttk.Frame(style_frame)
         # Мы его не пакуем сразу, это сделает callback
         
-        ttk.Label(self.kinks_frame, text="Кол-во изломов:").pack(side=tk.LEFT)
+        self.lbl_kinks = ttk.Label(self.kinks_frame, text="Кол-во:")
+        self.lbl_kinks.pack(side=tk.LEFT)
         self.kinks_var = tk.StringVar()
         self.spin_kinks = ttk.Spinbox(self.kinks_frame, from_=1, to=100, textvariable=self.kinks_var, width=5, command=callbacks.on_kinks_changed)
         self.spin_kinks.pack(side=tk.RIGHT)

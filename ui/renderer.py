@@ -116,7 +116,7 @@ class Renderer:
             
         return lines
 
-    def _generate_wave_coords(self, x1, y1, x2, y2):
+    def _generate_wave_coords(self, x1, y1, x2, y2, fixed_count=None):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
@@ -126,18 +126,27 @@ class Renderer:
         
         points = []
         zoom = self.state.zoom
+        
+        # Базовые параметры (если авто)
         step = 5 * (zoom / 5.0)
         amplitude = 3 * (zoom / 5.0)
-        freq = 0.2 / (zoom / 5.0)
+        freq = 0.2 / (zoom / 5.0) # Частота по умолчанию
+        
+        # Если задано конкретное число волн
+        if fixed_count is not None and fixed_count > 0:
+            # Чтобы уместить ровно N волн в длину L:
+            # Период синуса T = Length / N
+            # Частота в формуле sin(t * freq) -> freq = 2*pi / T
+            # freq = 2*pi * N / Length
+            freq = (2 * math.pi * fixed_count) / length
+        
         if step < 0.1: step = 0.1
         
         t = 0
         while t < length:
             offset = amplitude * math.sin(t * freq)
-            bx = x1 + ux * t
-            by = y1 + uy * t
-            px = bx + nx * offset
-            py = by + ny * offset
+            px = x1 + ux * t + nx * offset
+            py = y1 + uy * t + ny * offset
             points.extend([px, py])
             t += step
             
@@ -257,7 +266,7 @@ class Renderer:
             base_type = getattr(style, 'base_type', 'solid')
             
             if base_type == 'wave':
-                coords = self._generate_wave_coords(sx1, sy1, sx2, sy2)
+                coords = self._generate_wave_coords(sx1, sy1, sx2, sy2, fixed_count=segment.waves_count)
                 smooth_flag = True
             elif base_type == 'zigzag':
                 # ПЕРЕДАЕМ KINKS_COUNT из сегмента
