@@ -1,9 +1,9 @@
 # ui/main_window.py
-
-'''
-Создает окна, кнопки, поля ввода, меню и сам холст (Canvas). 
-Он отвечает за компоновку (где какая кнопка лежит), но не за то, что происходит при нажатии (это делегируется в Callbacks).
-'''
+# 
+# Модуль отвечает за создание интерфейса приложения CAD
+# Создает окна, кнопки, поля ввода, меню и холст (Canvas)
+# Отвечает только за расположение элементов (layout), 
+# логика обработки событий делегируется в callbacks
 
 import tkinter as tk
 from tkinter import ttk
@@ -11,41 +11,55 @@ from tkinter import colorchooser
 import math
 from logic.styles import GOST_STYLES
 
+# Главный класс интерфейса приложения
 class MainWindow:
     def __init__(self, root, callbacks):
+        # root - основное окно Tkinter
+        # callbacks - объект с функциями-обработчиками событий
         self.root = root
         self.callbacks = callbacks 
         
+        # Установка заголовка и минимальных размеров окна
         root.title("MyPerfectCAD")
         root.minsize(950, 600)
         
+        # Настройка сеточной раскладки - левая колонка с весом 1 будет растягиваться
         root.columnconfigure(0, weight=1)
+        # Средняя строка с весом 1 будет занимать оставшееся пространство
         root.rowconfigure(1, weight=1)
 
+        # Создание меню (Файл, Стили, Вид и т.д.)
         self.setup_main_menu(root, callbacks)
         
+        # === ПАНЕЛЬ ИНСТРУМЕНТОВ (верхняя часть) ===
         toolbar = ttk.Frame(root, padding="5")
         toolbar.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
         self._setup_toolbar_buttons(toolbar, callbacks)
 
+        # === ОСНОВНОЙ ХОЛСТ ДЛЯ РИСОВАНИЯ (слева) ===
         self.canvas = tk.Canvas(root, borderwidth=2, relief="sunken", highlightthickness=0)
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
+        # === ПАНЕЛЬ НАСТРОЕК (справа) ===
         settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
         settings_panel.grid(row=1, column=1, sticky=('E', 'N', 'S'), padx=5, pady=5)
         self.setup_settings_panel(settings_panel, callbacks)
         
+        # === ИНФОРМАЦИОННАЯ ПАНЕЛЬ (снизу, под холстом) ===
         info_panel = ttk.Frame(root, padding="5")
         info_panel.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
         self.setup_info_panel(info_panel)
         
+        # === СТРОКА СОСТОЯНИЯ (самая нижняя) ===
         status_bar = ttk.Frame(root, relief="sunken", padding="2")
         status_bar.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E))
         self.setup_status_bar(status_bar)
 
+        # Контекстное меню (ПКМ на холст)
         self.create_context_menu(root, callbacks)
         
-        # БИНДЫ
+        # === ПРИВЯЗКИ СОБЫТИЙ (key bindings) ===
+        # События мыши на холсте
         self.canvas.bind("<Configure>", callbacks.on_canvas_resize)
         self.canvas.bind("<ButtonPress-2>", callbacks.on_mouse_press)
         self.canvas.bind("<B2-Motion>", callbacks.on_mouse_drag)
@@ -55,9 +69,9 @@ class MainWindow:
         self.canvas.bind("<Motion>", callbacks.on_mouse_move_stats)
         self.canvas.bind("<Button-3>", callbacks.show_context_menu) 
 
+        # События клавиатуры
         self.root.bind("<F11>", callbacks.toggle_fullscreen)
         self.root.bind("<Escape>", callbacks.on_escape_key)
-        
         self.root.bind("<plus>", callbacks.on_zoom_in)
         self.root.bind("<equal>", callbacks.on_zoom_in)
         self.root.bind("<minus>", callbacks.on_zoom_out)
@@ -66,54 +80,50 @@ class MainWindow:
         self.root.bind("<Shift-Left>", callbacks.on_rotate_left)
         self.root.bind("<Shift-Right>", callbacks.on_rotate_right)
 
+    # Создание кнопок на верхней панели инструментов
     def _setup_toolbar_buttons(self, parent, callbacks):
-        # Группа 1: Рисование
+        
+        # Группа 1: основные инструменты рисования
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
-        
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
-        # Группа 2: Навигация
+        # Группа 2: навигация и масштабирование
         ttk.Button(parent, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа+", command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Лупа-", command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Показать все", command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
-        
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
-        # Группа 3: Поворот и сброс
+        # Группа 3: вращение и сброс вида
         ttk.Button(parent, text="↶", width=3, command=callbacks.on_rotate_left).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="↷", width=3, command=callbacks.on_rotate_right).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Сброс", command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)
 
-        # Группа 4: БЫСТРЫЕ СТИЛИ (НОВОЕ)
+        # Группа 4: быстрые стили линий (основная, тонкая, штриховая и т.д.)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
-        
-        # Кнопка "Основная" (S)
-        # Используем lambda, чтобы передать аргумент в функцию
         ttk.Button(parent, text="Основная", command=lambda: callbacks.on_quick_style_set('solid_main')).pack(side=tk.LEFT, padx=1)
-        
-        # Кнопка "Тонкая" (S/2)
         ttk.Button(parent, text="Тонкая", command=lambda: callbacks.on_quick_style_set('solid_thin')).pack(side=tk.LEFT, padx=1)
-        
-        # Кнопка "Штриховая"
         ttk.Button(parent, text="Штриховая", command=lambda: callbacks.on_quick_style_set('dashed')).pack(side=tk.LEFT, padx=1)
-        
-        # Кнопка "Осевая" (Штрих-пунктир)
         ttk.Button(parent, text="Осевая", command=lambda: callbacks.on_quick_style_set('dash_dot_thin')).pack(side=tk.LEFT, padx=1)
 
+    # Создание главного меню приложения
     def setup_main_menu(self, root, callbacks):
+
         menubar = tk.Menu(root)
         root.config(menu=menubar)
         
+        # Меню "Файл"
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Выход", command=root.quit)
         menubar.add_cascade(label="Файл", menu=file_menu)
         
+        # Меню "Стили" - управление стилями линий
         style_menu = tk.Menu(menubar, tearoff=0)
         style_menu.add_command(label="Менеджер стилей...", command=callbacks.on_open_style_manager)
         menubar.add_cascade(label="Стили", menu=style_menu)
         
+        # Меню "Вид" - навигация и масштабирование
         view_menu = tk.Menu(menubar, tearoff=0)
         view_menu.add_command(label="Рука (Панорама)", command=callbacks.on_hand_mode)
         view_menu.add_separator()
@@ -125,22 +135,31 @@ class MainWindow:
         view_menu.add_command(label="Повернуть вправо", command=callbacks.on_rotate_right)
         view_menu.add_separator()
         view_menu.add_command(label="Сбросить вид", command=callbacks.on_reset_view)
-        
         menubar.add_cascade(label="Вид", menu=view_menu)
 
+    # Строка состояния внизу окна - показывает текущие координаты, масштаб и угол поворота
     def setup_status_bar(self, parent):
+        # Координаты курсора (X, Y)
         self.status_coords = ttk.Label(parent, text="X: 0.00  Y: 0.00", width=20)
         self.status_coords.pack(side=tk.LEFT, padx=5)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=2)
+
+        # Текущий масштаб
         self.status_zoom = ttk.Label(parent, text="Zoom: 100%", width=15)
         self.status_zoom.pack(side=tk.LEFT, padx=5)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=2)
+
+        # Угол поворота вида (в градусах)
         self.status_angle = ttk.Label(parent, text="Angle: 0.0°", width=15)
         self.status_angle.pack(side=tk.LEFT, padx=5)
+
+        # Текущий режим работы (рисование, панорама, ожидание и т.д.)
         self.status_mode = ttk.Label(parent, text="Режим: Ожидание", anchor=tk.E)
         self.status_mode.pack(side=tk.RIGHT, padx=5, fill=tk.X, expand=True)
 
+    # Контекстное меню, которое появляется при ПКМ на холсте
     def create_context_menu(self, root, callbacks):
+
         self.context_menu = tk.Menu(root, tearoff=0)
         self.context_menu.add_command(label="Рука", command=callbacks.on_hand_mode)
         self.context_menu.add_separator()
@@ -149,102 +168,151 @@ class MainWindow:
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Отмена", command=lambda: None)
 
+    # Панель справа с настройками (стили, координаты, сетка, цвета и т.д.)
     def setup_settings_panel(self, parent, callbacks):
+
+
+        # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
         style_frame = ttk.LabelFrame(parent, text="Стиль линии")
         style_frame.pack(padx=5, pady=5, fill=tk.X)
         
-        # Фиксированная ширина канваса
+        # Превью выбранного стиля линии (визуальное представление)
+        # Размер фиксирован - 200x40 пикселей
         self.prop_preview_canvas = tk.Canvas(style_frame, width=200, height=40, bg="white", relief="sunken", borderwidth=1)
         self.prop_preview_canvas.pack(padx=5, pady=(5, 0))
-        # Обновление превью при отрисовке
+
+        # При перерисовке холста обновляем превью текущего стиля
         self.prop_preview_canvas.bind("<Configure>", lambda e: self.update_style_preview(self.callbacks.state.current_style_name))
         
-        # Список стилей
-        self.style_ids = [] # Ключи
+        # Выпадающий список стилей - отсортирован (встроенные стили вверху)
+        self.style_ids = []
         style_names = []
-        # Сортировка
+
+        # Сортируем стили: сначала встроенные, потом пользовательские
         sorted_items = sorted(GOST_STYLES.items(), key=lambda x: (x[1].is_custom, x[1].display_name))
         for key, style in sorted_items:
             style_names.append(style.display_name)
             self.style_ids.append(key)
 
+        # Комбобокс для выбора стиля (только для чтения - список)
         self.style_combobox = ttk.Combobox(style_frame, values=style_names, state="readonly")
         
-        # Начальное значение
+        # Установка начального значения (текущий выбранный стиль)
         current = callbacks.state.current_style_name
         if current in self.style_ids:
             idx = self.style_ids.index(current)
             self.style_combobox.current(idx)
         elif self.style_ids:
             self.style_combobox.current(0)
-            
         self.style_combobox.pack(fill=tk.X, padx=5, pady=5)
+
+        # При выборе стиля вызываем callback
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
         
-        # --- НОВОЕ: Поле для количества изломов (Скрытое) ---
+
+        # === РАЗДЕЛ: КОЛИЧЕСТВО ИЗЛМОВ ИЛИ ВОЛН ===
+        # Скрыто по умолчанию, показывается только для определенных стилей
         self.kinks_frame = ttk.Frame(style_frame)
-        # Мы его не пакуем сразу, это сделает callback
-        
         self.lbl_kinks = ttk.Label(self.kinks_frame, text="Кол-во:")
         self.lbl_kinks.pack(side=tk.LEFT)
+
+        # Поле для ввода количества
         self.kinks_var = tk.StringVar()
         self.spin_kinks = ttk.Spinbox(self.kinks_frame, from_=1, to=100, textvariable=self.kinks_var, width=5, command=callbacks.on_kinks_changed)
         self.spin_kinks.pack(side=tk.RIGHT)
+
+        # События при изменении значения
         self.spin_kinks.bind("<Return>", callbacks.on_kinks_changed)
         self.spin_kinks.bind("<<Increment>>", lambda e: callbacks.on_kinks_changed())
         self.spin_kinks.bind("<<Decrement>>", lambda e: callbacks.on_kinks_changed())
-        # ---------------------------------------------------
-
+        
+        # Кнопка для открытия менеджера стилей (подробная настройка)
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        # --- КООРДИНАТЫ ---
+
+        # === РАЗДЕЛ: КООРДИНАТЫ ТОЧЕК ===
+        # Переменные для выбора системы координат
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
         
+        # ТОЧКА 1 (P1) - начало отрезка
         p1_frame = ttk.LabelFrame(parent, text="Точка 1 (P1)")
         p1_frame.pack(padx=5, pady=5, fill=tk.X)
         _, self.p1_x_entry = self._create_coord_entry(p1_frame, "X₁:", callbacks.update_preview_segment)
         _, self.p1_y_entry = self._create_coord_entry(p1_frame, "Y₁:", callbacks.update_preview_segment)
         
+        # ТОЧКА 2 (P2) - конец отрезка
         p2_frame = ttk.LabelFrame(parent, text="Точка 2 (P2)")
         p2_frame.pack(padx=5, pady=5, fill=tk.X)
         self.p2_label1, self.p2_x_entry = self._create_coord_entry(p2_frame, "X₂:", callbacks.update_preview_segment)
         self.p2_label2, self.p2_y_entry = self._create_coord_entry(p2_frame, "Y₂:", callbacks.update_preview_segment)
         
+        # Радиокнопки для выбора системы координат второй точки
+        # Декартова: стандартные X, Y
         ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
+
+        # Полярная: расстояние и угол от первой точки
         ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
         
-        # --- ЕДИНИЦЫ УГЛА ---
+        # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
         angle_frame.pack(padx=5, pady=5, fill=tk.X)
         ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=callbacks.update_preview_segment).pack(anchor=tk.W)
         ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=callbacks.update_preview_segment).pack(anchor=tk.W)
         
-        # --- СЕТКА ---
+
+        # === РАЗДЕЛ: СЕТКА ===
         grid_frame = ttk.LabelFrame(parent, text="Сетка")
         grid_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        # Шаг сетки в единицах рисунка
         self.grid_step_var = tk.StringVar(value="10")
         ttk.Label(grid_frame, text="Шаг:").pack(side=tk.LEFT, padx=(0,5))
         ttk.Entry(grid_frame, textvariable=self.grid_step_var, width=5).pack(side=tk.LEFT, padx=5)
         ttk.Button(grid_frame, text="Применить", command=callbacks.on_apply_settings).pack(side=tk.LEFT, padx=5)
         
-        # --- ЦВЕТА ---
+
+        # === РАЗДЕЛ: ЦВЕТА ===
         color_frame = ttk.LabelFrame(parent, text="Цвета")
         color_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        # Выбор цвета фона холста
         self.bg_swatch = self._create_color_chooser(color_frame, "Фон:", callbacks.on_choose_bg_color)
+
+        # Выбор цвета сетки
         self.grid_swatch = self._create_color_chooser(color_frame, "Сетка:", callbacks.on_choose_grid_color)
+
+        # Выбор цвета линий
         self.segment_swatch = self._create_color_chooser(color_frame, "Линии:", callbacks.on_choose_segment_color)
 
+    # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
+
+        # Длина отрезка
         self.length_var = tk.StringVar(value="Длина: N/A")
+
+        # Угол отрезка (в градусах или радианах, в зависимости от выбора)
         self.angle_var = tk.StringVar(value="Угол: N/A")
+
+        # Координаты первой точки
         self.p1_coord_var = tk.StringVar(value="P1: N/A")
+
+        # Координаты второй точки
         self.p2_coord_var = tk.StringVar(value="P2: N/A")
+
+        # Создание меток с этими переменными
         for var in [self.length_var, self.angle_var, self.p1_coord_var, self.p2_coord_var]:
             ttk.Label(parent, textvariable=var).pack(side=tk.LEFT, padx=10, pady=2)
+
+
+         # === ГОРЯЧИЕ КЛАВИШИ ===
         self.hotkey_frame = ttk.Frame(parent)
+
+        # Enter - подтвердить ввод
         self.lbl_enter = ttk.Label(self.hotkey_frame, text="⏎ Enter - Ввод")
         self.lbl_enter.pack(side=tk.LEFT, padx=5)
+        
+        # Escape - отмена
         self.lbl_esc = ttk.Label(self.hotkey_frame, text="⎋ Esc - Отмена")
         self.lbl_esc.pack(side=tk.LEFT, padx=5)
     

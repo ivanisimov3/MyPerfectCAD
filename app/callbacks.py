@@ -92,7 +92,7 @@ class Callbacks:
         
         self.redraw_all()
 
-    # --- ЛОГИКА ВЫДЕЛЕНИЯ (ОБНОВЛЕННАЯ) ---
+    # --- ЛОГИКА ВЫДЕЛЕНИЯ ---
     
     def on_selection_click(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
@@ -196,7 +196,7 @@ class Callbacks:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
 
-    # НОВЫЙ МЕТОД: Изменение количества изломов
+    # Изменение количества изломов или волн
     def on_kinks_changed(self, event=None):
         if not self.state.selected_segments: return
         seg = self.state.selected_segments[0]
@@ -271,7 +271,7 @@ class Callbacks:
         self.update_preview_segment()
         self.redraw_all()
 
-    # --- СТАНДАРТНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
+    # --- СТАНДАРТНЫЕ МЕТОДЫ ---
 
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
@@ -618,7 +618,7 @@ class Callbacks:
         else:
             self.on_rmb_click(event)
 
-    # НОВЫЙ МЕТОД: Вызывается, когда в Менеджере нажали "Применить"
+    # Вызывается, когда в Менеджере нажали "Применить"
     def on_styles_updated(self):
         # 1. Обновляем список в главном окне (чтобы появился новый стиль)
         self.view.refresh_style_combobox_values(self.state.line_styles)
@@ -629,12 +629,12 @@ class Callbacks:
         # 3. Синхронизируем панель свойств (если вдруг удалили текущий стиль)
         self._sync_ui_with_selection()
 
-    # ИСПРАВЛЕННЫЙ МЕТОД открытия окна
+    # Метод открытия окна
     def on_open_style_manager(self):
         # Передаем НЕ redraw_all, а наш новый метод
         StyleManagerWindow(self.root, self.state, self.on_styles_updated)
 
-    # НОВЫЙ МЕТОД: Обработка кнопок быстрого доступа
+    # Обработка кнопок быстрого доступа
     def on_quick_style_set(self, style_key):
         # Проверяем, есть ли такой стиль вообще (вдруг удалили)
         if style_key not in self.state.line_styles:

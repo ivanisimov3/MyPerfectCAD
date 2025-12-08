@@ -1,7 +1,10 @@
-# main.py
+# main.py - Точка входа приложения
 
 from app.application import Application
 
+# Проверяем, что файл запущен напрямую
 if __name__ == "__main__":
+    # Создаем экземпляр главного приложения
     app = Application()
+    # Запускаем основной цикл приложения
     app.run()

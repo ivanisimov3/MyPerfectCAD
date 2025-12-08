@@ -230,58 +230,94 @@ class Renderer:
         return points
 
     def draw_segment(self, segment, override_color=None, override_width=None):
+        # Отрисовывает один отрезок (линию) на холсте
+        # override_color, override_width - используются для выделения или других спецэффектов
+        
+        # Выбираем цвет (переопределенный или из сегмента)
         draw_color = override_color if override_color else segment.color
+        
+        # Получаем стиль линии из state
         style = self.state.line_styles.get(segment.style_name)
         
+        # Дефолтные значения
         line_width = 1
         dash_pattern = None
         is_complex_geo = False
         
+        # Если стиль найден, обработаем его свойства
         if style:
+            # Вычисляем толщину линии на основе базовой толщины
             s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
-            if style.is_main: line_width = max(1, int(s_px))
-            else: line_width = max(1, int(s_px / 2))
             
+            # Основная линия толще, тонкая - в 2 раза тоньше
+            if style.is_main:
+                line_width = max(1, int(s_px))
+            else:
+                line_width = max(1, int(s_px / 2))
+            
+            # === ОБРАБОТКА ПАТТЕРНА ШТРИХОВКИ ===
             if style.dash_pattern:
-                main_dash = style.dash_pattern[0]; main_gap = style.dash_pattern[1]
+                main_dash = style.dash_pattern[0]
+                main_gap = style.dash_pattern[1]
+                
+                # Определяем тип штриховки (обычная, пунктир или штрих-пунктир)
                 base = getattr(style, 'base_type', 'solid')
-                if base == 'dash_dot_dot': part = main_gap/5.0; dash_pattern = [main_dash, part, part, part, part, part]
-                elif base == 'dash_dot': part = main_gap/3.0; dash_pattern = [main_dash, part, part, part]
-                else: dash_pattern = [main_dash, main_gap]
+                
+                if base == 'dash_dot_dot':
+                    # Штрих-пунктир-пунктир (две точки)
+                    part = main_gap / 5.0
+                    dash_pattern = [main_dash, part, part, part, part, part]
+                elif base == 'dash_dot':
+                    # Штрих-пунктир (одна точка)
+                    part = main_gap / 3.0
+                    dash_pattern = [main_dash, part, part, part]
+                else:
+                    # Просто штриховая
+                    dash_pattern = [main_dash, main_gap]
             
+            # === ПРОВЕРКА СЛОЖНЫХ ГЕОМЕТРИЙ (волна, изогнутая) ===
             if getattr(style, 'base_type', 'solid') in ['wave', 'zigzag']:
                 is_complex_geo = True
-
+        
         if override_width:
             line_width = override_width
             dash_pattern = None
-            is_complex_geo = False
-
+            is_complex_geo = False 
+        
+        # Конвертируем мировые координаты в экранные
         sx1, sy1 = self.converter.world_to_screen(segment.p1.x, segment.p1.y)
         sx2, sy2 = self.converter.world_to_screen(segment.p2.x, segment.p2.y)
-
+        
+        # === РИСОВАНИЕ СЛОЖНЫХ ГЕОМЕТРИЙ (волна или изогнутая) ===
         if is_complex_geo:
             coords = []
             smooth_flag = False
+            
             base_type = getattr(style, 'base_type', 'solid')
             
             if base_type == 'wave':
+                # Волнистая линия с фиксированным количеством волн (если задано)
                 coords = self._generate_wave_coords(sx1, sy1, sx2, sy2, fixed_count=segment.waves_count)
                 smooth_flag = True
             elif base_type == 'zigzag':
+                # Зубчатая линия с фиксированным количеством зубьев
                 # ПЕРЕДАЕМ KINKS_COUNT из сегмента
                 coords = self._generate_zigzag_coords(sx1, sy1, sx2, sy2, fixed_count=segment.kinks_count)
                 smooth_flag = False
             
+            # Если координаты успешно сгенерированы, рисуем сложную линию
             if len(coords) >= 4:
                 self.canvas.create_line(*coords, fill=draw_color, width=line_width, capstyle=tk.ROUND, smooth=smooth_flag)
-                return 
-
+            return
+        
+        # === РИСОВАНИЕ ПРЕРЫВИСТОЙ ЛИНИИ ===
         if dash_pattern:
+            # Генерируем сегменты и рисуем каждый отдельно
             segments_list = self._generate_dashed_coords(sx1, sy1, sx2, sy2, dash_pattern)
             for seg in segments_list:
                 self.canvas.create_line(seg[0], seg[1], seg[2], seg[3], fill=draw_color, width=line_width, capstyle=tk.ROUND)
         else:
+            # === РИСОВАНИЕ ОБЫЧНОЙ СПЛОШНОЙ ЛИНИИ ===
             self.canvas.create_line(sx1, sy1, sx2, sy2, fill=draw_color, width=line_width, capstyle=tk.ROUND)
 
     def draw_point(self, point, size=4, color='black'):
@@ -289,13 +325,29 @@ class Renderer:
         self.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
 
     def render_scene(self):
+        # Главный метод отрисовки всей сцены
+        # Вызывается при каждом обновлении (например, при движении мыши или изменении зума)
+        
+        # 1. Очищаем холст
         self.clear()
+        
+        # 2. Рисуем сетку и оси
         self.draw_grid_and_axes()
+        
+        # 3. Рисуем выделенные сегменты (с голубым цветом и увеличенной толщиной)
         for seg in self.state.selected_segments:
             self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        
+        # 4. Рисуем все остальные сегменты
         for segment in self.state.segments:
             self.draw_segment(segment)
+        
+        # 5. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
-        if self.state.active_p1: self.draw_point(self.state.active_p1)
-        if self.state.active_p2: self.draw_point(self.state.active_p2)
+        
+        # 6. Рисуем активные точки (начало и конец текущего отрезка)
+        if self.state.active_p1:
+            self.draw_point(self.state.active_p1)
+        if self.state.active_p2:
+            self.draw_point(self.state.active_p2)
