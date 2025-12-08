@@ -130,36 +130,114 @@ class Callbacks:
 
     def _sync_ui_with_selection(self):
         """Обновляет панель свойств в зависимости от выделения."""
+        # 1. Скрываем панель изломов по умолчанию
+        self.view.kinks_frame.pack_forget()
+        
         sel = self.state.selected_segments
         
         if not sel:
-            # Если ничего не выбрано -> показываем настройки для БУДУЩИХ линий (текущий глобальный стиль)
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
-                self.view.set_style_selection(style_obj.name) # Используем ключ стиля
+                self.view.set_style_selection(style_obj.name) 
                 self.view.segment_swatch.config(bg=self.state.current_color)
             return
 
-        # Собираем все уникальные стили выделенных объектов
         unique_styles = {seg.style_name for seg in sel}
         
         if len(unique_styles) == 1:
-            # Все объекты одного стиля
             style_name = list(unique_styles)[0]
             self.view.set_style_selection(style_name)
-            
-            # Цвет (берем у первого)
             first_color = sel[0].color
             self.view.segment_swatch.config(bg=first_color)
             
-            # Обновляем глобальное состояние, чтобы новые линии рисовались так же
             self.state.current_style_name = style_name
             self.state.current_color = first_color
+            
+            # Проверяем, нужно ли показать настройки изломов
+            style = self.state.line_styles.get(style_name)
+            base_type = getattr(style, 'base_type', 'solid')
+            
+            if base_type == 'zigzag' and len(sel) == 1:
+                seg = sel[0]
+                self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
+                
+                if seg.kinks_count:
+                    # Если пользователь уже задал число -> показываем его
+                    self.view.kinks_var.set(str(seg.kinks_count))
+                else:
+                    # ИНАЧЕ -> Рассчитываем, сколько изломов рисуется "по умолчанию"
+                    # Формула из Renderer: (period + kink_len)
+                    # period=40, kink=6 (базовые при zoom=5.0)
+                    
+                    # Математически (см. renderer):
+                    # Unit = Period + Kink
+                    # Count = Length / Unit
+                    # Масштаб (zoom) сокращается, поэтому считаем в базовых единицах.
+                    # Но чтобы быть точным, повторим логику рендерера:
+                    
+                    zoom = self.state.zoom
+                    period_px = 40 * (zoom / 5.0)
+                    kink_px = 6 * (zoom / 5.0)
+                    total_unit_px = period_px + kink_px
+                    seg_len_px = seg.length * zoom
+                    
+                    if total_unit_px > 0:
+                        default_count = int(seg_len_px / total_unit_px)
+                    else:
+                        default_count = 0
+                        
+                    self.view.kinks_var.set(str(default_count))
         else:
-            # Объекты разных стилей
             self.view.set_style_selection("Разные")
-            # Цвет можно сделать нейтральным
             self.view.segment_swatch.config(bg="#cccccc")
+
+    # НОВЫЙ МЕТОД: Изменение количества изломов
+    def on_kinks_changed(self, event=None):
+        if not self.state.selected_segments: return
+        
+        # Работаем с первым выделенным (так как панель показывается только для одного)
+        seg = self.state.selected_segments[0]
+        
+        try:
+            val_str = self.view.kinks_var.get()
+            if not val_str: 
+                seg.kinks_count = None # Сброс на авто
+                self.redraw_all()
+                return
+                
+            val = int(val_str)
+            
+            # Рассчитываем Максимум (N)
+            # Длина излома в пикселях (примерно как в рендерере)
+            zoom = self.state.zoom
+            kink_len_px = 8 * (zoom / 5.0)
+            
+            # Длина линии в пикселях
+            # Нам нужно перевести длину линии из мира в пиксели
+            # seg.length - это мировые единицы.
+            # zoom - это коэффициент масштаба.
+            seg_len_px = seg.length * zoom
+            
+            # Сколько влезет?
+            max_n = int(seg_len_px / kink_len_px)
+            if max_n < 1: max_n = 1
+            
+            # Ограничиваем
+            if val < 1: val = 1
+            if val > max_n: val = max_n
+            
+            # Обновляем сегмент
+            seg.kinks_count = val
+            
+            # Обновляем поле ввода (чтобы юзер видел, если мы обрезали значение)
+            # (Делаем это аккуратно, чтобы не мешать вводу, если это не Enter)
+            if event and (event.keysym == 'Return' or event.type == 'VirtualEvent'): 
+                 self.view.kinks_var.set(str(val))
+            
+            self.redraw_all()
+            
+        except ValueError:
+            pass # Если ввели буквы
 
     def on_style_selected(self, event=None):
         # Получаем индекс выбранного элемента

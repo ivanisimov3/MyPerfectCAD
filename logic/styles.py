@@ -1,22 +1,35 @@
 # logic/styles.py
+
+'''
+Здесь описана структура стиля линии.
+'''
+
 from dataclasses import dataclass
 from typing import Tuple, Optional
 
 @dataclass
 class LineStyle:
-    name: str
-    display_name: str
-    is_main: bool
-    dash_pattern: Optional[Tuple[float, ...]] 
+    name: str             # Название стиля для программы
+    display_name: str     # Имя для отображения в UI
+    is_main: bool         # Если True -> толщина S, иначе S/2
+    
+    # Параметры штриховки
+    dash_pattern: Optional[Tuple[float, ...]]
+    
+    # Ограничения на ввод размеров по ГОСТ (min_dash, max_dash, min_gap, max_gap)
     limits: Optional[Tuple[float, float, float, float]] = None
+    
+    # Флаг пользовательского стиля
     is_custom: bool = False
-    base_type: str = 'solid'
+    
+    # Тип алгоритма отрисовки (solid, dashed, wave, zigzag)
+    base_type: str = 'solid' 
 
-# Стандартные шаблоны с ограничениями по ГОСТ
+# База предустановленных стилей ГОСТ
 GOST_STYLES = {
     'solid_main': LineStyle(
         name='solid_main',
-        display_name='Сплошная толстая основная',
+        display_name='Сплошная основная',
         is_main=True,
         dash_pattern=None,
         base_type='solid'

@@ -245,7 +245,7 @@ class StyleManagerWindow(tk.Toplevel):
         
         points = [x1, y1]
         period = 40 * self.preview_zoom
-        kink_len = 12 * self.preview_zoom
+        kink_len = 8 * self.preview_zoom
         amplitude = 5 * self.preview_zoom
         
         current_dist = 0

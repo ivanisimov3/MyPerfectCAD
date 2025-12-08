@@ -181,6 +181,19 @@ class MainWindow:
         self.style_combobox.pack(fill=tk.X, padx=5, pady=5)
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
         
+        # --- НОВОЕ: Поле для количества изломов (Скрытое) ---
+        self.kinks_frame = ttk.Frame(style_frame)
+        # Мы его не пакуем сразу, это сделает callback
+        
+        ttk.Label(self.kinks_frame, text="Кол-во изломов:").pack(side=tk.LEFT)
+        self.kinks_var = tk.StringVar()
+        self.spin_kinks = ttk.Spinbox(self.kinks_frame, from_=1, to=100, textvariable=self.kinks_var, width=5, command=callbacks.on_kinks_changed)
+        self.spin_kinks.pack(side=tk.RIGHT)
+        self.spin_kinks.bind("<Return>", callbacks.on_kinks_changed)
+        self.spin_kinks.bind("<<Increment>>", lambda e: callbacks.on_kinks_changed())
+        self.spin_kinks.bind("<<Decrement>>", lambda e: callbacks.on_kinks_changed())
+        # ---------------------------------------------------
+
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
         # --- КООРДИНАТЫ ---
@@ -351,7 +364,7 @@ class MainWindow:
         
         points = [x1, y1]
         period = 40
-        kink_len = 12
+        kink_len = 8
         amplitude = 5
         
         current_dist = 0

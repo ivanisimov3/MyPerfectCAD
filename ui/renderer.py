@@ -1,9 +1,8 @@
 # ui/renderer.py
 
 '''
-Этот класс умеет брать данные из state (точки, линии) и физически рисовать их на tkinter.Canvas. 
-Он рисует сетку, оси координат и сами отрезки. 
-Он знает, как нарисовать линию определенного цвета и толщины, но не решает когда это делать.
+Отвечает за низкоуровневую отрисовку графики.
+Реализует паттерн "Отрисовщик": отделяет логику хранения данных от логики их отображения.
 '''
 
 import math
@@ -80,7 +79,7 @@ class Renderer:
                 sx, sy = self.converter.world_to_screen(0, lbl_y_pos)
                 self.canvas.create_text(sx + 5, sy, text="Y", font=font_style, fill="green", anchor="nw")
 
-    # Генератор для ПУНКТИРНЫХ линий
+    # Генератор для пунктирных линий
     def _generate_dashed_coords(self, x1, y1, x2, y2, pattern):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
@@ -145,20 +144,63 @@ class Renderer:
         points.extend([x2, y2])
         return points
 
-    def _generate_zigzag_coords(self, x1, y1, x2, y2):
+    def _generate_zigzag_coords(self, x1, y1, x2, y2, fixed_count=None):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
         
         ux, uy = dx/length, dy/length
         nx, ny = -uy, ux
-        
         points = [x1, y1]
+        
         zoom = self.state.zoom
+        # Базовые параметры (если fixed_count не задан)
         period = 40 * (zoom / 5.0)
-        kink_len = 12 * (zoom / 5.0)
+        kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
         
+        # ЛОГИКА ФИКСИРОВАННОГО КОЛИЧЕСТВА
+        if fixed_count is not None and fixed_count > 0:
+            # Считаем суммарную длину всех изломов
+            total_kinks_len = fixed_count * kink_len
+            
+            # Если изломы влезают в длину линии
+            if total_kinks_len < length:
+                # Оставшееся место делим поровну на промежутки
+                # Промежутков всегда N + 1 (начало...излом...конец)
+                gap = (length - total_kinks_len) / (fixed_count + 1)
+                
+                current_dist = 0
+                for _ in range(fixed_count):
+                    # 1. Прямой участок (Gap)
+                    current_dist += gap
+                    bx = x1 + ux * current_dist
+                    by = y1 + uy * current_dist
+                    points.extend([bx, by])
+                    
+                    # 2. Рисуем излом
+                    d1 = current_dist + kink_len * 0.25
+                    px1 = x1 + ux * d1 - nx * amplitude
+                    py1 = y1 + uy * d1 - ny * amplitude
+                    
+                    d2 = current_dist + kink_len * 0.75
+                    px2 = x1 + ux * d2 + nx * amplitude
+                    py2 = y1 + uy * d2 + ny * amplitude
+                    
+                    d3 = current_dist + kink_len
+                    px3 = x1 + ux * d3
+                    py3 = y1 + uy * d3
+                    
+                    points.extend([px1, py1, px2, py2, px3, py3])
+                    current_dist += kink_len
+                
+                # Дорисовываем конец
+                points.extend([x2, y2])
+                return points
+            
+            # Если не влезают - рисуем как обычный (фолбэк)
+        
+        # СТАНДАРТНАЯ ЛОГИКА (АВТОМАТИЧЕСКАЯ)
         current_dist = 0
         while current_dist < length:
             dist_to_next_kink = min(length, current_dist + period)
@@ -168,15 +210,9 @@ class Renderer:
             current_dist = dist_to_next_kink
             
             if current_dist + kink_len <= length:
-                d1 = current_dist + kink_len * 0.25
-                px1 = x1 + ux * d1 - nx * amplitude
-                py1 = y1 + uy * d1 - ny * amplitude
-                d2 = current_dist + kink_len * 0.75
-                px2 = x1 + ux * d2 + nx * amplitude
-                py2 = y1 + uy * d2 + ny * amplitude
-                d3 = current_dist + kink_len
-                px3 = x1 + ux * d3
-                py3 = y1 + uy * d3
+                d1 = current_dist + kink_len * 0.25; px1 = x1 + ux * d1 - nx * amplitude; py1 = y1 + uy * d1 - ny * amplitude
+                d2 = current_dist + kink_len * 0.75; px2 = x1 + ux * d2 + nx * amplitude; py2 = y1 + uy * d2 + ny * amplitude
+                d3 = current_dist + kink_len; px3 = x1 + ux * d3; py3 = y1 + uy * d3
                 points.extend([px1, py1, px2, py2, px3, py3])
                 current_dist += kink_len
             else:
@@ -193,33 +229,18 @@ class Renderer:
         is_complex_geo = False
         
         if style:
-            # --- ПЕРЕВОД ММ -> ПИКСЕЛИ ---
             s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            if style.is_main: line_width = max(1, int(s_px))
+            else: line_width = max(1, int(s_px / 2))
             
-            if style.is_main:
-                # Основная линия: S (но не меньше 1 пикселя)
-                line_width = max(1, int(s_px))
-            else:
-                # Тонкая линия: S / 2 (но не меньше 1 пикселя)
-                line_width = max(1, int(s_px / 2))
-            
-            # --- ЛОГИКА РАСШИФРОВКИ ПАТТЕРНА ---
-            # Логика паттернов на основе base_type
             if style.dash_pattern:
-                main_dash = style.dash_pattern[0]
-                main_gap = style.dash_pattern[1]
-                
-                if style.base_type == 'dash_dot_dot':
-                    part = main_gap / 5.0
-                    dash_pattern = [main_dash, part, part, part, part, part]
-                elif style.base_type == 'dash_dot':
-                    part = main_gap / 3.0
-                    dash_pattern = [main_dash, part, part, part]
-                else: # 'dashed' или любой другой по умолчанию
-                    dash_pattern = [main_dash, main_gap]
+                main_dash = style.dash_pattern[0]; main_gap = style.dash_pattern[1]
+                base = getattr(style, 'base_type', 'solid')
+                if base == 'dash_dot_dot': part = main_gap/5.0; dash_pattern = [main_dash, part, part, part, part, part]
+                elif base == 'dash_dot': part = main_gap/3.0; dash_pattern = [main_dash, part, part, part]
+                else: dash_pattern = [main_dash, main_gap]
             
-            # Логика сложных линий
-            if style.base_type in ['wave', 'zigzag']:
+            if getattr(style, 'base_type', 'solid') in ['wave', 'zigzag']:
                 is_complex_geo = True
 
         if override_width:
@@ -230,32 +251,29 @@ class Renderer:
         sx1, sy1 = self.converter.world_to_screen(segment.p1.x, segment.p1.y)
         sx2, sy2 = self.converter.world_to_screen(segment.p2.x, segment.p2.y)
 
-        # 1. ВОЛНЫ/ЗИГЗАГИ
         if is_complex_geo:
             coords = []
             smooth_flag = False
-            if style.base_type == 'wave': # Проверяем тип!
+            base_type = getattr(style, 'base_type', 'solid')
+            
+            if base_type == 'wave':
                 coords = self._generate_wave_coords(sx1, sy1, sx2, sy2)
                 smooth_flag = True
-            elif style.base_type == 'zigzag':
-                coords = self._generate_zigzag_coords(sx1, sy1, sx2, sy2)
+            elif base_type == 'zigzag':
+                # ПЕРЕДАЕМ KINKS_COUNT из сегмента
+                coords = self._generate_zigzag_coords(sx1, sy1, sx2, sy2, fixed_count=segment.kinks_count)
                 smooth_flag = False
             
             if len(coords) >= 4:
                 self.canvas.create_line(*coords, fill=draw_color, width=line_width, capstyle=tk.ROUND, smooth=smooth_flag)
                 return 
 
-        # 2. ПУНКТИРЫ (Умная генерация)
         if dash_pattern:
             segments_list = self._generate_dashed_coords(sx1, sy1, sx2, sy2, dash_pattern)
             for seg in segments_list:
-                self.canvas.create_line(seg[0], seg[1], seg[2], seg[3], 
-                                      fill=draw_color, width=line_width, capstyle=tk.ROUND)
-        
-        # 3. СПЛОШНАЯ
+                self.canvas.create_line(seg[0], seg[1], seg[2], seg[3], fill=draw_color, width=line_width, capstyle=tk.ROUND)
         else:
-            self.canvas.create_line(sx1, sy1, sx2, sy2, 
-                                  fill=draw_color, width=line_width, capstyle=tk.ROUND)
+            self.canvas.create_line(sx1, sy1, sx2, sy2, fill=draw_color, width=line_width, capstyle=tk.ROUND)
 
     def draw_point(self, point, size=4, color='black'):
         x, y = self.converter.world_to_screen(point.x, point.y)
