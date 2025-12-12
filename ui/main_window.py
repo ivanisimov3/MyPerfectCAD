@@ -95,27 +95,78 @@ class MainWindow:
 
     # Создание кнопок на верхней панели инструментов
     def _setup_toolbar_buttons(self, parent, callbacks):
-        def _add_menu_button(text, items):
-            mb = ttk.Menubutton(parent, text=text)
-            menu = tk.Menu(mb, tearoff=0)
-            for label, cmd in items:
-                if label in (None, "", "—"):
-                    menu.add_separator()
-                else:
-                    menu.add_command(label=label, command=cmd)
-            mb["menu"] = menu
-            mb.pack(side=tk.LEFT, padx=2)
-            return mb
+        def _popup(menu, event):
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
 
-        # === Примитивы (все 7 в одном меню) ===
-        _add_menu_button("Примитивы", [
-            ("Отрезок", callbacks.on_new_segment_mode),
-            ("Окружность", callbacks.on_new_circle_mode),
-            ("Эллипс", callbacks.on_new_ellipse_mode),
-            ("Дуга", callbacks.on_new_arc_mode),
-            ("Прямоугольник", callbacks.on_new_rectangle_mode),
-            ("Многоугольник", callbacks.on_new_polygon_mode),
-            ("Сплайн", callbacks.on_new_spline_mode),
+        def _add_icon_button(symbol, default_cmd, menu_items):
+            """Кнопка-иконка; ЛКМ — текущий метод, ПКМ — меню выбора метода."""
+            btn = ttk.Button(parent, text=symbol, width=4, command=default_cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+
+            if menu_items:
+                menu = tk.Menu(btn, tearoff=0)
+                for label, cmd in menu_items:
+                    menu.add_command(label=label, command=cmd)
+                btn.bind("<Button-3>", lambda e, m=menu: _popup(m, e))
+
+        # Хелперы для смены метода перед запуском
+        def _start_circle(method):
+            self.circle_method.set(method)
+            self._on_circle_method_change(callbacks)
+            callbacks.on_new_circle_mode()
+
+        def _start_arc(method):
+            self.arc_method.set(method)
+            self._on_arc_method_change(callbacks)
+            callbacks.on_new_arc_mode()
+
+        def _start_rectangle(method):
+            self.rect_method.set(method)
+            self._on_rectangle_method_change(callbacks)
+            callbacks.on_new_rectangle_mode()
+
+        def _start_polygon(variant):
+            self.polygon_variant.set(variant)
+            callbacks.on_polygon_variant_change()
+            callbacks.on_new_polygon_mode()
+
+        # === Примитивы (иконки) ===
+        _add_icon_button("—", callbacks.on_new_segment_mode, [
+            ("Отрезок (2 точки)", callbacks.on_new_segment_mode),
+        ])
+
+        _add_icon_button("◯", callbacks.on_new_circle_mode, [
+            ("Центр + радиус", lambda: _start_circle("center_radius")),
+            ("Центр + диаметр", lambda: _start_circle("center_diameter")),
+            ("Диаметр по 2 точкам", lambda: _start_circle("two_points")),
+            ("Через 3 точки", lambda: _start_circle("three_points")),
+        ])
+
+        _add_icon_button("⌒", callbacks.on_new_arc_mode, [
+            ("Три точки", lambda: _start_arc("three_points")),
+            ("Центр + углы", lambda: _start_arc("center_angles")),
+        ])
+
+        _add_icon_button("▭", callbacks.on_new_rectangle_mode, [
+            ("Две точки", lambda: _start_rectangle("two_points")),
+            ("Угол + ширина/высота", lambda: _start_rectangle("corner_size")),
+            ("Центр + ширина/высота", lambda: _start_rectangle("center_size")),
+        ])
+
+        _add_icon_button("⬭", callbacks.on_new_ellipse_mode, [
+            ("Центр + оси", callbacks.on_new_ellipse_mode),
+        ])
+
+        _add_icon_button("⬟", callbacks.on_new_polygon_mode, [
+            ("Вписанный", lambda: _start_polygon("inscribed")),
+            ("Описанный", lambda: _start_polygon("circumscribed")),
+        ])
+
+        _add_icon_button("~", callbacks.on_new_spline_mode, [
+            ("Точки управления", callbacks.on_new_spline_mode),
         ])
         ttk.Button(parent, text="Del", width=5, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
@@ -131,14 +182,16 @@ class MainWindow:
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
         # === Стили (быстрый выбор) ===
-        _add_menu_button("Стиль", [
-            ("Основная", lambda: callbacks.on_quick_style_set('solid_main')),
-            ("Тонкая", lambda: callbacks.on_quick_style_set('solid_thin')),
-            ("Штриховая", lambda: callbacks.on_quick_style_set('dashed')),
-            ("Осевая", lambda: callbacks.on_quick_style_set('dash_dot_thin')),
-            ("—", None),
-            ("Менеджер стилей…", callbacks.on_open_style_manager),
-        ])
+        style_mb = ttk.Menubutton(parent, text="Стиль")
+        style_menu = tk.Menu(style_mb, tearoff=0)
+        style_menu.add_command(label="Основная", command=lambda: callbacks.on_quick_style_set('solid_main'))
+        style_menu.add_command(label="Тонкая", command=lambda: callbacks.on_quick_style_set('solid_thin'))
+        style_menu.add_command(label="Штриховая", command=lambda: callbacks.on_quick_style_set('dashed'))
+        style_menu.add_command(label="Осевая", command=lambda: callbacks.on_quick_style_set('dash_dot_thin'))
+        style_menu.add_separator()
+        style_menu.add_command(label="Менеджер стилей…", command=callbacks.on_open_style_manager)
+        style_mb["menu"] = style_menu
+        style_mb.pack(side=tk.LEFT, padx=2)
 
     # Создание главного меню приложения
     def setup_main_menu(self, root, callbacks):
