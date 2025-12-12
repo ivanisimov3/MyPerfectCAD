@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment
+from logic.geometry import Point, Segment, Circle
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -38,30 +38,49 @@ class Callbacks:
         
         # Инициализируем превью в панели свойств текущим стилем
         self.view.update_style_preview(self.state.current_style_name)
-        
+
+        # Инициализируем метод создания окружности
+        self.view.circle_method.set(self.state.circle_creation_method)
+
         self.set_app_state(self.state.app_mode)
 
     def set_app_state(self, mode):
         self.state.app_mode = mode
-        is_creating = (mode == 'CREATING_SEGMENT')
+        is_creating_segment = (mode == 'CREATING_SEGMENT')
+        is_creating_circle = mode.startswith('CREATING_CIRCLE')
+        is_creating = is_creating_segment or is_creating_circle
         is_panning = (mode == 'PANNING')
-        
+
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
-        
+
+        # Поля окружностей
+        circle_entries = [
+            self.view.circle_center_x_entry, self.view.circle_center_y_entry,
+            self.view.circle_param_entry, self.view.circle_p2_x_entry,
+            self.view.circle_p2_y_entry, self.view.circle_p3_x_entry,
+            self.view.circle_p3_y_entry
+        ]
+
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
         self.view.canvas.unbind("<ButtonRelease-1>")
-        self.view.canvas.config(cursor="") 
+        self.view.canvas.config(cursor="")
         self.root.unbind("<Return>")
-        
+
         if not is_creating:
             for entry in entries:
                 entry.delete(0, tk.END)
                 entry.config(state=entry_state)
+            # Блокируем поля окружностей
+            for entry in circle_entries:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
             self.state.preview_segment = None
+            self.state.preview_circle = None
             self.state.active_p1 = None
             self.state.active_p2 = None
+            self.state.active_p3 = None
 
         if is_creating or is_panning:
             self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
@@ -73,11 +92,20 @@ class Callbacks:
         else:
             self.view.hotkey_frame.pack_forget()
 
-        if is_creating:
+        if is_creating_segment:
             for entry in entries: entry.config(state=entry_state)
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
+            self.view.canvas.config(cursor="crosshair")
+        elif is_creating_circle:
+            # Разблокируем поля отрезков (для совместимости)
+            for entry in entries: entry.config(state=entry_state)
+            # Разблокируем поля окружностей
+            for entry in circle_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.root.bind("<Return>", self.finalize_circle)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_circle)
             self.view.canvas.config(cursor="crosshair") 
             
         elif is_panning:
@@ -93,22 +121,33 @@ class Callbacks:
         self.redraw_all()
 
     # --- ЛОГИКА ВЫДЕЛЕНИЯ ---
-    
+
     def on_selection_click(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
-        hit_threshold_pixels = 8 
+        hit_threshold_pixels = 8
         hit_threshold_world = hit_threshold_pixels / self.state.zoom
-        
+
         found_segment = None
+        found_circle = None
+
+        # Ищем сегменты
         for segment in self.state.segments:
             dist = segment.distance_to_point(wx, wy)
             if dist < hit_threshold_world:
                 found_segment = segment
-                break 
-        
+                break
+
+        # Ищем окружности
+        if not found_segment:  # Приоритет сегментам
+            for circle in self.state.circles:
+                dist = circle.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_circle = circle
+                    break
+
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
-        
+
         if found_segment:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -116,14 +155,31 @@ class Callbacks:
                     self.state.selected_segments.remove(found_segment)
                 else:
                     self.state.selected_segments.append(found_segment)
+                # Очищаем выделение окружностей при выборе сегмента
+                self.state.selected_circles = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
+                self.state.selected_circles = []
+        elif found_circle:
+            if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка
+                if found_circle in self.state.selected_circles:
+                    self.state.selected_circles.remove(found_circle)
+                else:
+                    self.state.selected_circles.append(found_circle)
+                # Очищаем выделение сегментов при выборе окружности
+                self.state.selected_segments = []
+            else:
+                # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
+                self.state.selected_segments = []
+                self.state.selected_circles = [found_circle]
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
                 self.state.selected_segments = []
-        
+                self.state.selected_circles = []
+
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -131,36 +187,52 @@ class Callbacks:
     def _sync_ui_with_selection(self):
         """Обновляет панель свойств в зависимости от выделения."""
         self.view.kinks_frame.pack_forget()
-        
-        sel = self.state.selected_segments
-        
-        if not sel:
+
+        sel_segments = self.state.selected_segments
+        sel_circles = self.state.selected_circles
+
+        # Если ничего не выделено
+        if not sel_segments and not sel_circles:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
-                self.view.set_style_selection(style_obj.name) 
+                self.view.set_style_selection(style_obj.name)
                 self.view.segment_swatch.config(bg=self.state.current_color)
             return
 
-        unique_styles = {seg.style_name for seg in sel}
-        
+        # Определяем, что выделено
+        if sel_segments and not sel_circles:
+            # Выделены только сегменты
+            self._sync_ui_with_segments(sel_segments)
+        elif sel_circles and not sel_segments:
+            # Выделены только окружности
+            self._sync_ui_with_circles(sel_circles)
+        else:
+            # Смешанное выделение - показываем "Разные"
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
+    def _sync_ui_with_segments(self, sel_segments):
+        """Синхронизация UI с выделенными сегментами."""
+        unique_styles = {seg.style_name for seg in sel_segments}
+
         if len(unique_styles) == 1:
             style_name = list(unique_styles)[0]
             self.view.set_style_selection(style_name)
-            first_color = sel[0].color
+            first_color = sel_segments[0].color
             self.view.segment_swatch.config(bg=first_color)
-            
+
             self.state.current_style_name = style_name
             self.state.current_color = first_color
-            
+
             # --- ЛОГИКА ОТОБРАЖЕНИЯ ПАНЕЛИ ИЗЛОМОВ/ВОЛН ---
             style = self.state.line_styles.get(style_name)
             base_type = getattr(style, 'base_type', 'solid')
-            
+
             # Если это ЗИГЗАГ или ВОЛНА и выделен ОДИН объект
-            if base_type in ['zigzag', 'wave'] and len(sel) == 1:
-                seg = sel[0]
+            if base_type in ['zigzag', 'wave'] and len(sel_segments) == 1:
+                seg = sel_segments[0]
                 self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
-                
+
                 # Меняем текст лейбла в зависимости от типа
                 if base_type == 'zigzag':
                     self.view.lbl_kinks.config(text="Кол-во изломов:")
@@ -168,14 +240,14 @@ class Callbacks:
                 else:
                     self.view.lbl_kinks.config(text="Кол-во волн:")
                     current_val = seg.waves_count
-                
+
                 if current_val:
                     self.view.kinks_var.set(str(current_val))
                 else:
                     # РАСЧЕТ ДЕФОЛТА
                     zoom = self.state.zoom
                     seg_len_px = seg.length * zoom
-                    
+
                     if base_type == 'zigzag':
                         # Period(40) + Kink(6) = 46 (при зуме 5.0)
                         # Реальная длина: (40 + 6) * (zoom / 5.0)
@@ -185,13 +257,29 @@ class Callbacks:
                         # T = 2*pi / (0.2 / scale) = 10*pi * scale
                         # 10 * 3.14 = 31.4 * scale
                         unit_len = 31.4159 * (zoom / 5.0)
-                    
+
                     if unit_len > 0.1:
                         default_count = int(seg_len_px / unit_len)
                     else:
                         default_count = 1
-                        
+
                     self.view.kinks_var.set(str(default_count))
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
+    def _sync_ui_with_circles(self, sel_circles):
+        """Синхронизация UI с выделенными окружностями."""
+        unique_styles = {circle.style_name for circle in sel_circles}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_circles[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
         else:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
@@ -260,22 +348,53 @@ class Callbacks:
             return # На всякий случай
 
         self.state.current_style_name = new_style_name
-        
+
         if self.state.selected_segments:
             for seg in self.state.selected_segments:
                 seg.style_name = new_style_name
-            self._sync_ui_with_selection()
-        else:
-            self.view.update_style_preview(new_style_name)
+        elif self.state.selected_circles:
+            for circle in self.state.selected_circles:
+                circle.style_name = new_style_name
+
+        self._sync_ui_with_selection()
 
         self.update_preview_segment()
+        self.update_preview_circle()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
 
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
+        self.view.settings_notebook.select(1)  # Переключаемся на вкладку "Отрезки"
+
+        # Очищаем поля отрезков
+        self.view.p1_x_entry.delete(0, tk.END)
+        self.view.p1_y_entry.delete(0, tk.END)
+        self.view.p2_x_entry.delete(0, tk.END)
+        self.view.p2_y_entry.delete(0, tk.END)
+
         self.view.p1_x_entry.focus_set()
+
+    def on_new_circle_mode(self, event=None):
+        self.set_app_state('CREATING_CIRCLE')
+        self.view.settings_notebook.select(2)  # Переключаемся на вкладку "Окружности"
+
+        # Очищаем поля окружностей
+        self.view.circle_center_x_entry.delete(0, tk.END)
+        self.view.circle_center_y_entry.delete(0, tk.END)
+        self.view.circle_param_entry.delete(0, tk.END)
+        self.view.circle_p2_x_entry.delete(0, tk.END)
+        self.view.circle_p2_y_entry.delete(0, tk.END)
+        self.view.circle_p3_x_entry.delete(0, tk.END)
+        self.view.circle_p3_y_entry.delete(0, tk.END)
+
+        # Для методов центр+радиус/диаметр фокус на центр
+        method = self.state.circle_creation_method
+        if method in ['center_radius', 'center_diameter']:
+            self.view.circle_center_x_entry.focus_set()
+        else:
+            self.view.circle_center_x_entry.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -285,7 +404,7 @@ class Callbacks:
         try:
             p1, p2 = self._create_points_from_entries()
             self.state.preview_segment = Segment(
-                p1, p2, 
+                p1, p2,
                 style_name=self.state.current_style_name,
                 color=self.state.current_color
             )
@@ -293,26 +412,96 @@ class Callbacks:
             self.state.preview_segment = None
         self.redraw_all()
 
+    def update_preview_circle(self, event=None):
+        try:
+            method = self.state.circle_creation_method
+            if method == 'center_radius':
+                # Центр и радиус
+                center_x = float(self.view.circle_center_x_entry.get())
+                center_y = float(self.view.circle_center_y_entry.get())
+                center = Point(center_x, center_y)
+                radius = float(self.view.circle_param_entry.get())
+                self.state.preview_circle = Circle.from_center_radius(
+                    center, radius,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            elif method == 'center_diameter':
+                # Центр и диаметр
+                center_x = float(self.view.circle_center_x_entry.get())
+                center_y = float(self.view.circle_center_y_entry.get())
+                center = Point(center_x, center_y)
+                diameter = float(self.view.circle_param_entry.get())
+                self.state.preview_circle = Circle.from_center_diameter(
+                    center, diameter,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            elif method == 'two_points':
+                # Две точки (диаметр)
+                p1_x = float(self.view.circle_center_x_entry.get())
+                p1_y = float(self.view.circle_center_y_entry.get())
+                p1 = Point(p1_x, p1_y)
+                p2_x = float(self.view.circle_p2_x_entry.get())
+                p2_y = float(self.view.circle_p2_y_entry.get())
+                p2 = Point(p2_x, p2_y)
+                self.state.preview_circle = Circle.from_two_points(
+                    p1, p2,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            elif method == 'three_points':
+                # Три точки на окружности
+                p1_x = float(self.view.circle_center_x_entry.get())
+                p1_y = float(self.view.circle_center_y_entry.get())
+                p1 = Point(p1_x, p1_y)
+                p2_x = float(self.view.circle_p2_x_entry.get())
+                p2_y = float(self.view.circle_p2_y_entry.get())
+                p2 = Point(p2_x, p2_y)
+                p3_x = float(self.view.circle_p3_x_entry.get())
+                p3_y = float(self.view.circle_p3_y_entry.get())
+                p3 = Point(p3_x, p3_y)
+                self.state.preview_circle = Circle.from_three_points(
+                    p1, p2, p3,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+        except (ValueError, tk.TclError):
+            self.state.preview_circle = None
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
-                self.state.preview_segment.p1, 
-                self.state.preview_segment.p2, 
+                self.state.preview_segment.p1,
+                self.state.preview_segment.p2,
                 style_name=self.state.current_style_name,
                 color=self.state.current_color
             )
             self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'PANNING']: 
+    def finalize_circle(self, event=None):
+        if self.state.preview_circle:
+            final_circle = Circle(
+                self.state.preview_circle.center,
+                self.state.preview_circle.radius,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            self.state.circles.append(final_circle)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
+            self.state.selected_circles = []
             self._sync_ui_with_selection()
             self.redraw_all()
-        elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"): 
+        elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
             self.root.destroy()
 
     def on_delete_segment(self, event=None):
@@ -321,9 +510,16 @@ class Callbacks:
                 if seg in self.state.segments:
                     self.state.segments.remove(seg)
             self.state.selected_segments = []
+        elif self.state.selected_circles:
+            for circle in self.state.selected_circles:
+                if circle in self.state.circles:
+                    self.state.circles.remove(circle)
+            self.state.selected_circles = []
         elif self.state.segments:
             self.state.segments.pop()
-        
+        elif self.state.circles:
+            self.state.circles.pop()
+
         self._sync_ui_with_selection()
         self.redraw_all()
 
@@ -365,14 +561,121 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_segment()
 
+    def on_lmb_click_circle(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        method = self.state.circle_creation_method
+
+        if method in ['center_radius', 'center_diameter']:
+            # Для методов центр+радиус/диаметр нужны 2 клика: центр и радиус/диаметр
+            if self.state.points_clicked == 0:
+                # Первый клик - центр
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                # Второй клик - определяем радиус/диаметр
+                center_x = float(self.view.circle_center_x_entry.get())
+                center_y = float(self.view.circle_center_y_entry.get())
+                distance = math.sqrt((wx - center_x)**2 + (wy - center_y)**2)
+                if method == 'center_radius':
+                    value = distance
+                else:  # center_diameter
+                    value = distance * 2
+                self.view.circle_param_entry.delete(0, tk.END)
+                self.view.circle_param_entry.insert(0, f"{value:.2f}")
+                self.state.points_clicked = 2
+        elif method == 'two_points':
+            # Для метода две точки нужны 2 клика
+            if self.state.points_clicked == 0:
+                # Первый клик - первая точка (центр в терминах интерфейса)
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                # Второй клик - вторая точка
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 2
+        elif method == 'three_points':
+            # Для метода три точки нужны 3 клика
+            if self.state.points_clicked == 0:
+                # Первый клик - первая точка
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                # Второй клик - вторая точка
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 2
+            elif self.state.points_clicked == 2:
+                # Третий клик - третья точка
+                self.view.circle_p3_x_entry.delete(0, tk.END)
+                self.view.circle_p3_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_p3_y_entry.delete(0, tk.END)
+                self.view.circle_p3_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 3
+
+        self.update_preview_circle()
+
     def on_rmb_click(self, event):
-        if self.view.p2_x_entry.get(): 
+        if self.view.p2_x_entry.get():
             self.view.p2_x_entry.delete(0, tk.END); self.view.p2_y_entry.delete(0, tk.END)
             self.state.points_clicked = 1
         elif self.view.p1_x_entry.get():
             self.view.p1_x_entry.delete(0, tk.END); self.view.p1_y_entry.delete(0, tk.END)
             self.state.points_clicked = 0
         self.update_preview_segment()
+
+    def on_rmb_click_circle(self, event):
+        """ПКМ для удаления точек при создании окружностей"""
+        method = self.state.circle_creation_method
+
+        if method in ['center_radius', 'center_diameter']:
+            # Для центр+параметр: сначала очищаем параметр, потом центр
+            if self.view.circle_param_entry.get():
+                self.view.circle_param_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.circle_center_x_entry.get():
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+        elif method == 'two_points':
+            # Для двух точек: сначала P2, потом P1
+            if self.view.circle_p2_x_entry.get():
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.circle_center_x_entry.get():
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+        elif method == 'three_points':
+            # Для трех точек: P3 -> P2 -> P1
+            if self.view.circle_p3_x_entry.get():
+                self.view.circle_p3_x_entry.delete(0, tk.END)
+                self.view.circle_p3_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 2
+            elif self.view.circle_p2_x_entry.get():
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.circle_center_x_entry.get():
+                self.view.circle_center_x_entry.delete(0, tk.END)
+                self.view.circle_center_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+
+        self.update_preview_circle()
 
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
@@ -406,14 +709,26 @@ class Callbacks:
         self.view.canvas.focus_set()
 
     def on_fit_to_view(self, event=None):
-        if not self.state.segments:
+        all_objects = self.state.segments + self.state.circles
+        if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
             self.redraw_all()
             self.view.canvas.focus_set()
             return
-        xs = [s.p1.x for s in self.state.segments] + [s.p2.x for s in self.state.segments]
-        ys = [s.p1.y for s in self.state.segments] + [s.p2.y for s in self.state.segments]
+
+        xs, ys = [], []
+
+        # Собираем координаты из сегментов
+        for seg in self.state.segments:
+            xs.extend([seg.p1.x, seg.p2.x])
+            ys.extend([seg.p1.y, seg.p2.y])
+
+        # Собираем координаты из окружностей (центр ± радиус)
+        for circle in self.state.circles:
+            xs.extend([circle.center.x - circle.radius, circle.center.x + circle.radius])
+            ys.extend([circle.center.y - circle.radius, circle.center.y + circle.radius])
+
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
         world_w = max_x - min_x
@@ -428,7 +743,7 @@ class Callbacks:
         scale_y = screen_h / world_h
         self.state.zoom = min(scale_x, scale_y)
         self.state.pan_x = -center_wx * self.state.zoom
-        self.state.pan_y = center_wy * self.state.zoom 
+        self.state.pan_y = center_wy * self.state.zoom
         self.redraw_all()
         self.view.canvas.focus_set()
 
@@ -469,11 +784,13 @@ class Callbacks:
 
     def on_choose_segment_color(self):
         _, c = colorchooser.askcolor(initialcolor=self.state.current_color)
-        if c: 
+        if c:
             self.state.current_color = c
             self.view.segment_swatch.config(bg=c)
             for seg in self.state.selected_segments:
                 seg.color = c
+            for circle in self.state.selected_circles:
+                circle.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -514,10 +831,10 @@ class Callbacks:
     
     def update_info_panel(self):
         # Сбрасываем активные точки (по умолчанию ничего не рисуем)
-        self.state.active_p1, self.state.active_p2 = None, None
+        self.state.active_p1, self.state.active_p2, self.state.active_p3 = None, None, None
 
         # ПРИОРИТЕТ 1: РЕЖИМ СОЗДАНИЯ
-        # Если мы строим отрезок, нам важно видеть именно ЕГО точки и размеры
+        # Если мы строим отрезок или окружность, нам важно видеть именно ЕГО точки и размеры
         if self.state.app_mode == 'CREATING_SEGMENT':
             try: self.state.active_p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
             except (ValueError, tk.TclError): pass
@@ -528,10 +845,10 @@ class Callbacks:
             
             # Обновляем текст для создаваемого отрезка
             p1, p2 = self.state.active_p1, self.state.active_p2
-            
+
             if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
             else: self.view.p1_coord_var.set("P1: N/A")
-            
+
             if p2:
                 if self.view.coord_system.get() == 'polar':
                     dx = p2.x - (p1.x if p1 else 0)
@@ -554,19 +871,106 @@ class Callbacks:
                 self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
             else:
                 self.view.length_var.set("Длина: N/A"); self.view.angle_var.set("Угол: N/A")
-            
+
+            return # Выходим, чтобы не перетереть данные выделением
+
+        # ПРИОРИТЕТ 1.5: РЕЖИМ СОЗДАНИЯ ОКРУЖНОСТИ
+        if self.state.app_mode == 'CREATING_CIRCLE':
+            method = self.state.circle_creation_method
+
+            # Получаем точки из соответствующих полей в зависимости от метода
+            try:
+                center_x = float(self.view.circle_center_x_entry.get())
+                center_y = float(self.view.circle_center_y_entry.get())
+                self.state.active_p1 = Point(center_x, center_y)
+            except (ValueError, tk.TclError):
+                self.state.active_p1 = None
+
+            if method in ['two_points', 'three_points']:
+                try:
+                    p2_x = float(self.view.circle_p2_x_entry.get())
+                    p2_y = float(self.view.circle_p2_y_entry.get())
+                    self.state.active_p2 = Point(p2_x, p2_y)
+                except (ValueError, tk.TclError):
+                    self.state.active_p2 = None
+
+            if method == 'three_points':
+                try:
+                    p3_x = float(self.view.circle_p3_x_entry.get())
+                    p3_y = float(self.view.circle_p3_y_entry.get())
+                    self.state.active_p3 = Point(p3_x, p3_y)
+                except (ValueError, tk.TclError):
+                    self.state.active_p3 = None
+            else:
+                self.state.active_p3 = None
+
+            # Обновляем текст для создаваемой окружности
+            p1, p2, p3 = self.state.active_p1, self.state.active_p2, self.state.active_p3
+
+            if method == 'center_radius':
+                if p1:
+                    self.view.p1_coord_var.set(f"Центр({p1.x:.2f}, {p1.y:.2f})")
+                    try:
+                        radius = float(self.view.circle_param_entry.get())
+                        self.view.p2_coord_var.set(f"Радиус: {radius:.2f}")
+                        self.view.length_var.set(f"Диаметр: {radius*2:.2f}")
+                    except (ValueError, tk.TclError):
+                        self.view.p2_coord_var.set("Радиус: N/A")
+                        self.view.length_var.set("Диаметр: N/A")
+                else:
+                    self.view.p1_coord_var.set("Центр: N/A")
+                    self.view.p2_coord_var.set("Радиус: N/A")
+                    self.view.length_var.set("Диаметр: N/A")
+                self.view.angle_var.set("Окружность")
+            elif method == 'center_diameter':
+                if p1:
+                    self.view.p1_coord_var.set(f"Центр({p1.x:.2f}, {p1.y:.2f})")
+                    try:
+                        diameter = float(self.view.circle_param_entry.get())
+                        self.view.p2_coord_var.set(f"Диаметр: {diameter:.2f}")
+                        self.view.length_var.set(f"Радиус: {diameter/2:.2f}")
+                    except (ValueError, tk.TclError):
+                        self.view.p2_coord_var.set("Диаметр: N/A")
+                        self.view.length_var.set("Радиус: N/A")
+                else:
+                    self.view.p1_coord_var.set("Центр: N/A")
+                    self.view.p2_coord_var.set("Диаметр: N/A")
+                    self.view.length_var.set("Радиус: N/A")
+                self.view.angle_var.set("Окружность")
+            elif method == 'two_points':
+                if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
+                else: self.view.p1_coord_var.set("P1: N/A")
+
+                if p2: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
+                else: self.view.p2_coord_var.set("P2: N/A")
+
+                self.view.length_var.set("Радиус: N/A")
+                self.view.angle_var.set("Окружность")
+            elif method == 'three_points':
+                if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
+                else: self.view.p1_coord_var.set("P1: N/A")
+
+                if p2: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
+                else: self.view.p2_coord_var.set("P2: N/A")
+
+                if p3: self.view.p3_coord_var.set(f"P3({p3.x:.2f}, {p3.y:.2f})")
+                else: self.view.p3_coord_var.set("P3: N/A")
+
+                self.view.length_var.set("Радиус: N/A")
+                self.view.angle_var.set("Окружность")
+
             return # Выходим, чтобы не перетереть данные выделением
 
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
             seg = self.state.selected_segments[0]
-            
+
             # ОБНОВЛЕНИЕ ТЕКСТА
             self.view.p1_coord_var.set(f"P1({seg.p1.x:.2f}, {seg.p1.y:.2f})")
             self.view.p2_coord_var.set(f"P2({seg.p2.x:.2f}, {seg.p2.y:.2f})")
             self.view.length_var.set(f"Длина: {seg.length:.2f}")
-            
+
             angle = seg.angle
             if self.view.angle_units.get() == 'degrees':
                 val = math.degrees(angle)
@@ -575,9 +979,21 @@ class Callbacks:
                 val = angle
                 sym = " rad"
             self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
-            
+
             # ВАЖНО: Мы НЕ устанавливаем self.state.active_p1/p2
             # Поэтому точки на краях выделенного отрезка рисоваться НЕ БУДУТ.
+            return
+
+        # ПРИОРИТЕТ 2.5: ВЫДЕЛЕНИЕ ОКРУЖНОСТИ
+        if self.state.selected_circles:
+            circle = self.state.selected_circles[0]
+
+            # ОБНОВЛЕНИЕ ТЕКСТА
+            self.view.p1_coord_var.set(f"Центр({circle.center.x:.2f}, {circle.center.y:.2f})")
+            self.view.p2_coord_var.set(f"Радиус: {circle.radius:.2f}")
+            self.view.length_var.set(f"Диаметр: {circle.diameter:.2f}")
+            self.view.angle_var.set("Окружность")
+
             return 
 
         # ПРИОРИТЕТ 3: ПУСТОТА
@@ -603,20 +1019,21 @@ class Callbacks:
         self.view.status_zoom.config(text=f"Zoom: {zoom_pct}%")
         deg = math.degrees(self.state.rotation)
         self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
-        
-        if self.state.selected_segments:
-             mode_text = f"Выбрано объектов: {len(self.state.selected_segments)}"
+
+        total_selected = len(self.state.selected_segments) + len(self.state.selected_circles)
+        if total_selected > 0:
+             mode_text = f"Выбрано объектов: {total_selected}"
         else:
-            modes = {'IDLE': "Ожидание", 'CREATING_SEGMENT': "Создание отрезка", 'PANNING': "Панорамирование"}
+            modes = {'IDLE': "Ожидание", 'CREATING_SEGMENT': "Создание отрезка", 'CREATING_CIRCLE': "Создание окружности", 'PANNING': "Панорамирование"}
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
-        
+
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode != 'CREATING_SEGMENT':
-            self.view.context_menu.post(event.x_root, event.y_root)
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE']:
+            self.on_rmb_click_circle(event)
         else:
-            self.on_rmb_click(event)
+            self.view.context_menu.post(event.x_root, event.y_root)
 
     # Вызывается, когда в Менеджере нажали "Применить"
     def on_styles_updated(self):

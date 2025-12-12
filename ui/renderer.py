@@ -229,6 +229,227 @@ class Renderer:
                 break
         return points
 
+    def draw_circle(self, circle, override_color=None, override_width=None):
+        # Отрисовывает окружность на холсте
+        # override_color, override_width - используются для выделения или других спецэффектов
+
+        # Выбираем цвет (переопределенный или из окружности)
+        draw_color = override_color if override_color else circle.color
+
+        # Получаем стиль линии из state
+        style = self.state.line_styles.get(circle.style_name)
+
+        # Дефолтные значения
+        line_width = 1
+
+        # Если стиль найден, обработаем его свойства
+        if style:
+            # Вычисляем толщину линии на основе базовой толщины
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+
+            # Основная линия толще, тонкая - в 2 раза тоньше
+            if style.is_main:
+                line_width = max(1, int(s_px))
+            else:
+                line_width = max(1, int(s_px / 2))
+
+        if override_width:
+            line_width = override_width
+
+        # Конвертируем мировые координаты в экранные
+        cx, cy = self.converter.world_to_screen(circle.center.x, circle.center.y)
+        radius_px = circle.radius * self.state.zoom
+
+        # Проверяем тип стиля
+        base_type = 'solid'
+        dash_pattern = None
+        is_complex_style = False
+
+        if style:
+            base_type = getattr(style, 'base_type', 'solid')
+            is_complex_style = base_type in ['wave', 'zigzag']
+
+            # Обработка штриховых стилей
+            if style.dash_pattern:
+                main_dash = style.dash_pattern[0]
+                main_gap = style.dash_pattern[1]
+
+                # Определяем тип штриховки
+                if base_type == 'dash_dot_dot':
+                    # Штрих-пунктир-пунктир (две точки)
+                    part = main_gap / 5.0
+                    dash_pattern = [main_dash, part, part, part, part, part]
+                elif base_type == 'dash_dot':
+                    # Штрих-пунктир (одна точка)
+                    part = main_gap / 3.0
+                    dash_pattern = [main_dash, part, part, part]
+                else:
+                    # Просто штриховая
+                    dash_pattern = [main_dash, main_gap]
+
+        if dash_pattern:
+            # Для штриховых стилей
+            self._draw_dashed_circle(circle, cx, cy, radius_px, draw_color, line_width, dash_pattern)
+        elif base_type in ['wave', 'zigzag']:
+            # Для сложных стилей создаем эффект через серию дуг или линий
+            self._draw_styled_circle(circle, cx, cy, radius_px, draw_color, line_width, base_type)
+        else:
+            # Обычная окружность
+            x1 = cx - radius_px
+            y1 = cy - radius_px
+            x2 = cx + radius_px
+            y2 = cy + radius_px
+            self.canvas.create_oval(x1, y1, x2, y2, outline=draw_color, width=line_width, fill='')
+
+    def _draw_dashed_circle(self, circle, cx, cy, radius_px, draw_color, line_width, dash_pattern):
+        """Отрисовка штриховой окружности"""
+        # Вычисляем общую длину окружности
+        circumference = 2 * math.pi * radius_px
+
+        # Масштабируем паттерн под длину окружности
+        zoom = self.state.zoom
+        scaled_pattern = [float(val) * zoom for val in dash_pattern]
+
+        # Создаем точки окружности с учетом штриховки
+        current_angle = 0
+        pat_idx = 0
+        is_drawing = True  # Начинаем с рисования
+
+        while current_angle < 2 * math.pi:
+            # Длина текущего сегмента паттерна
+            segment_length = scaled_pattern[pat_idx % len(scaled_pattern)]
+            segment_angle = segment_length / radius_px  # Угол соответствующего сегменту
+
+            # Ограничиваем угол оставшейся частью окружности
+            actual_angle = min(segment_angle, 2 * math.pi - current_angle)
+
+            if is_drawing and actual_angle > 0.01:  # Минимальный угол для отрисовки
+                # Рисуем дугу
+                start_angle = math.degrees(current_angle)
+                extent = math.degrees(actual_angle)
+
+                x1 = cx - radius_px
+                y1 = cy - radius_px
+                x2 = cx + radius_px
+                y2 = cy + radius_px
+
+                self.canvas.create_arc(x1, y1, x2, y2,
+                                     start=start_angle, extent=extent,
+                                     outline=draw_color, width=line_width,
+                                     style=tk.ARC)
+
+            current_angle += actual_angle
+            pat_idx += 1
+            is_drawing = not is_drawing  # Чередуем рисование/пропуск
+
+    def _draw_styled_circle(self, circle, cx, cy, radius_px, draw_color, line_width, style_type):
+        """Отрисовка окружности со стилевыми эффектами (волна, зигзаг)"""
+        # Для очень маленьких окружностей рисуем обычную линию
+        if radius_px < 4:
+            x1 = cx - radius_px
+            y1 = cy - radius_px
+            x2 = cx + radius_px
+            y2 = cy + radius_px
+            self.canvas.create_oval(x1, y1, x2, y2, outline=draw_color, width=line_width, fill='')
+            return
+
+        if style_type == 'wave':
+            coords = self._generate_circle_wave_coords(cx, cy, radius_px)
+            smooth = True
+        else:  # zigzag
+            coords = self._generate_circle_zigzag_coords(cx, cy, radius_px)
+            smooth = False
+
+        if len(coords) >= 4:
+            self.canvas.create_line(*coords, fill=draw_color, width=line_width, smooth=smooth)
+
+    def _generate_circle_wave_coords(self, cx, cy, radius_px):
+        """Генерация координат волнистой окружности по тем же параметрам, что и для отрезка."""
+        zoom = self.state.zoom
+        amplitude = 3 * (zoom / 5.0)
+        freq = 0.2 / (zoom / 5.0)
+
+        circumference = 2 * math.pi * radius_px
+        # Шаг дискретизации ~ 4px
+        num_points = max(120, int(circumference / 4))
+        angle_step = 2 * math.pi / num_points
+
+        coords = []
+        arc_len = 0.0
+        prev_x = prev_y = None
+
+        for i in range(num_points + 1):
+            ang = i * angle_step
+            x = cx + radius_px * math.cos(ang)
+            y = cy + radius_px * math.sin(ang)
+
+            if prev_x is not None:
+                arc_len += math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
+
+            # Радиальная нормаль (совпадает с направлением радиуса)
+            nx = math.cos(ang)
+            ny = math.sin(ang)
+
+            offset = amplitude * math.sin(arc_len * freq)
+            coords.extend([x + nx * offset, y + ny * offset])
+
+            prev_x, prev_y = x, y
+
+        return coords
+
+    def _generate_circle_zigzag_coords(self, cx, cy, radius_px):
+        """Генерация координат зигзагообразной окружности по параметрам отрезка."""
+        zoom = self.state.zoom
+        period = 40 * (zoom / 5.0)
+        kink_len = 8 * (zoom / 5.0)
+        amplitude = 5 * (zoom / 5.0)
+
+        circumference = 2 * math.pi * radius_px
+
+        coords = []
+        s = 0.0
+
+        def point_on_circle(arc_len):
+            ang = arc_len / radius_px
+            return cx + radius_px * math.cos(ang), cy + radius_px * math.sin(ang), ang
+
+        # Стартовая точка
+        x0, y0, ang0 = point_on_circle(0.0)
+        coords.extend([x0, y0])
+
+        while s < circumference:
+            next_s = min(s + period, circumference)
+            x_end, y_end, ang_end = point_on_circle(next_s)
+            coords.extend([x_end, y_end])
+            s = next_s
+
+            if s + kink_len <= circumference:
+                # Нормаль (радиальная) в точке начала излома
+                # Используем направление радиуса (внутрь/наружу)
+                ncos = math.cos(ang_end)
+                nsin = math.sin(ang_end)
+
+                d1 = s + kink_len * 0.25
+                d2 = s + kink_len * 0.75
+                d3 = s + kink_len
+
+                x1, y1, a1 = point_on_circle(d1)
+                x2, y2, a2 = point_on_circle(d2)
+                x3, y3, a3 = point_on_circle(d3)
+
+                coords.extend([
+                    x1 - ncos * amplitude, y1 - nsin * amplitude,
+                    x2 + ncos * amplitude, y2 + nsin * amplitude,
+                    x3, y3
+                ])
+
+                s = d3
+            else:
+                # Завершаем окружность
+                break
+
+        return coords
+
     def draw_segment(self, segment, override_color=None, override_width=None):
         # Отрисовывает один отрезок (линию) на холсте
         # override_color, override_width - используются для выделения или других спецэффектов
@@ -337,17 +558,31 @@ class Renderer:
         # 3. Рисуем выделенные сегменты (с голубым цветом и увеличенной толщиной)
         for seg in self.state.selected_segments:
             self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
-        
-        # 4. Рисуем все остальные сегменты
+
+        # 4. Рисуем выделенные окружности (с голубым цветом и увеличенной толщиной)
+        for circle in self.state.selected_circles:
+            self.draw_circle(circle, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+
+        # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
             self.draw_segment(segment)
-        
-        # 5. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
+
+        # 6. Рисуем все остальные окружности
+        for circle in self.state.circles:
+            self.draw_circle(circle)
+
+        # 7. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
-        
-        # 6. Рисуем активные точки (начало и конец текущего отрезка)
+
+        # 8. Рисуем превью окружности (синяя окружность при рисовании новой окружности)
+        if self.state.preview_circle:
+            self.draw_circle(self.state.preview_circle, override_color='blue')
+
+        # 9. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:
             self.draw_point(self.state.active_p1)
         if self.state.active_p2:
             self.draw_point(self.state.active_p2)
+        if self.state.active_p3:
+            self.draw_point(self.state.active_p3)

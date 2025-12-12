@@ -85,6 +85,7 @@ class MainWindow:
         
         # Группа 1: основные инструменты рисования
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Окружность", command=callbacks.on_new_circle_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
@@ -171,7 +172,36 @@ class MainWindow:
     # Панель справа с настройками (стили, координаты, сетка, цвета и т.д.)
     def setup_settings_panel(self, parent, callbacks):
 
+        # Инициализируем переменные, используемые в разных вкладках
+        self.coord_system = tk.StringVar(value="cartesian")
+        self.angle_units = tk.StringVar(value="degrees")
 
+        # Создаем вкладки для разных типов примитивов
+        self.settings_notebook = ttk.Notebook(parent)
+        self.settings_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Вкладка "Общие настройки"
+        general_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(general_tab, text="Общие")
+
+        # Вкладка "Отрезки"
+        segment_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(segment_tab, text="Отрезки")
+
+        # Вкладка "Окружности"
+        circle_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(circle_tab, text="Окружности")
+
+        # Настраиваем общую вкладку
+        self._setup_general_tab(general_tab, callbacks)
+
+        # Настраиваем вкладку отрезков
+        self._setup_segment_tab(segment_tab, callbacks)
+
+        # Настраиваем вкладку окружностей
+        self._setup_circle_tab(circle_tab, callbacks)
+
+    def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
         style_frame = ttk.LabelFrame(parent, text="Стиль линии")
         style_frame.pack(padx=5, pady=5, fill=tk.X)
@@ -208,7 +238,7 @@ class MainWindow:
 
         # При выборе стиля вызываем callback
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
-        
+
 
         # === РАЗДЕЛ: КОЛИЧЕСТВО ИЗЛМОВ ИЛИ ВОЛН ===
         # Скрыто по умолчанию, показывается только для определенных стилей
@@ -230,35 +260,7 @@ class MainWindow:
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
 
-        # === РАЗДЕЛ: КООРДИНАТЫ ТОЧЕК ===
-        # Переменные для выбора системы координат
-        self.coord_system = tk.StringVar(value="cartesian")
-        self.angle_units = tk.StringVar(value="degrees")
         
-        # ТОЧКА 1 (P1) - начало отрезка
-        p1_frame = ttk.LabelFrame(parent, text="Точка 1 (P1)")
-        p1_frame.pack(padx=5, pady=5, fill=tk.X)
-        _, self.p1_x_entry = self._create_coord_entry(p1_frame, "X₁:", callbacks.update_preview_segment)
-        _, self.p1_y_entry = self._create_coord_entry(p1_frame, "Y₁:", callbacks.update_preview_segment)
-        
-        # ТОЧКА 2 (P2) - конец отрезка
-        p2_frame = ttk.LabelFrame(parent, text="Точка 2 (P2)")
-        p2_frame.pack(padx=5, pady=5, fill=tk.X)
-        self.p2_label1, self.p2_x_entry = self._create_coord_entry(p2_frame, "X₂:", callbacks.update_preview_segment)
-        self.p2_label2, self.p2_y_entry = self._create_coord_entry(p2_frame, "Y₂:", callbacks.update_preview_segment)
-        
-        # Радиокнопки для выбора системы координат второй точки
-        # Декартова: стандартные X, Y
-        ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
-
-        # Полярная: расстояние и угол от первой точки
-        ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
-        
-        # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
-        angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
-        angle_frame.pack(padx=5, pady=5, fill=tk.X)
-        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=callbacks.update_preview_segment).pack(anchor=tk.W)
-        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=callbacks.update_preview_segment).pack(anchor=tk.W)
         
 
         # === РАЗДЕЛ: СЕТКА ===
@@ -285,6 +287,84 @@ class MainWindow:
         # Выбор цвета линий
         self.segment_swatch = self._create_color_chooser(color_frame, "Линии:", callbacks.on_choose_segment_color)
 
+    def _setup_segment_tab(self, parent, callbacks):
+        # === РАЗДЕЛ: КООРДИНАТЫ ОТРЕЗКОВ ===
+
+        # ТОЧКА 1 (P1) - начало отрезка
+        p1_frame = ttk.LabelFrame(parent, text="Точка 1 (P1)")
+        p1_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.p1_label1, self.p1_x_entry = self._create_coord_entry(p1_frame, "X₁:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
+        self.p1_label2, self.p1_y_entry = self._create_coord_entry(p1_frame, "Y₁:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
+
+        # ТОЧКА 2 (P2) - конец отрезка
+        p2_frame = ttk.LabelFrame(parent, text="Точка 2 (P2)")
+        p2_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.p2_label1, self.p2_x_entry = self._create_coord_entry(p2_frame, "X₂:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
+        self.p2_label2, self.p2_y_entry = self._create_coord_entry(p2_frame, "Y₂:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
+
+        # Радиокнопки для выбора системы координат второй точки
+        ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
+        ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
+
+        # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
+        angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
+        angle_frame.pack(padx=5, pady=5, fill=tk.X)
+        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle())).pack(anchor=tk.W)
+        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle())).pack(anchor=tk.W)
+
+    def _setup_circle_tab(self, parent, callbacks):
+        # === РАЗДЕЛ: МЕТОД СОЗДАНИЯ ОКРУЖНОСТИ ===
+        circle_frame = ttk.LabelFrame(parent, text="Метод создания окружности")
+        circle_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        # Переменная для выбора метода создания окружности
+        self.circle_method = tk.StringVar(value="center_radius")
+
+        # Радиокнопки для выбора метода
+        ttk.Radiobutton(circle_frame, text="Центр и радиус", variable=self.circle_method, value="center_radius",
+                       command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(circle_frame, text="Центр и диаметр", variable=self.circle_method, value="center_diameter",
+                       command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(circle_frame, text="Две точки (диаметр)", variable=self.circle_method, value="two_points",
+                       command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(circle_frame, text="3 точки на окружности", variable=self.circle_method, value="three_points",
+                       command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+
+        # === РАЗДЕЛ: ПОЛЯ ВВОДА ДЛЯ ОКРУЖНОСТЕЙ ===
+        self.circle_input_frame = ttk.LabelFrame(parent, text="Координаты")
+        self.circle_input_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        # Поля для центра (X₁, Y₁) - используются для всех методов
+        center_frame = ttk.LabelFrame(self.circle_input_frame, text="Центр")
+        center_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.circle_center_label1, self.circle_center_x_entry = self._create_coord_entry(center_frame, "X₁:", callbacks.update_preview_circle)
+        self.circle_center_label2, self.circle_center_y_entry = self._create_coord_entry(center_frame, "Y₁:", callbacks.update_preview_circle)
+
+        # Поле для радиуса/диаметра
+        self.circle_param_frame = ttk.Frame(self.circle_input_frame)
+        self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
+        self.circle_param_label, self.circle_param_entry = self._create_coord_entry(self.circle_param_frame, "R:", callbacks.update_preview_circle)
+
+        # Поля для второй точки (X₂, Y₂) - для методов two_points и three_points
+        self.circle_p2_frame = ttk.LabelFrame(self.circle_input_frame, text="Точка 2")
+        self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.circle_p2_label1, self.circle_p2_x_entry = self._create_coord_entry(self.circle_p2_frame, "X₂:", callbacks.update_preview_circle)
+        self.circle_p2_label2, self.circle_p2_y_entry = self._create_coord_entry(self.circle_p2_frame, "Y₂:", callbacks.update_preview_circle)
+
+        # Поля для третьей точки (X₃, Y₃) - только для three_points
+        self.circle_p3_frame = ttk.LabelFrame(self.circle_input_frame, text="Точка 3")
+        self.circle_p3_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.circle_p3_label1, self.circle_p3_x_entry = self._create_coord_entry(self.circle_p3_frame, "X₃:", callbacks.update_preview_circle)
+        self.circle_p3_label2, self.circle_p3_y_entry = self._create_coord_entry(self.circle_p3_frame, "Y₃:", callbacks.update_preview_circle)
+
+        # По умолчанию показываем только центр
+        self.circle_param_frame.pack_forget()
+        self.circle_p2_frame.pack_forget()
+        self.circle_p3_frame.pack_forget()
+
+        # Обновляем интерфейс для текущего метода
+        self._update_circle_params_ui()
+
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
 
@@ -300,8 +380,11 @@ class MainWindow:
         # Координаты второй точки
         self.p2_coord_var = tk.StringVar(value="P2: N/A")
 
+        # Координаты третьей точки
+        self.p3_coord_var = tk.StringVar(value="P3: N/A")
+
         # Создание меток с этими переменными
-        for var in [self.length_var, self.angle_var, self.p1_coord_var, self.p2_coord_var]:
+        for var in [self.length_var, self.angle_var, self.p1_coord_var, self.p2_coord_var, self.p3_coord_var]:
             ttk.Label(parent, textvariable=var).pack(side=tk.LEFT, padx=10, pady=2)
 
 
@@ -334,6 +417,49 @@ class MainWindow:
         swatch.pack(side=tk.RIGHT, padx=5)
         swatch.bind("<Button-1>", lambda e: command())
         return swatch
+
+    def _on_circle_method_change(self, callbacks):
+        """Обработчик изменения метода создания окружности."""
+        method = self.circle_method.get()
+        callbacks.state.circle_creation_method = method
+
+        # Очищаем поля при смене метода
+        self.circle_param_entry.delete(0, tk.END)
+        self.circle_p2_x_entry.delete(0, tk.END)
+        self.circle_p2_y_entry.delete(0, tk.END)
+        self.circle_p3_x_entry.delete(0, tk.END)
+        self.circle_p3_y_entry.delete(0, tk.END)
+
+        self._update_circle_params_ui()
+        callbacks.update_preview_circle()
+
+    def _update_circle_params_ui(self):
+        """Обновляет интерфейс параметров окружности в зависимости от метода."""
+        method = self.circle_method.get()
+
+        if method == 'center_radius':
+            # Показываем центр и радиус
+            self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
+            self.circle_param_label.config(text="R:")
+            self.circle_p2_frame.pack_forget()
+            self.circle_p3_frame.pack_forget()
+        elif method == 'center_diameter':
+            # Показываем центр и диаметр
+            self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
+            self.circle_param_label.config(text="D:")
+            self.circle_p2_frame.pack_forget()
+            self.circle_p3_frame.pack_forget()
+        elif method == 'two_points':
+            # Показываем центр и вторую точку
+            self.circle_param_frame.pack_forget()
+            self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
+            self.circle_p3_frame.pack_forget()
+        elif method == 'three_points':
+            # Показываем центр, вторую и третью точки
+            self.circle_param_frame.pack_forget()
+            self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
+            self.circle_p3_frame.pack(padx=5, pady=5, fill=tk.X)
+
 
     # --- ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---
 
