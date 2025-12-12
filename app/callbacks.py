@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse
+from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -53,6 +53,10 @@ class Callbacks:
         self.view._update_rectangle_params_ui()
         # Инициализируем метод создания эллипса
         self.view.ellipse_method.set(self.state.ellipse_creation_method)
+        # Инициализируем параметры многоугольника
+        self.view.polygon_method.set(self.state.polygon_creation_method)
+        self.view.polygon_variant.set(self.state.polygon_variant)
+        self.view.polygon_sides_var.set(str(self.state.polygon_sides))
 
         self.set_app_state(self.state.app_mode)
 
@@ -63,7 +67,15 @@ class Callbacks:
         is_creating_arc = mode.startswith('CREATING_ARC')
         is_creating_rectangle = mode.startswith('CREATING_RECTANGLE')
         is_creating_ellipse = mode.startswith('CREATING_ELLIPSE')
-        is_creating = is_creating_segment or is_creating_circle or is_creating_arc or is_creating_rectangle or is_creating_ellipse
+        is_creating_polygon = mode.startswith('CREATING_POLYGON')
+        is_creating = (
+            is_creating_segment
+            or is_creating_circle
+            or is_creating_arc
+            or is_creating_rectangle
+            or is_creating_ellipse
+            or is_creating_polygon
+        )
         is_panning = (mode == 'PANNING')
 
         # Сброс превью других типов при смене режима
@@ -72,26 +84,37 @@ class Callbacks:
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
+            self.state.preview_polygon = None
         elif is_creating_circle:
             self.state.preview_segment = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
+            self.state.preview_polygon = None
         elif is_creating_arc:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
+            self.state.preview_polygon = None
         elif is_creating_rectangle:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_ellipse = None
+            self.state.preview_polygon = None
         elif is_creating_ellipse:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
+            self.state.preview_polygon = None
+        elif is_creating_polygon:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
+            self.state.preview_arc = None
+            self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -130,6 +153,11 @@ class Callbacks:
             self.view.ellipse_a_x_entry, self.view.ellipse_a_y_entry,
             self.view.ellipse_b_x_entry, self.view.ellipse_b_y_entry
         ]
+        # Поля многоугольников
+        polygon_entries = [
+            self.view.polygon_center_x_entry, self.view.polygon_center_y_entry,
+            self.view.polygon_radius_entry, self.view.polygon_sides_spin
+        ]
 
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
@@ -157,11 +185,16 @@ class Callbacks:
             for entry in ellipse_entries:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
+            # Блокируем поля многоугольников
+            for entry in polygon_entries:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
+            self.state.preview_polygon = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
@@ -216,9 +249,21 @@ class Callbacks:
             for entry in arc_entries: entry.config(state='disabled')
             for entry in rect_entries: entry.config(state='disabled')
             for entry in ellipse_entries: entry.config(state='normal')
+            for entry in polygon_entries: entry.config(state='disabled')
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_ellipse)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click_ellipse)
+            self.view.canvas.config(cursor="crosshair")
+        elif is_creating_polygon:
+            for entry in entries: entry.config(state=entry_state)
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='disabled')
+            for entry in ellipse_entries: entry.config(state='disabled')
+            for entry in polygon_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.root.bind("<Return>", self.finalize_polygon)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_polygon)
             self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
@@ -245,6 +290,7 @@ class Callbacks:
         found_arc = None
         found_rectangle = None
         found_ellipse = None
+        found_polygon = None
 
         # Ищем сегменты
         for segment in self.state.segments:
@@ -284,6 +330,13 @@ class Callbacks:
                 if dist < hit_threshold_world:
                     found_ellipse = ellipse
                     break
+        # Ищем многоугольники
+        if not found_segment and not found_circle and not found_arc and not found_rectangle and not found_ellipse:
+            for poly in self.state.polygons:
+                dist = poly.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_polygon = poly
+                    break
 
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
@@ -300,6 +353,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
@@ -307,6 +361,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
         elif found_circle:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -319,6 +374,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
@@ -326,6 +382,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
         elif found_arc:
             if ctrl_pressed:
                 if found_arc in self.state.selected_arcs:
@@ -336,12 +393,14 @@ class Callbacks:
                 self.state.selected_circles = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = [found_arc]
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
         elif found_ellipse:
             if ctrl_pressed:
                 if found_ellipse in self.state.selected_ellipses:
@@ -352,12 +411,14 @@ class Callbacks:
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_polygons = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = [found_ellipse]
+                self.state.selected_polygons = []
         elif found_rectangle:
             if ctrl_pressed:
                 if found_rectangle in self.state.selected_rectangles:
@@ -368,12 +429,32 @@ class Callbacks:
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = [found_rectangle]
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
+        elif found_polygon:
+            if ctrl_pressed:
+                if found_polygon in self.state.selected_polygons:
+                    self.state.selected_polygons.remove(found_polygon)
+                else:
+                    self.state.selected_polygons.append(found_polygon)
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
+            else:
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
+                self.state.selected_polygons = [found_polygon]
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
@@ -382,6 +463,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_polygons = []
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
@@ -396,9 +478,10 @@ class Callbacks:
         sel_arcs = self.state.selected_arcs
         sel_rectangles = self.state.selected_rectangles
         sel_ellipses = self.state.selected_ellipses
+        sel_polygons = self.state.selected_polygons
 
         # Если ничего не выделено
-        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses:
+        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -406,19 +489,21 @@ class Callbacks:
             return
 
         # Определяем, что выделено
-        if sel_segments and not sel_circles and not sel_arcs:
+        if sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
             # Выделены только сегменты
             self._sync_ui_with_segments(sel_segments)
-        elif sel_circles and not sel_segments and not sel_arcs:
+        elif sel_circles and not sel_segments and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
             # Выделены только окружности
             self._sync_ui_with_circles(sel_circles)
-        elif sel_arcs and not sel_segments and not sel_circles:
+        elif sel_arcs and not sel_segments and not sel_circles and not sel_rectangles and not sel_ellipses and not sel_polygons:
             # Выделены только дуги
             self._sync_ui_with_arcs(sel_arcs)
-        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs and not sel_ellipses:
+        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs and not sel_ellipses and not sel_polygons:
             self._sync_ui_with_rectangles(sel_rectangles)
-        elif sel_ellipses and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles:
+        elif sel_ellipses and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_polygons:
             self._sync_ui_with_ellipses(sel_ellipses)
+        elif sel_polygons and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses:
+            self._sync_ui_with_polygons(sel_polygons)
         else:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
@@ -545,6 +630,22 @@ class Callbacks:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
 
+    def _sync_ui_with_polygons(self, sel_polygons):
+        """Синхронизация UI с выделенными многоугольниками."""
+        unique_styles = {poly.style_name for poly in sel_polygons}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_polygons[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
     # Изменение количества изломов или волн
     def on_kinks_changed(self, event=None):
         if not self.state.selected_segments: return
@@ -625,6 +726,9 @@ class Callbacks:
         elif self.state.selected_ellipses:
             for ellipse in self.state.selected_ellipses:
                 ellipse.style_name = new_style_name
+        elif self.state.selected_polygons:
+            for poly in self.state.selected_polygons:
+                poly.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
@@ -633,6 +737,7 @@ class Callbacks:
         self.update_preview_arc()
         self.update_preview_rectangle()
         self.update_preview_ellipse()
+        self.update_preview_polygon()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
@@ -725,6 +830,19 @@ class Callbacks:
             entry.delete(0, tk.END)
 
         self.view.ellipse_center_x_entry.focus_set()
+
+    def on_new_polygon_mode(self, event=None):
+        self.set_app_state('CREATING_POLYGON')
+        self.view.settings_notebook.select(6)  # Вкладка "Многоугольники"
+
+        for entry in [
+            self.view.polygon_center_x_entry, self.view.polygon_center_y_entry,
+            self.view.polygon_radius_entry
+        ]:
+            entry.delete(0, tk.END)
+        self.view.polygon_sides_var.set(str(self.state.polygon_sides))
+
+        self.view.polygon_center_x_entry.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -881,6 +999,25 @@ class Callbacks:
             self.state.preview_ellipse = None
         self.redraw_all()
 
+    def update_preview_polygon(self, event=None):
+        try:
+            center = Point(float(self.view.polygon_center_x_entry.get()), float(self.view.polygon_center_y_entry.get()))
+            radius = float(self.view.polygon_radius_entry.get())
+            sides = int(self.view.polygon_sides_var.get())
+            variant = self.view.polygon_variant.get()
+            self.state.preview_polygon = RegularPolygon.from_center_radius(
+                center, radius, sides,
+                variant=variant,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            # Синхронизируем state с UI
+            self.state.polygon_sides = max(3, sides)
+            self.state.polygon_variant = variant
+        except (ValueError, tk.TclError):
+            self.state.preview_polygon = None
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -942,16 +1079,32 @@ class Callbacks:
             self.state.ellipses.append(final_ellipse)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'PANNING']:
+    def finalize_polygon(self, event=None):
+        if self.state.preview_polygon:
+            poly = self.state.preview_polygon
+            final_poly = RegularPolygon(
+                poly.center,
+                poly.base_radius,
+                poly.sides,
+                variant=poly.variant,
+                start_angle=poly.start_angle,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            self.state.polygons.append(final_poly)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
             self.state.selected_circles = []
             self.state.selected_arcs = []
             self.state.selected_rectangles = []
             self.state.selected_ellipses = []
+            self.state.selected_polygons = []
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -983,6 +1136,11 @@ class Callbacks:
                 if ellipse in self.state.ellipses:
                     self.state.ellipses.remove(ellipse)
             self.state.selected_ellipses = []
+        elif self.state.selected_polygons:
+            for poly in self.state.selected_polygons:
+                if poly in self.state.polygons:
+                    self.state.polygons.remove(poly)
+            self.state.selected_polygons = []
         elif self.state.segments:
             self.state.segments.pop()
         elif self.state.circles:
@@ -993,6 +1151,8 @@ class Callbacks:
             self.state.rectangles.pop()
         elif self.state.ellipses:
             self.state.ellipses.pop()
+        elif self.state.polygons:
+            self.state.polygons.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -1024,6 +1184,21 @@ class Callbacks:
         except (ValueError, tk.TclError): return
         self._update_p2_entries(p2)
         self.redraw_all()
+
+    def on_polygon_variant_change(self):
+        self.state.polygon_variant = self.view.polygon_variant.get()
+        self.update_preview_polygon()
+
+    def on_polygon_sides_change(self, event=None):
+        try:
+            sides = int(self.view.polygon_sides_var.get())
+            if sides < 3:
+                sides = 3
+            self.state.polygon_sides = sides
+            self.view.polygon_sides_var.set(str(sides))
+        except ValueError:
+            return
+        self.update_preview_polygon()
 
     def on_lmb_click(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
@@ -1214,6 +1389,23 @@ class Callbacks:
 
         self.update_preview_ellipse()
 
+    def on_lmb_click_polygon(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        if self.state.points_clicked == 0:
+            self.view.polygon_center_x_entry.delete(0, tk.END); self.view.polygon_center_x_entry.insert(0, f"{wx:.2f}")
+            self.view.polygon_center_y_entry.delete(0, tk.END); self.view.polygon_center_y_entry.insert(0, f"{wy:.2f}")
+            self.state.points_clicked = 1
+        elif self.state.points_clicked == 1:
+            try:
+                cx = float(self.view.polygon_center_x_entry.get())
+                cy = float(self.view.polygon_center_y_entry.get())
+            except ValueError:
+                cx, cy = wx, wy
+            radius = math.sqrt((wx - cx) ** 2 + (wy - cy) ** 2)
+            self.view.polygon_radius_entry.delete(0, tk.END); self.view.polygon_radius_entry.insert(0, f"{radius:.2f}")
+            self.state.points_clicked = 2
+        self.update_preview_polygon()
+
     def on_rmb_click_rectangle(self, event):
         """ПКМ для удаления точек при создании прямоугольника."""
         method = self.state.rectangle_creation_method
@@ -1254,6 +1446,16 @@ class Callbacks:
             self.view.ellipse_center_x_entry.delete(0, tk.END); self.view.ellipse_center_y_entry.delete(0, tk.END)
             self.state.points_clicked = 0
         self.update_preview_ellipse()
+
+    def on_rmb_click_polygon(self, event):
+        """ПКМ для отмены шагов при создании многоугольника."""
+        if self.view.polygon_radius_entry.get():
+            self.view.polygon_radius_entry.delete(0, tk.END)
+            self.state.points_clicked = 1
+        elif self.view.polygon_center_x_entry.get():
+            self.view.polygon_center_x_entry.delete(0, tk.END); self.view.polygon_center_y_entry.delete(0, tk.END)
+            self.state.points_clicked = 0
+        self.update_preview_polygon()
 
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get():
@@ -1478,6 +1680,8 @@ class Callbacks:
                 rect.color = c
             for ellipse in self.state.selected_ellipses:
                 ellipse.color = c
+            for poly in self.state.selected_polygons:
+                poly.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -1876,6 +2080,40 @@ class Callbacks:
 
             return
 
+        # ПРИОРИТЕТ 1.95: РЕЖИМ СОЗДАНИЯ МНОГОУГОЛЬНИКА
+        if self.state.app_mode == 'CREATING_POLYGON':
+            center = None
+            try:
+                center = Point(float(self.view.polygon_center_x_entry.get()), float(self.view.polygon_center_y_entry.get()))
+                self.state.active_p1 = center
+                self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
+            except (ValueError, tk.TclError):
+                self.view.p1_coord_var.set("Центр: N/A")
+
+            try:
+                radius = float(self.view.polygon_radius_entry.get())
+                self.view.p2_coord_var.set(f"R: {radius:.2f}")
+            except (ValueError, tk.TclError):
+                self.view.p2_coord_var.set("R: N/A")
+
+            sides = self.state.polygon_sides
+            variant = self.view.polygon_variant.get()
+            self.view.p3_coord_var.set(f"N={sides} | {variant}")
+
+            if self.state.preview_polygon:
+                verts = self.state.preview_polygon.vertices()
+                if verts:
+                    self.state.active_p2 = verts[0]
+                if len(verts) > 1:
+                    self.state.active_p3 = verts[1]
+                self.view.length_var.set(f"Сторон: {len(verts)}")
+                self.view.angle_var.set("Многоугольник")
+            else:
+                self.view.length_var.set("Сторон: N/A")
+                self.view.angle_var.set("Многоугольник")
+
+            return
+
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
@@ -1960,6 +2198,16 @@ class Callbacks:
             self.view.angle_var.set(f"Ось A: {ang_disp:.2f}{sym}")
             return
 
+        # ПРИОРИТЕТ 2.9: ВЫДЕЛЕНИЕ МНОГОУГОЛЬНИКА
+        if self.state.selected_polygons:
+            poly = self.state.selected_polygons[0]
+            self.view.p1_coord_var.set(f"Центр({poly.center.x:.2f}, {poly.center.y:.2f})")
+            self.view.p2_coord_var.set(f"R: {poly.base_radius:.2f}")
+            self.view.p3_coord_var.set(f"N={poly.sides} | {poly.variant}")
+            self.view.length_var.set(f"Сторон: {poly.sides}")
+            self.view.angle_var.set("Многоугольник")
+            return
+
         # ПРИОРИТЕТ 3: ПУСТОТА
         self.view.length_var.set("Длина: N/A")
         self.view.angle_var.set("Угол: N/A")
@@ -1990,6 +2238,7 @@ class Callbacks:
             + len(self.state.selected_arcs)
             + len(self.state.selected_rectangles)
             + len(self.state.selected_ellipses)
+            + len(self.state.selected_polygons)
         )
         if total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
@@ -2001,6 +2250,7 @@ class Callbacks:
                 'CREATING_ARC': "Создание дуги",
                 'CREATING_RECTANGLE': "Создание прямоугольника",
                 'CREATING_ELLIPSE': "Создание эллипса",
+                'CREATING_POLYGON': "Создание многоугольника",
                 'PANNING': "Панорамирование"
             }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
@@ -2008,7 +2258,7 @@ class Callbacks:
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON']:
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
@@ -2017,8 +2267,10 @@ class Callbacks:
                 self.on_rmb_click_arc(event)
             elif self.state.app_mode == 'CREATING_RECTANGLE':
                 self.on_rmb_click_rectangle(event)
-            else:
+            elif self.state.app_mode == 'CREATING_ELLIPSE':
                 self.on_rmb_click_ellipse(event)
+            else:
+                self.on_rmb_click_polygon(event)
         else:
             self.view.context_menu.post(event.x_root, event.y_root)
 
@@ -2068,6 +2320,10 @@ class Callbacks:
             for ellipse in self.state.selected_ellipses:
                 ellipse.style_name = style_key
             self._sync_ui_with_selection()
+        elif self.state.selected_polygons:
+            for poly in self.state.selected_polygons:
+                poly.style_name = style_key
+            self._sync_ui_with_selection()
         else:
             # Если нет выделения -> просто обновляем UI для будущего рисования
             self.view.set_style_selection(style_key)
@@ -2077,4 +2333,5 @@ class Callbacks:
         self.update_preview_arc()
         self.update_preview_rectangle()
         self.update_preview_ellipse()
+        self.update_preview_polygon()
         self.redraw_all()

@@ -89,6 +89,7 @@ class MainWindow:
         ttk.Button(parent, text="Эллипс", command=callbacks.on_new_ellipse_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Прямоугольник", command=callbacks.on_new_rectangle_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Многоугольник", command=callbacks.on_new_polygon_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
@@ -207,6 +208,10 @@ class MainWindow:
         ellipse_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(ellipse_tab, text="Эллипсы")
 
+        # Вкладка "Многоугольники"
+        polygon_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(polygon_tab, text="Многоугольники")
+
         # Настраиваем общую вкладку
         self._setup_general_tab(general_tab, callbacks)
 
@@ -224,6 +229,9 @@ class MainWindow:
 
         # Настраиваем вкладку эллипсов
         self._setup_ellipse_tab(ellipse_tab, callbacks)
+
+        # Настраиваем вкладку многоугольников
+        self._setup_polygon_tab(polygon_tab, callbacks)
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -505,6 +513,43 @@ class MainWindow:
         axis_b_frame.pack(padx=5, pady=5, fill=tk.X)
         self.ellipse_b_label1, self.ellipse_b_x_entry = self._create_coord_entry(axis_b_frame, "Xb:", callbacks.update_preview_ellipse)
         self.ellipse_b_label2, self.ellipse_b_y_entry = self._create_coord_entry(axis_b_frame, "Yb:", callbacks.update_preview_ellipse)
+
+    def _setup_polygon_tab(self, parent, callbacks):
+        # Способ: центр и радиус описанной/вписанной окружности
+        self.polygon_method = tk.StringVar(value="center_radius")
+        self.polygon_variant = tk.StringVar(value="inscribed")
+        self.polygon_sides_var = tk.StringVar(value="5")
+
+        ttk.Label(parent, text="Метод: центр и радиус окружности").pack(anchor=tk.W, padx=8, pady=(4, 0))
+
+        coords_frame = ttk.LabelFrame(parent, text="Координаты")
+        coords_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        center_frame = ttk.LabelFrame(coords_frame, text="Центр")
+        center_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.polygon_center_label1, self.polygon_center_x_entry = self._create_coord_entry(center_frame, "Xc:", callbacks.update_preview_polygon)
+        self.polygon_center_label2, self.polygon_center_y_entry = self._create_coord_entry(center_frame, "Yc:", callbacks.update_preview_polygon)
+
+        radius_frame = ttk.Frame(coords_frame)
+        radius_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(radius_frame, text="R:").pack(side=tk.LEFT)
+        self.polygon_radius_entry = ttk.Entry(radius_frame)
+        self.polygon_radius_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.polygon_radius_entry.bind("<KeyRelease>", callbacks.update_preview_polygon)
+
+        variant_frame = ttk.LabelFrame(parent, text="Вариант построения")
+        variant_frame.pack(padx=5, pady=5, fill=tk.X)
+        ttk.Radiobutton(variant_frame, text="Вписанный", variable=self.polygon_variant, value="inscribed",
+                        command=callbacks.on_polygon_variant_change).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(variant_frame, text="Описанный", variable=self.polygon_variant, value="circumscribed",
+                        command=callbacks.on_polygon_variant_change).pack(anchor=tk.W, padx=5, pady=2)
+
+        sides_frame = ttk.LabelFrame(parent, text="Количество углов")
+        sides_frame.pack(padx=5, pady=5, fill=tk.X)
+        ttk.Label(sides_frame, text="N:").pack(side=tk.LEFT)
+        self.polygon_sides_spin = ttk.Spinbox(sides_frame, from_=3, to=64, textvariable=self.polygon_sides_var, width=6, command=callbacks.on_polygon_sides_change)
+        self.polygon_sides_spin.pack(side=tk.LEFT, padx=5)
+        self.polygon_sides_spin.bind("<KeyRelease>", callbacks.on_polygon_sides_change)
 
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):

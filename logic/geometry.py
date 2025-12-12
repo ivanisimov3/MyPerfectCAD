@@ -442,6 +442,72 @@ class Rectangle:
         )
 
 
+class RegularPolygon:
+    """Правильный многоугольник, задаваемый центром, радиусом и количеством сторон."""
+
+    @classmethod
+    def from_center_radius(cls, center: Point, radius: float, sides: int, variant: str = 'inscribed', start_angle: float = 0.0, style_name='solid_main', color='black'):
+        """Создает многоугольник по центру, радиусу и числу сторон."""
+        return cls(center, radius, sides, variant=variant, start_angle=start_angle, style_name=style_name, color=color)
+
+    def __init__(self, center: Point, radius: float, sides: int, variant: str = 'inscribed', start_angle: float = 0.0, style_name='solid_main', color='black'):
+        self.center = center
+        self.base_radius = abs(radius)
+        self.sides = max(3, int(sides))
+        self.variant = variant if variant in ('inscribed', 'circumscribed') else 'inscribed'
+        self.start_angle = float(start_angle)
+        self.style_name = style_name
+        self.color = color
+
+    def _circumradius(self):
+        """Возвращает радиус описанной окружности для текущего варианта построения."""
+        if self.variant == 'circumscribed':
+            # Переданный радиус считается вписанным (окружность касается сторон).
+            return self.base_radius / math.cos(math.pi / self.sides)
+        return self.base_radius
+
+    def vertices(self):
+        """Список вершин в порядке обхода CCW."""
+        r = self._circumradius()
+        # Для описанного варианта немного смещаем фазу, чтобы сторона лежала горизонтально.
+        base_angle = self.start_angle
+        if self.variant == 'circumscribed':
+            base_angle += math.pi / self.sides
+
+        verts = []
+        step = 2 * math.pi / self.sides
+        for i in range(self.sides):
+            ang = base_angle + step * i
+            x = self.center.x + r * math.cos(ang)
+            y = self.center.y + r * math.sin(ang)
+            verts.append(Point(x, y))
+        return verts
+
+    def edges(self):
+        """Возвращает список отрезков-сторон многоугольника."""
+        verts = self.vertices()
+        segs = []
+        n = len(verts)
+        for i in range(n):
+            p1 = verts[i]
+            p2 = verts[(i + 1) % n]
+            segs.append(Segment(p1, p2, style_name=self.style_name, color=self.color))
+        return segs
+
+    def distance_to_point(self, mx, my):
+        """Минимальное расстояние от точки до многоугольника (по его сторонам)."""
+        edges = self.edges()
+        if not edges:
+            return 0.0
+        return min(edge.distance_to_point(mx, my) for edge in edges)
+
+    def __repr__(self):
+        return (
+            f"RegularPolygon(center={self.center}, sides={self.sides}, "
+            f"variant={self.variant}, style='{self.style_name}')"
+        )
+
+
 class Ellipse:
     """Обобщенный эллипс, заданный центром и концами полуосей."""
 

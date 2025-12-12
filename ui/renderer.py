@@ -764,6 +764,11 @@ class Renderer:
         for arc in arcs:
             self.draw_arc(arc, override_color=override_color, override_width=override_width)
 
+    def draw_polygon(self, polygon, override_color=None, override_width=None):
+        """Отрисовывает правильный многоугольник через набор отрезков."""
+        for seg in polygon.edges():
+            self.draw_segment(seg, override_color=override_color, override_width=override_width)
+
     # --- ЭЛЛИПСЫ ---
 
     def _ellipse_polyline(self, ellipse, num_points=None):
@@ -1034,6 +1039,9 @@ class Renderer:
         # 5.2 Рисуем выделенные эллипсы
         for ellipse in self.state.selected_ellipses:
             self.draw_ellipse(ellipse, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        # 5.3 Рисуем выделенные многоугольники
+        for poly in self.state.selected_polygons:
+            self.draw_polygon(poly, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
@@ -1054,6 +1062,9 @@ class Renderer:
         # 7.2 Рисуем все эллипсы
         for ellipse in self.state.ellipses:
             self.draw_ellipse(ellipse)
+        # 7.3 Рисуем все многоугольники
+        for poly in self.state.polygons:
+            self.draw_polygon(poly)
 
         # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
@@ -1074,6 +1085,9 @@ class Renderer:
         # 10.2 Рисуем превью эллипса
         if self.state.preview_ellipse:
             self.draw_ellipse(self.state.preview_ellipse, override_color='blue')
+        # 10.3 Рисуем превью многоугольника
+        if self.state.preview_polygon:
+            self.draw_polygon(self.state.preview_polygon, override_color='blue')
 
         # 11. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:

@@ -18,6 +18,7 @@ class AppState:
         self.arcs = []
         self.rectangles = []
         self.ellipses = []
+        self.polygons = []
 
         # Список выделенных объектов
         self.selected_segments = []
@@ -25,6 +26,7 @@ class AppState:
         self.selected_arcs = []
         self.selected_rectangles = []
         self.selected_ellipses = []
+        self.selected_polygons = []
 
         # Временные данные для интерактивного построения
         self.preview_segment = None
@@ -32,6 +34,7 @@ class AppState:
         self.preview_arc = None
         self.preview_rectangle = None
         self.preview_ellipse = None
+        self.preview_polygon = None
         self.points_clicked = 0
         self.active_p1 = None
         self.active_p2 = None
@@ -74,3 +77,7 @@ class AppState:
         self.rectangle_corner_value = 0.0
         # Параметры для создания эллипсов
         self.ellipse_creation_method = 'center_axes'  # center_axes
+        # Параметры для создания многоугольников
+        self.polygon_creation_method = 'center_radius'  # center_radius (расширение на будущее)
+        self.polygon_variant = 'inscribed'  # inscribed | circumscribed
+        self.polygon_sides = 5
