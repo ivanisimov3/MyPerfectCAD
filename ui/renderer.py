@@ -402,7 +402,8 @@ class Renderer:
         radius_px = arc.radius * self.state.zoom
         # Ограничиваем sweep, чтобы не превращался визуально в полную окружность
         sweep = min(arc.sweep_angle, 2 * math.pi - 1e-4)
-        start_deg = math.degrees(arc.start_angle)
+        # Учитываем поворот вида: базовый угол дуги должен вращаться вместе с остальными координатами
+        start_deg = math.degrees(arc.start_angle + self.state.rotation)
         extent_deg = min(359.999, math.degrees(sweep))
 
         x1 = cx - radius_px
@@ -447,7 +448,8 @@ class Renderer:
             actual_angle = min(seg_angle, sweep - current_angle)
 
             if is_drawing and actual_angle > 0.01:
-                start_deg = math.degrees(start + current_angle)
+                # Смещаем угол на поворот вида, чтобы штриховые сегменты не "уезжали" при вращении
+                start_deg = math.degrees(start + current_angle + self.state.rotation)
                 extent_deg = math.degrees(actual_angle)
                 self.canvas.create_arc(x1, y1, x2, y2,
                                        start=start_deg,

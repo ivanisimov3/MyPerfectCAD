@@ -1070,6 +1070,7 @@ class Callbacks:
     def on_new_polygon_mode(self, event=None):
         self.set_app_state('CREATING_POLYGON')
 
+        self.state.polygon_start_angle = 0.0
         for entry in [
             self.view.polygon_center_x_entry, self.view.polygon_center_y_entry,
             self.view.polygon_radius_entry
@@ -1249,9 +1250,11 @@ class Callbacks:
             radius = float(self.view.polygon_radius_entry.get())
             sides = int(self.view.polygon_sides_var.get())
             variant = self.view.polygon_variant.get()
+            start_angle = getattr(self.state, 'polygon_start_angle', 0.0) or 0.0
             self.state.preview_polygon = RegularPolygon.from_center_radius(
                 center, radius, sides,
                 variant=variant,
+                start_angle=start_angle,
                 style_name=self.state.current_style_name,
                 color=self.state.current_color
             )
@@ -1439,28 +1442,27 @@ class Callbacks:
             self.set_app_state('IDLE')
 
     def finalize_spline(self, event=None):
-        if self.state.preview_spline:
-            sp = self.state.preview_spline
-            ctrl_copy = [Point(p.x, p.y) for p in sp.control_points]
+        if len(self.state.spline_control_points) >= 2:
+            # Финализируем ровно те точки, что были кликом поставлены
+            ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
+            kinks = getattr(self.state.preview_spline, 'kinks_count', None) if self.state.preview_spline else None
+            waves = getattr(self.state.preview_spline, 'waves_count', None) if self.state.preview_spline else None
             if self.state.editing_object and self.state.editing_object_type == 'spline':
-                # Режим редактирования - обновляем существующий объект
                 edit_spline = self.state.editing_object
                 edit_spline.control_points = ctrl_copy
                 edit_spline.style_name = self.state.current_style_name
                 edit_spline.color = self.state.current_color
-                edit_spline.kinks_count = getattr(sp, 'kinks_count', None)
-                edit_spline.waves_count = getattr(sp, 'waves_count', None)
-                # Сбрасываем режим редактирования
+                edit_spline.kinks_count = kinks
+                edit_spline.waves_count = waves
                 self.state.editing_object = None
                 self.state.editing_object_type = None
             else:
-                # Режим создания - добавляем новый объект
                 final_spline = Spline(
                     ctrl_copy,
                     style_name=self.state.current_style_name,
                     color=self.state.current_color,
-                    kinks_count=getattr(sp, 'kinks_count', None),
-                    waves_count=getattr(sp, 'waves_count', None)
+                    kinks_count=kinks,
+                    waves_count=waves
                 )
                 self.state.splines.append(final_spline)
             self.set_app_state('IDLE')
@@ -1722,6 +1724,7 @@ class Callbacks:
         
         self.state.polygon_sides = poly.sides
         self.state.polygon_variant = poly.variant
+        self.state.polygon_start_angle = getattr(poly, 'start_angle', 0.0)
         
         self.state.points_clicked = 2
         self.update_preview_polygon()
@@ -2061,6 +2064,8 @@ class Callbacks:
                 cx, cy = wx, wy
             radius = math.sqrt((wx - cx) ** 2 + (wy - cy) ** 2)
             self.view.polygon_radius_entry.delete(0, tk.END); self.view.polygon_radius_entry.insert(0, f"{radius:.2f}")
+            # Фиксируем выбранный угол поворота по второму клику
+            self.state.polygon_start_angle = math.atan2(wy - cy, wx - cx)
             self.state.points_clicked = 2
         self.update_preview_polygon()
 
@@ -3350,6 +3355,7 @@ class Callbacks:
                 
                 # Вычисляем угол поворота
                 start_angle = math.atan2(wy - center_y, wx - center_x)
+                self.state.polygon_start_angle = start_angle
                 
                 self.state.preview_polygon = RegularPolygon.from_center_radius(
                     Point(center_x, center_y), radius, sides,
@@ -3362,17 +3368,17 @@ class Callbacks:
                 pass
     
     def _update_spline_preview_mouse(self, wx, wy):
-        """Обновляет превью сплайна при движении мыши (добавляет временную точку)."""
-        if len(self.state.spline_control_points) >= 1:
-            # Создаём временный сплайн с текущей позицией мыши как последней точкой
-            temp_points = [Point(p.x, p.y) for p in self.state.spline_control_points]
-            temp_points.append(Point(wx, wy))
-            if len(temp_points) >= 2:
-                self.state.preview_spline = Spline(
-                    temp_points,
-                    style_name=self.state.current_style_name,
-                    color=self.state.current_color
-                )
+        """Обновляет превью сплайна при движении мыши, не добавляя временную точку."""
+        # Превью отражает только уже зафиксированные кликом точки
+        if len(self.state.spline_control_points) >= 2:
+            ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
+            self.state.preview_spline = Spline(
+                ctrl_copy,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+        else:
+            self.state.preview_spline = None
     
     def _get_snapped_coordinates(self, event_x, event_y):
         """

@@ -85,6 +85,7 @@ class AppState:
         self.polygon_creation_method = 'center_radius'  # center_radius (расширение на будущее)
         self.polygon_variant = 'inscribed'  # inscribed | circumscribed
         self.polygon_sides = 5
+        self.polygon_start_angle = 0.0  # Хранит выбранный угол поворота многоугольника
 
         # Параметры для режима редактирования
         # Хранит ссылку на редактируемый объект (None если не в режиме редактирования)
