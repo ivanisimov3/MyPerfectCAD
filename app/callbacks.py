@@ -7,10 +7,11 @@
 '''
 
 import tkinter as tk
-from tkinter import messagebox, colorchooser
+from tkinter import messagebox, colorchooser, ttk
 import math
 from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
 from logic.converter import CoordinateConverter
+from logic.snap import SnapManager, SnapType
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
 from ui.style_manager import StyleManagerWindow
@@ -23,6 +24,7 @@ class Callbacks:
         
         self.converter = None
         self.renderer = None
+        self.snap_manager = None  # Менеджер привязок
         
         self._drag_start_x = 0
         self._drag_start_y = 0
@@ -127,6 +129,7 @@ class Callbacks:
     def initialize_view(self):
         self.converter = CoordinateConverter(self.state, self.view.canvas)
         self.renderer = Renderer(self.view.canvas, self.state, self.converter)
+        self.snap_manager = SnapManager(self.state)  # Инициализируем менеджер привязок
         
         self.view.canvas.config(background=self.state.bg_color)
         self.view.bg_swatch.config(background=self.state.bg_color)
@@ -1839,9 +1842,11 @@ class Callbacks:
         self.update_preview_polygon()
 
     def on_lmb_click(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         if self.state.points_clicked == 0:
             self._update_p1_entries(wx, wy)
+            self.state.active_p1 = Point(wx, wy)  # Сохраняем для перпендикуляра/касательной
             self.state.points_clicked = 1
         elif self.state.points_clicked == 1:
             self._update_p2_entries(Point(wx, wy))
@@ -1849,7 +1854,8 @@ class Callbacks:
         self.update_preview_segment()
 
     def on_lmb_click_circle(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         method = self.state.circle_creation_method
 
         if method in ['center_radius', 'center_diameter']:
@@ -1860,6 +1866,7 @@ class Callbacks:
                 self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
                 self.view.circle_center_y_entry.delete(0, tk.END)
                 self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 # Второй клик - определяем радиус/диаметр
@@ -1881,6 +1888,7 @@ class Callbacks:
                 self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
                 self.view.circle_center_y_entry.delete(0, tk.END)
                 self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 # Второй клик - вторая точка
@@ -1897,6 +1905,7 @@ class Callbacks:
                 self.view.circle_center_x_entry.insert(0, f"{wx:.2f}")
                 self.view.circle_center_y_entry.delete(0, tk.END)
                 self.view.circle_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 # Второй клик - вторая точка
@@ -1916,7 +1925,8 @@ class Callbacks:
         self.update_preview_circle()
 
     def on_lmb_click_arc(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         method = self.state.arc_creation_method
         angle_unit = self.view.angle_units.get()
 
@@ -1927,6 +1937,7 @@ class Callbacks:
             if self.state.points_clicked == 0:
                 self.view.arc_p1_x_entry.delete(0, tk.END); self.view.arc_p1_x_entry.insert(0, f"{wx:.2f}")
                 self.view.arc_p1_y_entry.delete(0, tk.END); self.view.arc_p1_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 self.view.arc_p2_x_entry.delete(0, tk.END); self.view.arc_p2_x_entry.insert(0, f"{wx:.2f}")
@@ -1941,6 +1952,7 @@ class Callbacks:
                 # Центр
                 self.view.arc_center_x_entry.delete(0, tk.END); self.view.arc_center_x_entry.insert(0, f"{wx:.2f}")
                 self.view.arc_center_y_entry.delete(0, tk.END); self.view.arc_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 # Устанавливаем радиус и начальный угол
@@ -1967,13 +1979,15 @@ class Callbacks:
         self.update_preview_arc()
 
     def on_lmb_click_rectangle(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         method = self.state.rectangle_creation_method
 
         if method == 'two_points':
             if self.state.points_clicked == 0:
                 self.view.rect_p1_x_entry.delete(0, tk.END); self.view.rect_p1_x_entry.insert(0, f"{wx:.2f}")
                 self.view.rect_p1_y_entry.delete(0, tk.END); self.view.rect_p1_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 self.view.rect_p2_x_entry.delete(0, tk.END); self.view.rect_p2_x_entry.insert(0, f"{wx:.2f}")
@@ -1983,6 +1997,7 @@ class Callbacks:
             if self.state.points_clicked == 0:
                 self.view.rect_corner_x_entry.delete(0, tk.END); self.view.rect_corner_x_entry.insert(0, f"{wx:.2f}")
                 self.view.rect_corner_y_entry.delete(0, tk.END); self.view.rect_corner_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 try:
@@ -1997,6 +2012,7 @@ class Callbacks:
             if self.state.points_clicked == 0:
                 self.view.rect_center_x_entry.delete(0, tk.END); self.view.rect_center_x_entry.insert(0, f"{wx:.2f}")
                 self.view.rect_center_y_entry.delete(0, tk.END); self.view.rect_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.active_p1 = Point(wx, wy)
                 self.state.points_clicked = 1
             elif self.state.points_clicked == 1:
                 try:
@@ -2011,10 +2027,12 @@ class Callbacks:
         self.update_preview_rectangle()
 
     def on_lmb_click_ellipse(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         if self.state.points_clicked == 0:
             self.view.ellipse_center_x_entry.delete(0, tk.END); self.view.ellipse_center_x_entry.insert(0, f"{wx:.2f}")
             self.view.ellipse_center_y_entry.delete(0, tk.END); self.view.ellipse_center_y_entry.insert(0, f"{wy:.2f}")
+            self.state.active_p1 = Point(wx, wy)
             self.state.points_clicked = 1
         elif self.state.points_clicked == 1:
             self.view.ellipse_a_x_entry.delete(0, tk.END); self.view.ellipse_a_x_entry.insert(0, f"{wx:.2f}")
@@ -2028,10 +2046,12 @@ class Callbacks:
         self.update_preview_ellipse()
 
     def on_lmb_click_polygon(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         if self.state.points_clicked == 0:
             self.view.polygon_center_x_entry.delete(0, tk.END); self.view.polygon_center_x_entry.insert(0, f"{wx:.2f}")
             self.view.polygon_center_y_entry.delete(0, tk.END); self.view.polygon_center_y_entry.insert(0, f"{wy:.2f}")
+            self.state.active_p1 = Point(wx, wy)
             self.state.points_clicked = 1
         elif self.state.points_clicked == 1:
             try:
@@ -2118,7 +2138,8 @@ class Callbacks:
         self.update_preview_spline()
 
     def on_lmb_click_spline(self, event):
-        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        # Получаем координаты с учётом привязки
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
         self.state.spline_control_points.append(Point(wx, wy))
         self.view.spline_point_x_entry.delete(0, tk.END); self.view.spline_point_x_entry.insert(0, f"{wx:.2f}")
         self.view.spline_point_y_entry.delete(0, tk.END); self.view.spline_point_y_entry.insert(0, f"{wy:.2f}")
@@ -3061,7 +3082,309 @@ class Callbacks:
 
     def on_mouse_move_stats(self, event):
         wx, wy = self.converter.screen_to_world(event.x, event.y)
-        self.view.status_coords.config(text=f"X: {wx:.2f}  Y: {wy:.2f}")
+        
+        # === СИСТЕМА ПРИВЯЗОК ===
+        # Поиск точки привязки при движении мыши
+        snap_point = None
+        if self.snap_manager and self.state.snap_enabled:
+            # Определяем from_point для перпендикуляра/касательной
+            from_point = None
+            if self.state.points_clicked >= 1 and self.state.active_p1:
+                from_point = self.state.active_p1
+            
+            # Радиус привязки в мировых координатах
+            snap_radius_world = self.state.snap_radius_px / self.state.zoom
+            
+            snap_point = self.snap_manager.find_snap_point(
+                wx, wy, snap_radius_world, from_point
+            )
+        
+        # Обновляем текущую привязку в состоянии
+        self.state.current_snap_point = snap_point
+        
+        # Если найдена привязка, используем её координаты
+        display_x, display_y = wx, wy
+        if snap_point:
+            display_x, display_y = snap_point.x, snap_point.y
+        
+        # Обновляем статусную строку с координатами
+        snap_indicator = ""
+        if snap_point:
+            from logic.snap import SNAP_NAMES
+            snap_indicator = f" [{SNAP_NAMES.get(snap_point.snap_type, '')}]"
+        self.view.status_coords.config(text=f"X: {display_x:.2f}  Y: {display_y:.2f}{snap_indicator}")
+        
+        # === ОБНОВЛЕНИЕ ПРЕВЬЮ ПРИ ДВИЖЕНИИ МЫШИ ===
+        # В режимах создания примитивов обновляем превью с учётом привязки
+        self._update_preview_on_mouse_move(display_x, display_y)
+        
+        # Перерисовываем в режимах создания или если есть/была привязка
+        # (чтобы маркер привязки корректно появлялся и исчезал)
+        if self.state.app_mode.startswith('CREATING_'):
+            self.redraw_all()
+        elif snap_point is not None:
+            # Есть активная привязка - показываем маркер
+            self.redraw_all()
+        elif hasattr(self, '_last_snap_point') and self._last_snap_point is not None:
+            # Привязка была, но теперь её нет - убираем маркер
+            self.redraw_all()
+        
+        # Запоминаем текущую привязку для следующего кадра
+        self._last_snap_point = snap_point
+    
+    def _update_preview_on_mouse_move(self, wx, wy):
+        """Обновляет превью примитива при движении мыши с учётом привязки."""
+        mode = self.state.app_mode
+        
+        if mode == 'CREATING_SEGMENT':
+            self._update_segment_preview_mouse(wx, wy)
+        elif mode == 'CREATING_CIRCLE':
+            self._update_circle_preview_mouse(wx, wy)
+        elif mode == 'CREATING_ARC':
+            self._update_arc_preview_mouse(wx, wy)
+        elif mode == 'CREATING_RECTANGLE':
+            self._update_rectangle_preview_mouse(wx, wy)
+        elif mode == 'CREATING_ELLIPSE':
+            self._update_ellipse_preview_mouse(wx, wy)
+        elif mode == 'CREATING_POLYGON':
+            self._update_polygon_preview_mouse(wx, wy)
+        elif mode == 'CREATING_SPLINE':
+            self._update_spline_preview_mouse(wx, wy)
+    
+    def _update_segment_preview_mouse(self, wx, wy):
+        """Обновляет превью отрезка при движении мыши."""
+        if self.state.points_clicked == 1 and self.state.active_p1:
+            # Вторая точка - позиция мыши
+            p1 = self.state.active_p1
+            p2 = Point(wx, wy)
+            self.state.preview_segment = Segment(
+                p1, p2,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            # Обновляем поля ввода
+            self.view.p2_x_entry.delete(0, tk.END)
+            self.view.p2_x_entry.insert(0, f"{wx:.2f}")
+            self.view.p2_y_entry.delete(0, tk.END)
+            self.view.p2_y_entry.insert(0, f"{wy:.2f}")
+    
+    def _update_circle_preview_mouse(self, wx, wy):
+        """Обновляет превью окружности при движении мыши."""
+        method = self.state.circle_creation_method
+        
+        if method in ['center_radius', 'center_diameter'] and self.state.points_clicked == 1:
+            # Вычисляем радиус/диаметр от центра до позиции мыши
+            try:
+                center_x = float(self.view.circle_center_x_entry.get())
+                center_y = float(self.view.circle_center_y_entry.get())
+                distance = math.sqrt((wx - center_x)**2 + (wy - center_y)**2)
+                
+                if method == 'center_radius':
+                    value = distance
+                    self.view.circle_param_entry.delete(0, tk.END)
+                    self.view.circle_param_entry.insert(0, f"{value:.2f}")
+                    self.state.preview_circle = Circle.from_center_radius(
+                        Point(center_x, center_y), value,
+                        style_name=self.state.current_style_name,
+                        color=self.state.current_color
+                    )
+                else:  # center_diameter
+                    value = distance * 2
+                    self.view.circle_param_entry.delete(0, tk.END)
+                    self.view.circle_param_entry.insert(0, f"{value:.2f}")
+                    self.state.preview_circle = Circle.from_center_diameter(
+                        Point(center_x, center_y), value,
+                        style_name=self.state.current_style_name,
+                        color=self.state.current_color
+                    )
+            except (ValueError, tk.TclError):
+                pass
+        
+        elif method == 'two_points' and self.state.points_clicked == 1:
+            # Вторая точка диаметра
+            try:
+                p1_x = float(self.view.circle_center_x_entry.get())
+                p1_y = float(self.view.circle_center_y_entry.get())
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.insert(0, f"{wy:.2f}")
+                self.state.preview_circle = Circle.from_two_points(
+                    Point(p1_x, p1_y), Point(wx, wy),
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            except (ValueError, tk.TclError):
+                pass
+        
+        elif method == 'three_points':
+            if self.state.points_clicked == 1:
+                # Показываем линию от первой до текущей точки
+                self.view.circle_p2_x_entry.delete(0, tk.END)
+                self.view.circle_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.circle_p2_y_entry.delete(0, tk.END)
+                self.view.circle_p2_y_entry.insert(0, f"{wy:.2f}")
+            elif self.state.points_clicked == 2:
+                # Строим окружность по трём точкам
+                try:
+                    p1_x = float(self.view.circle_center_x_entry.get())
+                    p1_y = float(self.view.circle_center_y_entry.get())
+                    p2_x = float(self.view.circle_p2_x_entry.get())
+                    p2_y = float(self.view.circle_p2_y_entry.get())
+                    self.view.circle_p3_x_entry.delete(0, tk.END)
+                    self.view.circle_p3_x_entry.insert(0, f"{wx:.2f}")
+                    self.view.circle_p3_y_entry.delete(0, tk.END)
+                    self.view.circle_p3_y_entry.insert(0, f"{wy:.2f}")
+                    self.state.preview_circle = Circle.from_three_points(
+                        Point(p1_x, p1_y), Point(p2_x, p2_y), Point(wx, wy),
+                        style_name=self.state.current_style_name,
+                        color=self.state.current_color
+                    )
+                except (ValueError, tk.TclError):
+                    pass
+    
+    def _update_arc_preview_mouse(self, wx, wy):
+        """Обновляет превью дуги при движении мыши."""
+        method = self.state.arc_creation_method
+        
+        if method == 'three_points':
+            if self.state.points_clicked == 1:
+                # Вторая точка
+                self.view.arc_p2_x_entry.delete(0, tk.END)
+                self.view.arc_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.arc_p2_y_entry.delete(0, tk.END)
+                self.view.arc_p2_y_entry.insert(0, f"{wy:.2f}")
+            elif self.state.points_clicked == 2:
+                # Третья точка
+                try:
+                    p1 = Point(float(self.view.arc_p1_x_entry.get()), float(self.view.arc_p1_y_entry.get()))
+                    p2 = Point(float(self.view.arc_p2_x_entry.get()), float(self.view.arc_p2_y_entry.get()))
+                    p3 = Point(wx, wy)
+                    self.view.arc_p3_x_entry.delete(0, tk.END)
+                    self.view.arc_p3_x_entry.insert(0, f"{wx:.2f}")
+                    self.view.arc_p3_y_entry.delete(0, tk.END)
+                    self.view.arc_p3_y_entry.insert(0, f"{wy:.2f}")
+                    self.state.preview_arc = Arc.from_three_points(
+                        p1, p2, p3,
+                        style_name=self.state.current_style_name,
+                        color=self.state.current_color
+                    )
+                except (ValueError, tk.TclError):
+                    pass
+    
+    def _update_rectangle_preview_mouse(self, wx, wy):
+        """Обновляет превью прямоугольника при движении мыши."""
+        method = self.state.rectangle_creation_method
+        
+        if method == 'two_points' and self.state.points_clicked == 1:
+            try:
+                p1_x = float(self.view.rect_p1_x_entry.get())
+                p1_y = float(self.view.rect_p1_y_entry.get())
+                self.view.rect_p2_x_entry.delete(0, tk.END)
+                self.view.rect_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.rect_p2_y_entry.delete(0, tk.END)
+                self.view.rect_p2_y_entry.insert(0, f"{wy:.2f}")
+                
+                corner_type = self.view.rect_corner_type.get()
+                try:
+                    corner_val = float(self.view.rect_corner_value_entry.get())
+                except (ValueError, tk.TclError):
+                    corner_val = 0.0
+                
+                self.state.preview_rectangle = Rectangle.from_two_points(
+                    Point(p1_x, p1_y), Point(wx, wy),
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color,
+                    corner_type=corner_type,
+                    corner_value=corner_val
+                )
+            except (ValueError, tk.TclError):
+                pass
+    
+    def _update_ellipse_preview_mouse(self, wx, wy):
+        """Обновляет превью эллипса при движении мыши."""
+        if self.state.points_clicked == 1:
+            # Вторая точка - конец первой оси
+            try:
+                center_x = float(self.view.ellipse_center_x_entry.get())
+                center_y = float(self.view.ellipse_center_y_entry.get())
+                self.view.ellipse_a_x_entry.delete(0, tk.END)
+                self.view.ellipse_a_x_entry.insert(0, f"{wx:.2f}")
+                self.view.ellipse_a_y_entry.delete(0, tk.END)
+                self.view.ellipse_a_y_entry.insert(0, f"{wy:.2f}")
+            except (ValueError, tk.TclError):
+                pass
+        elif self.state.points_clicked == 2:
+            # Третья точка - конец второй оси
+            try:
+                center_x = float(self.view.ellipse_center_x_entry.get())
+                center_y = float(self.view.ellipse_center_y_entry.get())
+                axis_a_x = float(self.view.ellipse_a_x_entry.get())
+                axis_a_y = float(self.view.ellipse_a_y_entry.get())
+                self.view.ellipse_b_x_entry.delete(0, tk.END)
+                self.view.ellipse_b_x_entry.insert(0, f"{wx:.2f}")
+                self.view.ellipse_b_y_entry.delete(0, tk.END)
+                self.view.ellipse_b_y_entry.insert(0, f"{wy:.2f}")
+                self.state.preview_ellipse = Ellipse.from_center_axes(
+                    Point(center_x, center_y),
+                    Point(axis_a_x, axis_a_y),
+                    Point(wx, wy),
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            except (ValueError, tk.TclError):
+                pass
+    
+    def _update_polygon_preview_mouse(self, wx, wy):
+        """Обновляет превью многоугольника при движении мыши."""
+        if self.state.points_clicked == 1:
+            try:
+                center_x = float(self.view.polygon_center_x_entry.get())
+                center_y = float(self.view.polygon_center_y_entry.get())
+                radius = math.sqrt((wx - center_x)**2 + (wy - center_y)**2)
+                self.view.polygon_radius_entry.delete(0, tk.END)
+                self.view.polygon_radius_entry.insert(0, f"{radius:.2f}")
+                
+                sides = int(self.view.polygon_sides_var.get())
+                variant = self.view.polygon_variant.get()
+                
+                # Вычисляем угол поворота
+                start_angle = math.atan2(wy - center_y, wx - center_x)
+                
+                self.state.preview_polygon = RegularPolygon.from_center_radius(
+                    Point(center_x, center_y), radius, sides,
+                    variant=variant,
+                    start_angle=start_angle,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            except (ValueError, tk.TclError):
+                pass
+    
+    def _update_spline_preview_mouse(self, wx, wy):
+        """Обновляет превью сплайна при движении мыши (добавляет временную точку)."""
+        if len(self.state.spline_control_points) >= 1:
+            # Создаём временный сплайн с текущей позицией мыши как последней точкой
+            temp_points = [Point(p.x, p.y) for p in self.state.spline_control_points]
+            temp_points.append(Point(wx, wy))
+            if len(temp_points) >= 2:
+                self.state.preview_spline = Spline(
+                    temp_points,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+    
+    def _get_snapped_coordinates(self, event_x, event_y):
+        """
+        Возвращает координаты с учётом привязки.
+        Используется в обработчиках кликов.
+        """
+        wx, wy = self.converter.screen_to_world(event_x, event_y)
+        
+        if self.state.current_snap_point:
+            return self.state.current_snap_point.x, self.state.current_snap_point.y
+        
+        return wx, wy
 
     def update_status_bar(self):
         zoom_pct = int((self.state.zoom / 10.0) * 100)
@@ -3213,3 +3536,126 @@ class Callbacks:
         self.update_preview_polygon()
         self.update_preview_spline()
         self.redraw_all()
+
+    # === МЕТОДЫ УПРАВЛЕНИЯ ПРИВЯЗКАМИ (OSNAP) ===
+    
+    def on_snap_toggle(self):
+        """Включает/выключает систему привязок."""
+        self.state.snap_enabled = self.view.snap_enabled_var.get()
+        self.redraw_all()
+    
+    def on_snap_setting_changed(self):
+        """Обновляет настройки отдельных привязок."""
+        self.state.snap_endpoint = self.view.snap_endpoint_var.get()
+        self.state.snap_midpoint = self.view.snap_midpoint_var.get()
+        self.state.snap_center = self.view.snap_center_var.get()
+        self.state.snap_intersection = self.view.snap_intersection_var.get()
+        self.state.snap_perpendicular = self.view.snap_perpendicular_var.get()
+        self.state.snap_tangent = self.view.snap_tangent_var.get()
+        self.state.snap_grid = self.view.snap_grid_var.get()
+        self.redraw_all()
+    
+    def on_open_snap_settings(self):
+        """Открывает диалоговое окно настроек привязок."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Настройки привязок")
+        dialog.geometry("320x380")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Заголовок
+        ttk.Label(dialog, text="Настройки системы привязок", font=('Arial', 11, 'bold')).pack(pady=10)
+        
+        # Создаём Canvas с прокруткой
+        canvas_frame = ttk.Frame(dialog)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        
+        canvas = tk.Canvas(canvas_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Прокрутка колесом мыши
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        main_frame = scrollable_frame
+        
+        # Глобальное включение
+        ttk.Checkbutton(
+            main_frame, text="Включить привязки (глобально)",
+            variable=self.view.snap_enabled_var,
+            command=self.on_snap_toggle
+        ).pack(anchor=tk.W, pady=5)
+        
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+        
+        # Обязательные привязки
+        ttk.Label(main_frame, text="Обязательные привязки:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
+        
+        ttk.Checkbutton(main_frame, text="□ Конец - концы отрезков, вершины",
+                       variable=self.view.snap_endpoint_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        ttk.Checkbutton(main_frame, text="△ Середина - середины отрезков",
+                       variable=self.view.snap_midpoint_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        ttk.Checkbutton(main_frame, text="○ Центр - центры окружностей, дуг",
+                       variable=self.view.snap_center_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+        
+        # Дополнительные привязки
+        ttk.Label(main_frame, text="Дополнительные привязки:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
+        
+        ttk.Checkbutton(main_frame, text="× Пересечение",
+                       variable=self.view.snap_intersection_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        ttk.Checkbutton(main_frame, text="⊥ Перпендикуляр*",
+                       variable=self.view.snap_perpendicular_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        ttk.Checkbutton(main_frame, text="◇ Касательная*",
+                       variable=self.view.snap_tangent_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        
+        ttk.Label(main_frame, text="* Работают после первой точки", 
+                 font=('Arial', 8)).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+        
+        # Привязка к сетке
+        ttk.Label(main_frame, text="Сетка:", font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
+        ttk.Checkbutton(main_frame, text="+ Привязка к сетке",
+                       variable=self.view.snap_grid_var, command=self.on_snap_setting_changed).pack(anchor=tk.W)
+        
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=5)
+        
+        # Радиус привязки
+        ttk.Label(main_frame, text="Радиус привязки (пиксели):", font=('Arial', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
+        radius_frame = ttk.Frame(main_frame)
+        radius_frame.pack(fill=tk.X, pady=5)
+        
+        self._snap_radius_var = tk.StringVar(value=str(self.state.snap_radius_px))
+        snap_radius_entry = ttk.Entry(radius_frame, textvariable=self._snap_radius_var, width=8)
+        snap_radius_entry.pack(side=tk.LEFT, padx=(0, 5))
+        
+        def apply_radius():
+            try:
+                val = int(self._snap_radius_var.get())
+                if val > 0:
+                    self.state.snap_radius_px = val
+            except ValueError:
+                pass
+        
+        ttk.Button(radius_frame, text="Применить", command=apply_radius).pack(side=tk.LEFT)
+        
+        # Кнопка закрытия
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, pady=10, padx=10)
+        ttk.Button(btn_frame, text="Закрыть", command=lambda: (canvas.unbind_all("<MouseWheel>"), dialog.destroy())).pack()

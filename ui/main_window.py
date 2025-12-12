@@ -354,9 +354,88 @@ class MainWindow:
         # Кнопка для открытия менеджера стилей (подробная настройка)
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
-
+        # === РАЗДЕЛ: ПРИВЯЗКИ (OSNAP) ===
+        snap_frame = ttk.LabelFrame(parent, text="Привязки (OSNAP)")
+        snap_frame.pack(padx=5, pady=5, fill=tk.X)
         
+        # Глобальное включение/выключение привязок
+        self.snap_enabled_var = tk.BooleanVar(value=True)
+        snap_enable_row = ttk.Frame(snap_frame)
+        snap_enable_row.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Checkbutton(
+            snap_enable_row, 
+            text="Включить привязки", 
+            variable=self.snap_enabled_var,
+            command=callbacks.on_snap_toggle
+        ).pack(side=tk.LEFT)
         
+        # Кнопка для открытия окна настроек привязок
+        ttk.Button(snap_enable_row, text="⚙", width=3, command=callbacks.on_open_snap_settings).pack(side=tk.RIGHT)
+        
+        # Обязательные привязки (отображаются сразу)
+        mandatory_frame = ttk.Frame(snap_frame)
+        mandatory_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.snap_endpoint_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mandatory_frame, text="□ Конец", 
+            variable=self.snap_endpoint_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        self.snap_midpoint_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mandatory_frame, text="△ Середина", 
+            variable=self.snap_midpoint_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        self.snap_center_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            mandatory_frame, text="○ Центр", 
+            variable=self.snap_center_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        # Дополнительные привязки
+        additional_frame = ttk.Frame(snap_frame)
+        additional_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.snap_intersection_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            additional_frame, text="× Пересечение", 
+            variable=self.snap_intersection_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        # Привязки, требующие from_point
+        special_frame = ttk.Frame(snap_frame)
+        special_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.snap_perpendicular_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            special_frame, text="⊥ Перпендикуляр", 
+            variable=self.snap_perpendicular_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        self.snap_tangent_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            special_frame, text="◇ Касательная", 
+            variable=self.snap_tangent_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
+        
+        # Привязка к сетке
+        grid_snap_frame = ttk.Frame(snap_frame)
+        grid_snap_frame.pack(fill=tk.X, padx=5, pady=(2, 5))
+        
+        self.snap_grid_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            grid_snap_frame, text="+ К сетке", 
+            variable=self.snap_grid_var,
+            command=callbacks.on_snap_setting_changed
+        ).pack(side=tk.LEFT)
 
         # === РАЗДЕЛ: СЕТКА ===
         grid_frame = ttk.LabelFrame(parent, text="Сетка")

@@ -8,6 +8,7 @@
 import math
 import tkinter as tk
 from logic.geometry import Spline  # for type hints
+from logic.snap import SnapType  # for snap indicator rendering
 
 class Renderer:
     def __init__(self, canvas, state, converter):
@@ -1284,3 +1285,106 @@ class Renderer:
             self.draw_point(self.state.active_p3)
         if self.state.active_p4:
             self.draw_point(self.state.active_p4)
+        
+        # 12. Рисуем индикатор привязки
+        if self.state.current_snap_point:
+            self.draw_snap_indicator(self.state.current_snap_point)
+    
+    def draw_snap_indicator(self, snap_point):
+        """Отрисовывает визуальный индикатор точки привязки."""
+        # Конвертируем координаты в экранные
+        sx, sy = self.converter.world_to_screen(snap_point.x, snap_point.y)
+        
+        # Размер индикатора
+        size = 8
+        
+        # Цвета для разных типов привязок
+        snap_colors = {
+            SnapType.ENDPOINT: '#FF6600',      # Оранжевый - конец
+            SnapType.MIDPOINT: '#00CC00',      # Зелёный - середина
+            SnapType.CENTER: '#0066FF',        # Синий - центр
+            SnapType.INTERSECTION: '#FF0000',  # Красный - пересечение
+            SnapType.PERPENDICULAR: '#9900CC', # Фиолетовый - перпендикуляр
+            SnapType.TANGENT: '#CC6600',       # Коричневый - касательная
+            SnapType.NEAREST: '#666666',       # Серый - ближайшая
+            SnapType.GRID: '#999999',          # Светло-серый - сетка
+        }
+        
+        color = snap_colors.get(snap_point.snap_type, '#FF6600')
+        line_width = 2
+        
+        # Рисуем разные маркеры в зависимости от типа привязки
+        if snap_point.snap_type == SnapType.ENDPOINT:
+            # Квадрат для концевой точки
+            self.canvas.create_rectangle(
+                sx - size, sy - size, sx + size, sy + size,
+                outline=color, width=line_width, fill=''
+            )
+        
+        elif snap_point.snap_type == SnapType.MIDPOINT:
+            # Треугольник для середины
+            self.canvas.create_polygon(
+                sx, sy - size,
+                sx - size, sy + size,
+                sx + size, sy + size,
+                outline=color, width=line_width, fill=''
+            )
+        
+        elif snap_point.snap_type == SnapType.CENTER:
+            # Круг для центра
+            self.canvas.create_oval(
+                sx - size, sy - size, sx + size, sy + size,
+                outline=color, width=line_width, fill=''
+            )
+        
+        elif snap_point.snap_type == SnapType.INTERSECTION:
+            # Крестик для пересечения
+            self.canvas.create_line(
+                sx - size, sy - size, sx + size, sy + size,
+                fill=color, width=line_width
+            )
+            self.canvas.create_line(
+                sx - size, sy + size, sx + size, sy - size,
+                fill=color, width=line_width
+            )
+        
+        elif snap_point.snap_type == SnapType.PERPENDICULAR:
+            # Перпендикуляр (угол 90°)
+            self.canvas.create_line(
+                sx - size, sy, sx, sy, fill=color, width=line_width
+            )
+            self.canvas.create_line(
+                sx, sy, sx, sy - size, fill=color, width=line_width
+            )
+            self.canvas.create_rectangle(
+                sx - size, sy - size, sx + size, sy + size,
+                outline=color, width=1, fill=''
+            )
+        
+        elif snap_point.snap_type == SnapType.TANGENT:
+            # Ромб для касательной
+            self.canvas.create_polygon(
+                sx, sy - size,
+                sx + size, sy,
+                sx, sy + size,
+                sx - size, sy,
+                outline=color, width=line_width, fill=''
+            )
+        
+        elif snap_point.snap_type == SnapType.GRID:
+            # Плюс для сетки
+            self.canvas.create_line(
+                sx - size, sy, sx + size, sy,
+                fill=color, width=line_width
+            )
+            self.canvas.create_line(
+                sx, sy - size, sx, sy + size,
+                fill=color, width=line_width
+            )
+        
+        else:
+            # По умолчанию - квадрат
+            self.canvas.create_rectangle(
+                sx - size, sy - size, sx + size, sy + size,
+                outline=color, width=line_width, fill=''
+            )

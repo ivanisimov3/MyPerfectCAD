@@ -90,3 +90,21 @@ class AppState:
         # Хранит ссылку на редактируемый объект (None если не в режиме редактирования)
         self.editing_object = None
         self.editing_object_type = None  # 'segment', 'circle', 'arc', 'rectangle', 'ellipse', 'polygon', 'spline'
+        
+        # === СИСТЕМА ПРИВЯЗОК (OSNAP) ===
+        self.snap_enabled = True  # Глобальное включение/выключение привязок
+        self.snap_radius_px = 15  # Радиус поиска привязки в пикселях
+        
+        # Обязательные привязки
+        self.snap_endpoint = True    # Конец (концевые точки)
+        self.snap_midpoint = True    # Середина (середины отрезков)
+        self.snap_center = True      # Центр (центры окружностей и т.д.)
+        
+        # Дополнительные привязки
+        self.snap_intersection = True   # Пересечение
+        self.snap_perpendicular = False # Перпендикуляр (по умолчанию выкл, т.к. требует from_point)
+        self.snap_tangent = False       # Касательная (по умолчанию выкл, т.к. требует from_point)
+        self.snap_grid = False          # Привязка к сетке (по умолчанию выкл)
+        
+        # Текущая активная привязка для отображения
+        self.current_snap_point = None  # SnapPoint или None
