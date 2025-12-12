@@ -7,6 +7,7 @@
 
 import math
 import tkinter as tk
+from logic.geometry import Spline  # for type hints
 
 class Renderer:
     def __init__(self, canvas, state, converter):
@@ -799,6 +800,21 @@ class Renderer:
 
         return coords, cum_lengths
 
+    def _spline_polyline(self, spline, samples_per_segment=20):
+        """Дискретизация сплайна в экранных координатах + накопленные длины."""
+        pts = spline.sample_points(samples_per_segment)
+        coords = []
+        cum_lengths = [0.0]
+        prev = None
+        for pt in pts:
+            sx, sy = self.converter.world_to_screen(pt.x, pt.y)
+            coords.append((sx, sy))
+            if prev is not None:
+                seg_len = math.sqrt((sx - prev[0]) ** 2 + (sy - prev[1]) ** 2)
+                cum_lengths.append(cum_lengths[-1] + seg_len)
+            prev = (sx, sy)
+        return coords, cum_lengths
+
     def _ellipse_point_screen(self, ellipse, angle, basis=None):
         """Экранная точка эллипса по углу параметра."""
         if basis is None:
@@ -868,6 +884,116 @@ class Renderer:
             prev_base = (x, y)
             t += step
 
+        return out
+
+    def _generate_polyline_wave_coords(self, coords, cum_lengths, waves_count=None):
+        """Стилизация polyline волной (для сплайнов и др.)."""
+        if not coords:
+            return []
+        zoom = self.state.zoom
+        amplitude = 3 * (zoom / 5.0)
+        base_freq = 0.2 / (zoom / 5.0)
+
+        total_len = cum_lengths[-1] if cum_lengths else 0.0
+        freq = base_freq
+        if waves_count and total_len > 1e-6:
+            freq = (2 * math.pi * waves_count) / total_len
+
+        step = 4
+        out = []
+        t = 0.0
+        prev_base = None
+        arc_len = 0.0
+
+        while t <= total_len + 1e-6:
+            x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, t)
+            if prev_base:
+                arc_len += math.sqrt((x - prev_base[0]) ** 2 + (y - prev_base[1]) ** 2)
+            norm_len = math.sqrt(dx * dx + dy * dy)
+            nx, ny = (0.0, 0.0) if norm_len < 1e-9 else (-dy / norm_len, dx / norm_len)
+            offset = amplitude * math.sin(arc_len * freq)
+            out.extend([x + nx * offset, y + ny * offset])
+            prev_base = (x, y)
+            t += step
+        return out
+
+    def _generate_polyline_zigzag_coords(self, coords, cum_lengths, kinks_count=None):
+        """Стилизация polyline зигзагом (для сплайнов и др.)."""
+        if not coords:
+            return []
+        zoom = self.state.zoom
+        period = 40 * (zoom / 5.0)
+        kink_len = 8 * (zoom / 5.0)
+        amplitude = 5 * (zoom / 5.0)
+
+        total_len = cum_lengths[-1] if cum_lengths else 0.0
+        if total_len <= 0:
+            return []
+
+        def normal_at(dist):
+            x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, dist)
+            norm_len = math.sqrt(dx * dx + dy * dy)
+            nx, ny = (0.0, 0.0) if norm_len < 1e-9 else (-dy / norm_len, dx / norm_len)
+            return x, y, nx, ny
+
+        out = []
+        x0, y0, _, _ = normal_at(0.0)
+        out.extend([x0, y0])
+
+        # Фиксированное число изломов, если задано и помещается
+        if kinks_count and kinks_count > 0 and kinks_count * kink_len < total_len:
+            gap = (total_len - kinks_count * kink_len) / (kinks_count + 1)
+            s = 0.0
+            for _ in range(kinks_count):
+                s += gap
+                x_end, y_end, _, _ = normal_at(s)
+                out.extend([x_end, y_end])
+
+                d1 = s + kink_len * 0.25
+                d2 = s + kink_len * 0.75
+                d3 = s + kink_len
+
+                x1, y1, nx1, ny1 = normal_at(d1)
+                x2, y2, nx2, ny2 = normal_at(d2)
+                x3, y3, _, _ = normal_at(d3)
+
+                out.extend([
+                    x1 - nx1 * amplitude, y1 - ny1 * amplitude,
+                    x2 + nx2 * amplitude, y2 + ny2 * amplitude,
+                    x3, y3
+                ])
+                s = d3
+
+            if s < total_len:
+                x_end, y_end, _, _ = normal_at(total_len)
+                out.extend([x_end, y_end])
+            return out
+
+        # Автоматический режим, как у отрезков
+        s = 0.0
+        while s < total_len - 1e-6:
+            next_s = min(s + period, total_len)
+            x_end, y_end, _, _ = normal_at(next_s)
+            out.extend([x_end, y_end])
+            s = next_s
+
+            if s + kink_len <= total_len:
+                d1 = s + kink_len * 0.25
+                d2 = s + kink_len * 0.75
+                d3 = s + kink_len
+
+                x1, y1, nx1, ny1 = normal_at(d1)
+                x2, y2, nx2, ny2 = normal_at(d2)
+                x3, y3, _, _ = normal_at(d3)
+
+                out.extend([
+                    x1 - nx1 * amplitude, y1 - ny1 * amplitude,
+                    x2 + nx2 * amplitude, y2 + ny2 * amplitude,
+                    x3, y3
+                ])
+                s = d3
+            else:
+                break
         return out
 
     def _generate_ellipse_zigzag_coords(self, coords, cum_lengths):
@@ -1012,6 +1138,57 @@ class Renderer:
         x, y = self.converter.world_to_screen(point.x, point.y)
         self.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
 
+    def draw_spline(self, spline, override_color=None, override_width=None):
+        """Отрисовка сплайна с учетом стиля."""
+        draw_color = override_color if override_color else spline.color
+        style = self.state.line_styles.get(spline.style_name)
+
+        line_width = 1
+        dash_pattern = None
+        base_type = 'solid'
+
+        if style:
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            line_width = max(1, int(s_px)) if style.is_main else max(1, int(s_px / 2))
+            base_type = getattr(style, 'base_type', 'solid')
+            if style.dash_pattern:
+                main_dash, main_gap = style.dash_pattern
+                if base_type == 'dash_dot_dot':
+                    part = main_gap / 5.0
+                    dash_pattern = [main_dash, part, part, part, part, part]
+                elif base_type == 'dash_dot':
+                    part = main_gap / 3.0
+                    dash_pattern = [main_dash, part, part, part]
+                else:
+                    dash_pattern = [main_dash, main_gap]
+
+        if override_width:
+            line_width = override_width
+            dash_pattern = None
+            base_type = 'solid'
+
+        coords, cum_lengths = self._spline_polyline(spline)
+        if len(coords) < 2:
+            return
+
+        if dash_pattern:
+            scaled = [float(v) * self.state.zoom for v in dash_pattern]
+            self._draw_dashed_polyline(coords, scaled, draw_color, line_width)
+        elif base_type in ['wave', 'zigzag']:
+            if base_type == 'wave':
+                styled = self._generate_polyline_wave_coords(coords, cum_lengths, waves_count=spline.waves_count)
+                smooth_flag = True
+            else:
+                styled = self._generate_polyline_zigzag_coords(coords, cum_lengths, kinks_count=spline.kinks_count)
+                smooth_flag = False
+            if len(styled) >= 4:
+                self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
+        else:
+            flat_coords = []
+            for x, y in coords:
+                flat_coords.extend([x, y])
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
+
     def render_scene(self):
         # Главный метод отрисовки всей сцены
         # Вызывается при каждом обновлении (например, при движении мыши или изменении зума)
@@ -1042,6 +1219,9 @@ class Renderer:
         # 5.3 Рисуем выделенные многоугольники
         for poly in self.state.selected_polygons:
             self.draw_polygon(poly, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        # 5.4 Рисуем выделенные сплайны
+        for spline in self.state.selected_splines:
+            self.draw_spline(spline, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
@@ -1065,6 +1245,9 @@ class Renderer:
         # 7.3 Рисуем все многоугольники
         for poly in self.state.polygons:
             self.draw_polygon(poly)
+        # 7.4 Рисуем все сплайны
+        for spline in self.state.splines:
+            self.draw_spline(spline)
 
         # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
@@ -1088,6 +1271,9 @@ class Renderer:
         # 10.3 Рисуем превью многоугольника
         if self.state.preview_polygon:
             self.draw_polygon(self.state.preview_polygon, override_color='blue')
+        # 10.4 Рисуем превью сплайна
+        if self.state.preview_spline:
+            self.draw_spline(self.state.preview_spline, override_color='blue')
 
         # 11. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:

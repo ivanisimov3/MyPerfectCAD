@@ -73,6 +73,95 @@ class Segment:
         return f"Segment({self.p1}, {self.p2}, style='{self.style_name}')"
 
 
+class Spline:
+    """Гладкий сплайн по набору контрольных точек (Catmull-Rom)."""
+
+    def __init__(self, control_points, style_name='solid_main', color='black', kinks_count=None, waves_count=None):
+        self.control_points = list(control_points)
+        self.style_name = style_name
+        self.color = color
+        # Поддержка параметров для зигзага/волны, как у отрезков
+        self.kinks_count = kinks_count
+        self.waves_count = waves_count
+
+    def _catmull_rom_point(self, p0, p1, p2, p3, t):
+        """Возвращает точку кривой Catmull-Rom для параметра t ∈ [0,1]."""
+        t2 = t * t
+        t3 = t2 * t
+        x = 0.5 * (
+            (2 * p1.x)
+            + (-p0.x + p2.x) * t
+            + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2
+            + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+        )
+        y = 0.5 * (
+            (2 * p1.y)
+            + (-p0.y + p2.y) * t
+            + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2
+            + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+        )
+        return Point(x, y)
+
+    def sample_points(self, samples_per_segment=20):
+        """Возвращает дискретизацию сплайна в виде списка точек."""
+        pts = self.control_points
+        if not pts:
+            return []
+        if len(pts) == 1:
+            return [Point(pts[0].x, pts[0].y)]
+
+        # Дублируем крайние точки для устойчивости
+        ext = [pts[0]] + pts + [pts[-1]]
+        result = []
+        segs = len(pts) - 1
+
+        for i in range(segs):
+            p0, p1, p2, p3 = ext[i], ext[i + 1], ext[i + 2], ext[i + 3]
+            for j in range(samples_per_segment + 1):
+                # избегаем дублирования стыков
+                if result and j == 0:
+                    continue
+                t = j / samples_per_segment
+                result.append(self._catmull_rom_point(p0, p1, p2, p3, t))
+        return result
+
+    def distance_to_point(self, mx, my):
+        """Минимальное расстояние до сплайна (по дискретизации)."""
+        pts = self.sample_points()
+        if not pts:
+            return float('inf')
+        if len(pts) == 1:
+            return math.sqrt((mx - pts[0].x) ** 2 + (my - pts[0].y) ** 2)
+
+        def _seg_dist(ax, ay, bx, by, px, py):
+            l2 = (bx - ax) ** 2 + (by - ay) ** 2
+            if l2 == 0:
+                return math.sqrt((px - ax) ** 2 + (py - ay) ** 2)
+            t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l2
+            t = max(0.0, min(1.0, t))
+            proj_x = ax + t * (bx - ax)
+            proj_y = ay + t * (by - ay)
+            return math.sqrt((px - proj_x) ** 2 + (py - proj_y) ** 2)
+
+        min_dist = float('inf')
+        for a, b in zip(pts[:-1], pts[1:]):
+            min_dist = min(min_dist, _seg_dist(a.x, a.y, b.x, b.y, mx, my))
+        return min_dist
+
+    def approximate_length(self):
+        """Оценка длины сплайна по дискретизации."""
+        pts = self.sample_points()
+        if len(pts) < 2:
+            return 0.0
+        length = 0.0
+        for a, b in zip(pts[:-1], pts[1:]):
+            length += math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
+        return length
+
+    def __repr__(self):
+        return f"Spline(points={len(self.control_points)}, style='{self.style_name}')"
+
+
 class Circle:
     # Создание окружности различными способами
     @classmethod

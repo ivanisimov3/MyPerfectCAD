@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon
+from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -68,6 +68,7 @@ class Callbacks:
         is_creating_rectangle = mode.startswith('CREATING_RECTANGLE')
         is_creating_ellipse = mode.startswith('CREATING_ELLIPSE')
         is_creating_polygon = mode.startswith('CREATING_POLYGON')
+        is_creating_spline = mode.startswith('CREATING_SPLINE')
         is_creating = (
             is_creating_segment
             or is_creating_circle
@@ -75,6 +76,7 @@ class Callbacks:
             or is_creating_rectangle
             or is_creating_ellipse
             or is_creating_polygon
+            or is_creating_spline
         )
         is_panning = (mode == 'PANNING')
 
@@ -85,36 +87,49 @@ class Callbacks:
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
         elif is_creating_circle:
             self.state.preview_segment = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
         elif is_creating_arc:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
         elif is_creating_rectangle:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
         elif is_creating_ellipse:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
         elif is_creating_polygon:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
+            self.state.preview_spline = None
+        elif is_creating_spline:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
+            self.state.preview_arc = None
+            self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
+            self.state.preview_polygon = None
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -158,6 +173,10 @@ class Callbacks:
             self.view.polygon_center_x_entry, self.view.polygon_center_y_entry,
             self.view.polygon_radius_entry, self.view.polygon_sides_spin
         ]
+        # Поля сплайнов
+        spline_entries = [
+            self.view.spline_point_x_entry, self.view.spline_point_y_entry, self.view.spline_points_listbox
+        ]
 
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
@@ -189,16 +208,29 @@ class Callbacks:
             for entry in polygon_entries:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
+            # Блокируем поля сплайнов
+            for entry in spline_entries:
+                try:
+                    entry.delete(0, tk.END)
+                except Exception:
+                    pass
+                entry.config(state='disabled')
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_spline = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
             self.state.active_p4 = None
+            self.state.spline_control_points = []
+            try:
+                self._update_spline_points_listbox()
+            except Exception:
+                pass
 
         if is_creating or is_panning:
             self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
@@ -261,9 +293,24 @@ class Callbacks:
             for entry in rect_entries: entry.config(state='disabled')
             for entry in ellipse_entries: entry.config(state='disabled')
             for entry in polygon_entries: entry.config(state='normal')
+            for entry in spline_entries: entry.config(state='disabled')
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_polygon)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click_polygon)
+            self.view.canvas.config(cursor="crosshair")
+        elif is_creating_spline:
+            for entry in entries: entry.config(state='disabled')
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='disabled')
+            for entry in ellipse_entries: entry.config(state='disabled')
+            for entry in polygon_entries: entry.config(state='disabled')
+            for entry in spline_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.state.spline_control_points = []
+            self._update_spline_points_listbox()
+            self.root.bind("<Return>", self.finalize_spline)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_spline)
             self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
@@ -291,6 +338,7 @@ class Callbacks:
         found_rectangle = None
         found_ellipse = None
         found_polygon = None
+        found_spline = None
 
         # Ищем сегменты
         for segment in self.state.segments:
@@ -337,6 +385,13 @@ class Callbacks:
                 if dist < hit_threshold_world:
                     found_polygon = poly
                     break
+        # Ищем сплайны
+        if not found_segment and not found_circle and not found_arc and not found_rectangle and not found_ellipse and not found_polygon:
+            for spline in self.state.splines:
+                dist = spline.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_spline = spline
+                    break
 
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
@@ -354,6 +409,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
@@ -362,6 +418,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
         elif found_circle:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -375,6 +432,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
@@ -383,6 +441,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
         elif found_arc:
             if ctrl_pressed:
                 if found_arc in self.state.selected_arcs:
@@ -394,6 +453,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -401,6 +461,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
         elif found_ellipse:
             if ctrl_pressed:
                 if found_ellipse in self.state.selected_ellipses:
@@ -412,6 +473,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -419,6 +481,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = [found_ellipse]
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
         elif found_rectangle:
             if ctrl_pressed:
                 if found_rectangle in self.state.selected_rectangles:
@@ -430,6 +493,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -437,6 +501,7 @@ class Callbacks:
                 self.state.selected_rectangles = [found_rectangle]
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
         elif found_polygon:
             if ctrl_pressed:
                 if found_polygon in self.state.selected_polygons:
@@ -448,6 +513,7 @@ class Callbacks:
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
+                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -455,6 +521,27 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = [found_polygon]
+                self.state.selected_splines = []
+        elif found_spline:
+            if ctrl_pressed:
+                if found_spline in self.state.selected_splines:
+                    self.state.selected_splines.remove(found_spline)
+                else:
+                    self.state.selected_splines.append(found_spline)
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
+                self.state.selected_polygons = []
+            else:
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
+                self.state.selected_polygons = []
+                self.state.selected_splines = [found_spline]
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
@@ -464,6 +551,7 @@ class Callbacks:
                 self.state.selected_rectangles = []
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
+                self.state.selected_splines = []
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
@@ -479,9 +567,10 @@ class Callbacks:
         sel_rectangles = self.state.selected_rectangles
         sel_ellipses = self.state.selected_ellipses
         sel_polygons = self.state.selected_polygons
+        sel_splines = self.state.selected_splines
 
         # Если ничего не выделено
-        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
+        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons and not sel_splines:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -502,8 +591,10 @@ class Callbacks:
             self._sync_ui_with_rectangles(sel_rectangles)
         elif sel_ellipses and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_polygons:
             self._sync_ui_with_ellipses(sel_ellipses)
-        elif sel_polygons and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses:
+        elif sel_polygons and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_splines:
             self._sync_ui_with_polygons(sel_polygons)
+        elif sel_splines and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
+            self._sync_ui_with_splines(sel_splines)
         else:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
@@ -646,26 +737,64 @@ class Callbacks:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
 
+    def _sync_ui_with_splines(self, sel_splines):
+        """Синхронизация UI с выделенными сплайнами."""
+        unique_styles = {sp.style_name for sp in sel_splines}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_splines[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+
+            style = self.state.line_styles.get(style_name)
+            base_type = getattr(style, 'base_type', 'solid') if style else 'solid'
+
+            if base_type in ['zigzag', 'wave'] and len(sel_splines) == 1:
+                sp = sel_splines[0]
+                self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
+                if base_type == 'zigzag':
+                    self.view.lbl_kinks.config(text="Кол-во изломов:")
+                    current_val = getattr(sp, 'kinks_count', None)
+                else:
+                    self.view.lbl_kinks.config(text="Кол-во волн:")
+                    current_val = getattr(sp, 'waves_count', None)
+                if current_val:
+                    self.view.kinks_var.set(str(current_val))
+                else:
+                    self.view.kinks_var.set('')
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
     # Изменение количества изломов или волн
     def on_kinks_changed(self, event=None):
-        if not self.state.selected_segments: return
-        seg = self.state.selected_segments[0]
+        target = None
+        if self.state.selected_segments:
+            target = self.state.selected_segments[0]
+        elif self.state.selected_splines:
+            target = self.state.selected_splines[0]
+        else:
+            return
         
         # Определяем тип текущей линии
-        style = self.state.line_styles.get(seg.style_name)
+        style = self.state.line_styles.get(target.style_name)
         base_type = getattr(style, 'base_type', 'solid')
         
         try:
             val_str = self.view.kinks_var.get()
             if not val_str: 
-                if base_type == 'zigzag': seg.kinks_count = None
-                else: seg.waves_count = None
+                if base_type == 'zigzag': target.kinks_count = None
+                else: target.waves_count = None
                 self.redraw_all()
                 return
                 
             val = int(val_str)
             zoom = self.state.zoom
-            seg_len_px = seg.length * zoom
+            seg_len_px = (target.length if hasattr(target, 'length') else target.approximate_length()) * zoom
             
             # Считаем минимально возможную длину элемента (чтобы не зависло)
             if base_type == 'zigzag':
@@ -684,8 +813,8 @@ class Callbacks:
             if val > max_n: val = max_n
             
             # Сохраняем
-            if base_type == 'zigzag': seg.kinks_count = val
-            else: seg.waves_count = val
+            if base_type == 'zigzag': target.kinks_count = val
+            else: target.waves_count = val
             
             if event and (event.keysym == 'Return' or event.type == 'VirtualEvent'): 
                  self.view.kinks_var.set(str(val))
@@ -729,6 +858,9 @@ class Callbacks:
         elif self.state.selected_polygons:
             for poly in self.state.selected_polygons:
                 poly.style_name = new_style_name
+        elif self.state.selected_splines:
+            for spline in self.state.selected_splines:
+                spline.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
@@ -738,6 +870,7 @@ class Callbacks:
         self.update_preview_rectangle()
         self.update_preview_ellipse()
         self.update_preview_polygon()
+        self.update_preview_spline()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
@@ -841,6 +974,17 @@ class Callbacks:
         ]:
             entry.delete(0, tk.END)
         self.view.polygon_sides_var.set(str(self.state.polygon_sides))
+
+    def on_new_spline_mode(self, event=None):
+        self.set_app_state('CREATING_SPLINE')
+        # Вкладка будет добавлена после многоугольников
+        self.view.settings_notebook.select(7)
+        self.state.spline_control_points = []
+        self.state.preview_spline = None
+        self.view.spline_point_x_entry.delete(0, tk.END)
+        self.view.spline_point_y_entry.delete(0, tk.END)
+        self._update_spline_points_listbox()
+        self.view.spline_point_x_entry.focus_set()
 
         self.view.polygon_center_x_entry.focus_set()
 
@@ -1018,6 +1162,24 @@ class Callbacks:
             self.state.preview_polygon = None
         self.redraw_all()
 
+    def update_preview_spline(self, event=None):
+        if len(self.state.spline_control_points) < 2:
+            self.state.preview_spline = None
+            self.redraw_all()
+            return
+        ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
+        self.state.preview_spline = Spline(
+            ctrl_copy,
+            style_name=self.state.current_style_name,
+            color=self.state.current_color
+        )
+        # Если выбрана волна/зигзаг и есть сохраненные параметры, переносим
+        if self.state.selected_splines:
+            src = self.state.selected_splines[0]
+            self.state.preview_spline.kinks_count = getattr(src, 'kinks_count', None)
+            self.state.preview_spline.waves_count = getattr(src, 'waves_count', None)
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -1094,10 +1256,24 @@ class Callbacks:
             self.state.polygons.append(final_poly)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'PANNING']:
+    def finalize_spline(self, event=None):
+        if self.state.preview_spline:
+            sp = self.state.preview_spline
+            ctrl_copy = [Point(p.x, p.y) for p in sp.control_points]
+            final_spline = Spline(
+                ctrl_copy,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color,
+                kinks_count=getattr(sp, 'kinks_count', None),
+                waves_count=getattr(sp, 'waves_count', None)
+            )
+            self.state.splines.append(final_spline)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons or self.state.selected_splines:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
             self.state.selected_circles = []
@@ -1105,6 +1281,7 @@ class Callbacks:
             self.state.selected_rectangles = []
             self.state.selected_ellipses = []
             self.state.selected_polygons = []
+            self.state.selected_splines = []
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -1141,6 +1318,11 @@ class Callbacks:
                 if poly in self.state.polygons:
                     self.state.polygons.remove(poly)
             self.state.selected_polygons = []
+        elif self.state.selected_splines:
+            for spline in self.state.selected_splines:
+                if spline in self.state.splines:
+                    self.state.splines.remove(spline)
+            self.state.selected_splines = []
         elif self.state.segments:
             self.state.segments.pop()
         elif self.state.circles:
@@ -1153,6 +1335,8 @@ class Callbacks:
             self.state.ellipses.pop()
         elif self.state.polygons:
             self.state.polygons.pop()
+        elif self.state.splines:
+            self.state.splines.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -1406,6 +1590,43 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_polygon()
 
+    def _update_spline_points_listbox(self):
+        lb = self.view.spline_points_listbox
+        lb.delete(0, tk.END)
+        for idx, p in enumerate(self.state.spline_control_points, start=1):
+            lb.insert(tk.END, f"{idx}: ({p.x:.2f}, {p.y:.2f})")
+
+    def on_add_spline_point_manual(self, event=None):
+        try:
+            x = float(self.view.spline_point_x_entry.get())
+            y = float(self.view.spline_point_y_entry.get())
+        except (ValueError, tk.TclError):
+            return
+        self.state.spline_control_points.append(Point(x, y))
+        self._update_spline_points_listbox()
+        self.update_preview_spline()
+
+    def on_remove_last_spline_point(self, event=None):
+        if self.state.spline_control_points:
+            self.state.spline_control_points.pop()
+            self._update_spline_points_listbox()
+            self.update_preview_spline()
+
+    def on_clear_spline_points(self, event=None):
+        self.state.spline_control_points = []
+        self._update_spline_points_listbox()
+        self.view.spline_point_x_entry.delete(0, tk.END)
+        self.view.spline_point_y_entry.delete(0, tk.END)
+        self.update_preview_spline()
+
+    def on_lmb_click_spline(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        self.state.spline_control_points.append(Point(wx, wy))
+        self.view.spline_point_x_entry.delete(0, tk.END); self.view.spline_point_x_entry.insert(0, f"{wx:.2f}")
+        self.view.spline_point_y_entry.delete(0, tk.END); self.view.spline_point_y_entry.insert(0, f"{wy:.2f}")
+        self._update_spline_points_listbox()
+        self.update_preview_spline()
+
     def on_rmb_click_rectangle(self, event):
         """ПКМ для удаления точек при создании прямоугольника."""
         method = self.state.rectangle_creation_method
@@ -1456,6 +1677,10 @@ class Callbacks:
             self.view.polygon_center_x_entry.delete(0, tk.END); self.view.polygon_center_y_entry.delete(0, tk.END)
             self.state.points_clicked = 0
         self.update_preview_polygon()
+
+    def on_rmb_click_spline(self, event):
+        """ПКМ удаляет последнюю контрольную точку сплайна."""
+        self.on_remove_last_spline_point()
 
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get():
@@ -1569,7 +1794,15 @@ class Callbacks:
         self.view.canvas.focus_set()
 
     def on_fit_to_view(self, event=None):
-        all_objects = self.state.segments + self.state.circles + self.state.arcs + self.state.rectangles + self.state.ellipses
+        all_objects = (
+            self.state.segments
+            + self.state.circles
+            + self.state.arcs
+            + self.state.rectangles
+            + self.state.ellipses
+            + self.state.polygons
+            + self.state.splines
+        )
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
@@ -1611,6 +1844,17 @@ class Callbacks:
             min_x_e, max_x_e, min_y_e, max_y_e = ellipse.bounding_box()
             xs.extend([min_x_e, max_x_e])
             ys.extend([min_y_e, max_y_e])
+
+        # Многоугольники
+        for poly in self.state.polygons:
+            verts = poly.vertices()
+            for v in verts:
+                xs.append(v.x); ys.append(v.y)
+
+        # Сплайны (по дискретизации)
+        for spline in self.state.splines:
+            for p in spline.sample_points():
+                xs.append(p.x); ys.append(p.y)
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -1682,6 +1926,10 @@ class Callbacks:
                 ellipse.color = c
             for poly in self.state.selected_polygons:
                 poly.color = c
+            for spline in self.state.selected_splines:
+                spline.color = c
+            if self.state.preview_spline:
+                self.state.preview_spline.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -2114,6 +2362,29 @@ class Callbacks:
 
             return
 
+        # ПРИОРИТЕТ 1.97: РЕЖИМ СОЗДАНИЯ СПЛАЙНА
+        if self.state.app_mode == 'CREATING_SPLINE':
+            count = len(self.state.spline_control_points)
+            self.view.p1_coord_var.set(f"Точек: {count}")
+            if count:
+                first = self.state.spline_control_points[0]
+                last = self.state.spline_control_points[-1]
+                self.view.p2_coord_var.set(f"Старт({first.x:.2f}, {first.y:.2f})")
+                self.view.p3_coord_var.set(f"Финиш({last.x:.2f}, {last.y:.2f})")
+                self.state.active_p1 = first
+                self.state.active_p2 = last
+            else:
+                self.view.p2_coord_var.set("Старт: N/A")
+                self.view.p3_coord_var.set("Финиш: N/A")
+
+            if self.state.preview_spline:
+                length = self.state.preview_spline.approximate_length()
+                self.view.length_var.set(f"Длина≈ {length:.2f}")
+            else:
+                self.view.length_var.set("Длина: N/A")
+            self.view.angle_var.set("Сплайн")
+            return
+
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
@@ -2208,6 +2479,20 @@ class Callbacks:
             self.view.angle_var.set("Многоугольник")
             return
 
+        if self.state.selected_splines:
+            sp = self.state.selected_splines[0]
+            pts = sp.control_points
+            self.view.p1_coord_var.set(f"Точек: {len(pts)}")
+            if pts:
+                self.view.p2_coord_var.set(f"Старт({pts[0].x:.2f}, {pts[0].y:.2f})")
+                self.view.p3_coord_var.set(f"Финиш({pts[-1].x:.2f}, {pts[-1].y:.2f})")
+            else:
+                self.view.p2_coord_var.set("Старт: N/A")
+                self.view.p3_coord_var.set("Финиш: N/A")
+            self.view.length_var.set(f"Длина≈ {sp.approximate_length():.2f}")
+            self.view.angle_var.set("Сплайн")
+            return
+
         # ПРИОРИТЕТ 3: ПУСТОТА
         self.view.length_var.set("Длина: N/A")
         self.view.angle_var.set("Угол: N/A")
@@ -2239,6 +2524,7 @@ class Callbacks:
             + len(self.state.selected_rectangles)
             + len(self.state.selected_ellipses)
             + len(self.state.selected_polygons)
+            + len(self.state.selected_splines)
         )
         if total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
@@ -2251,6 +2537,7 @@ class Callbacks:
                 'CREATING_RECTANGLE': "Создание прямоугольника",
                 'CREATING_ELLIPSE': "Создание эллипса",
                 'CREATING_POLYGON': "Создание многоугольника",
+                'CREATING_SPLINE': "Создание сплайна",
                 'PANNING': "Панорамирование"
             }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
@@ -2258,7 +2545,7 @@ class Callbacks:
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE']:
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
@@ -2269,8 +2556,10 @@ class Callbacks:
                 self.on_rmb_click_rectangle(event)
             elif self.state.app_mode == 'CREATING_ELLIPSE':
                 self.on_rmb_click_ellipse(event)
-            else:
+            elif self.state.app_mode == 'CREATING_POLYGON':
                 self.on_rmb_click_polygon(event)
+            else:
+                self.on_rmb_click_spline(event)
         else:
             self.view.context_menu.post(event.x_root, event.y_root)
 
@@ -2324,6 +2613,10 @@ class Callbacks:
             for poly in self.state.selected_polygons:
                 poly.style_name = style_key
             self._sync_ui_with_selection()
+        elif self.state.selected_splines:
+            for spline in self.state.selected_splines:
+                spline.style_name = style_key
+            self._sync_ui_with_selection()
         else:
             # Если нет выделения -> просто обновляем UI для будущего рисования
             self.view.set_style_selection(style_key)
@@ -2334,4 +2627,5 @@ class Callbacks:
         self.update_preview_rectangle()
         self.update_preview_ellipse()
         self.update_preview_polygon()
+        self.update_preview_spline()
         self.redraw_all()

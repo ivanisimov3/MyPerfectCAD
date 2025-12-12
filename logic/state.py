@@ -19,6 +19,7 @@ class AppState:
         self.rectangles = []
         self.ellipses = []
         self.polygons = []
+        self.splines = []
 
         # Список выделенных объектов
         self.selected_segments = []
@@ -27,6 +28,7 @@ class AppState:
         self.selected_rectangles = []
         self.selected_ellipses = []
         self.selected_polygons = []
+        self.selected_splines = []
 
         # Временные данные для интерактивного построения
         self.preview_segment = None
@@ -35,6 +37,8 @@ class AppState:
         self.preview_rectangle = None
         self.preview_ellipse = None
         self.preview_polygon = None
+        self.preview_spline = None
+        self.spline_control_points = []
         self.points_clicked = 0
         self.active_p1 = None
         self.active_p2 = None

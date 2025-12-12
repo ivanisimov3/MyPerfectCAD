@@ -90,6 +90,7 @@ class MainWindow:
         ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Прямоугольник", command=callbacks.on_new_rectangle_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Многоугольник", command=callbacks.on_new_polygon_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Сплайн", command=callbacks.on_new_spline_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
@@ -211,6 +212,9 @@ class MainWindow:
         # Вкладка "Многоугольники"
         polygon_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(polygon_tab, text="Многоугольники")
+        # Вкладка "Сплайны"
+        spline_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(spline_tab, text="Сплайны")
 
         # Настраиваем общую вкладку
         self._setup_general_tab(general_tab, callbacks)
@@ -232,6 +236,8 @@ class MainWindow:
 
         # Настраиваем вкладку многоугольников
         self._setup_polygon_tab(polygon_tab, callbacks)
+        # Настраиваем вкладку сплайнов
+        self._setup_spline_tab(spline_tab, callbacks)
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -550,6 +556,34 @@ class MainWindow:
         self.polygon_sides_spin = ttk.Spinbox(sides_frame, from_=3, to=64, textvariable=self.polygon_sides_var, width=6, command=callbacks.on_polygon_sides_change)
         self.polygon_sides_spin.pack(side=tk.LEFT, padx=5)
         self.polygon_sides_spin.bind("<KeyRelease>", callbacks.on_polygon_sides_change)
+
+    def _setup_spline_tab(self, parent, callbacks):
+        ttk.Label(parent, text="Метод: набор контрольных точек").pack(anchor=tk.W, padx=8, pady=(4, 0))
+
+        list_frame = ttk.LabelFrame(parent, text="Контрольные точки")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.spline_points_listbox = tk.Listbox(list_frame, height=8, exportselection=False)
+        self.spline_points_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        manual_frame = ttk.LabelFrame(parent, text="Добавить вручную")
+        manual_frame.pack(fill=tk.X, padx=5, pady=5)
+        row = ttk.Frame(manual_frame)
+        row.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(row, text="X:").pack(side=tk.LEFT)
+        self.spline_point_x_entry = ttk.Entry(row, width=10)
+        self.spline_point_x_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(row, text="Y:").pack(side=tk.LEFT)
+        self.spline_point_y_entry = ttk.Entry(row, width=10)
+        self.spline_point_y_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Button(manual_frame, text="Добавить точку", command=callbacks.on_add_spline_point_manual).pack(fill=tk.X, padx=5, pady=(2, 0))
+
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(btn_frame, text="Удалить последнюю", command=callbacks.on_remove_last_spline_point).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="Очистить", command=callbacks.on_clear_spline_points).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="Завершить (Enter)", command=callbacks.finalize_spline).pack(fill=tk.X, pady=2)
+
+        ttk.Label(parent, text="ЛКМ на холсте добавляет точку.\nПКМ убирает последнюю. Enter завершает.").pack(anchor=tk.W, padx=8, pady=4)
 
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
