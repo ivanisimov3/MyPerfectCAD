@@ -85,3 +85,8 @@ class AppState:
         self.polygon_creation_method = 'center_radius'  # center_radius (расширение на будущее)
         self.polygon_variant = 'inscribed'  # inscribed | circumscribed
         self.polygon_sides = 5
+
+        # Параметры для режима редактирования
+        # Хранит ссылку на редактируемый объект (None если не в режиме редактирования)
+        self.editing_object = None
+        self.editing_object_type = None  # 'segment', 'circle', 'arc', 'rectangle', 'ellipse', 'polygon', 'spline'

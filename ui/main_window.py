@@ -79,7 +79,8 @@ class MainWindow:
         self.canvas.bind("<Button-4>", callbacks.on_mouse_wheel)
         self.canvas.bind("<Button-5>", callbacks.on_mouse_wheel)
         self.canvas.bind("<Motion>", callbacks.on_mouse_move_stats)
-        self.canvas.bind("<Button-3>", callbacks.show_context_menu) 
+        self.canvas.bind("<Button-3>", callbacks.show_context_menu)
+        self.canvas.bind("<Double-Button-1>", callbacks.on_double_click)  # Двойной клик для редактирования 
 
         # События клавиатуры
         self.root.bind("<F11>", callbacks.toggle_fullscreen)
@@ -193,6 +194,8 @@ class MainWindow:
     def create_context_menu(self, root, callbacks):
 
         self.context_menu = tk.Menu(root, tearoff=0)
+        self.context_menu.add_command(label="Редактировать", command=callbacks.on_edit_selected)
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Рука", command=callbacks.on_hand_mode)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Показать все", command=callbacks.on_fit_to_view)
@@ -618,8 +621,10 @@ class MainWindow:
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.spline_points_listbox = tk.Listbox(list_frame, height=8, exportselection=False)
         self.spline_points_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Привязка к выбору точки в списке
+        self.spline_points_listbox.bind('<<ListboxSelect>>', callbacks.on_spline_point_selected)
 
-        manual_frame = ttk.LabelFrame(parent, text="Добавить вручную")
+        manual_frame = ttk.LabelFrame(parent, text="Координаты точки")
         manual_frame.pack(fill=tk.X, padx=5, pady=5)
         row = ttk.Frame(manual_frame)
         row.pack(fill=tk.X, padx=5, pady=2)
@@ -629,15 +634,28 @@ class MainWindow:
         ttk.Label(row, text="Y:").pack(side=tk.LEFT)
         self.spline_point_y_entry = ttk.Entry(row, width=10)
         self.spline_point_y_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(manual_frame, text="Добавить точку", command=callbacks.on_add_spline_point_manual).pack(fill=tk.X, padx=5, pady=(2, 0))
+        
+        # Кнопки добавления/редактирования
+        add_btns_frame = ttk.Frame(manual_frame)
+        add_btns_frame.pack(fill=tk.X, padx=5, pady=(2, 2))
+        ttk.Button(add_btns_frame, text="В конец", command=callbacks.on_add_spline_point_manual).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(add_btns_frame, text="Перед выбранной", command=callbacks.on_insert_spline_point_before).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        # Кнопка обновления координат выбранной точки
+        ttk.Button(manual_frame, text="Обновить выбранную", command=callbacks.on_update_selected_spline_point).pack(fill=tk.X, padx=5, pady=(2, 5))
 
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(btn_frame, text="Удалить последнюю", command=callbacks.on_remove_last_spline_point).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Очистить", command=callbacks.on_clear_spline_points).pack(fill=tk.X, pady=2)
+        
+        # Кнопки удаления
+        del_btns_frame = ttk.Frame(btn_frame)
+        del_btns_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(del_btns_frame, text="Удалить выбранную", command=callbacks.on_remove_selected_spline_point).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(del_btns_frame, text="Очистить все", command=callbacks.on_clear_spline_points).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
         ttk.Button(btn_frame, text="Завершить (Enter)", command=callbacks.finalize_spline).pack(fill=tk.X, pady=2)
 
-        ttk.Label(parent, text="ЛКМ на холсте добавляет точку.\nПКМ убирает последнюю. Enter завершает.").pack(anchor=tk.W, padx=8, pady=4)
+        ttk.Label(parent, text="Выберите точку для редактирования\nЛКМ на холсте - добавить в конец\nПКМ - удалить последнюю").pack(anchor=tk.W, padx=8, pady=4)
 
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):

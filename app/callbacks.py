@@ -83,6 +83,29 @@ class Callbacks:
             return
 
         # 3) Если выделения нет -> ориентируемся на текущий режим построения
+        # Проверяем режим редактирования
+        is_editing = self.state.editing_object is not None
+        
+        if is_editing:
+            # Режим редактирования - показываем соответствующую панель
+            edit_panels = {
+                'segment': ("segment", "Редактирование: Отрезок"),
+                'circle': ("circle", "Редактирование: Окружность"),
+                'arc': ("arc", "Редактирование: Дуга"),
+                'rectangle': ("rectangle", "Редактирование: Прямоугольник"),
+                'ellipse': ("ellipse", "Редактирование: Эллипс"),
+                'polygon': ("polygon", "Редактирование: Многоугольник"),
+                'spline': ("spline", "Редактирование: Сплайн"),
+            }
+            if self.state.editing_object_type in edit_panels:
+                key, title = edit_panels[self.state.editing_object_type]
+                self.view.set_context_panel(key, title)
+                if auto_switch_tab:
+                    _select_tab(getattr(self.view, "context_tab", None))
+            else:
+                self.view.set_context_panel(None, "—")
+            return
+        
         mode_to_panel = {
             "CREATING_SEGMENT": ("segment", "Создание: Отрезок"),
             "CREATING_CIRCLE": ("circle", "Создание: Окружность"),
@@ -1256,96 +1279,194 @@ class Callbacks:
 
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
-            final_segment = Segment(
-                self.state.preview_segment.p1,
-                self.state.preview_segment.p2,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color
-            )
-            self.state.segments.append(final_segment)
+            if self.state.editing_object and self.state.editing_object_type == 'segment':
+                # Режим редактирования - обновляем существующий объект
+                segment = self.state.editing_object
+                segment.p1 = Point(self.state.preview_segment.p1.x, self.state.preview_segment.p1.y)
+                segment.p2 = Point(self.state.preview_segment.p2.x, self.state.preview_segment.p2.y)
+                segment.style_name = self.state.current_style_name
+                segment.color = self.state.current_color
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_segment = Segment(
+                    self.state.preview_segment.p1,
+                    self.state.preview_segment.p2,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+                self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
     def finalize_circle(self, event=None):
         if self.state.preview_circle:
-            final_circle = Circle(
-                self.state.preview_circle.center,
-                self.state.preview_circle.radius,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color
-            )
-            self.state.circles.append(final_circle)
+            if self.state.editing_object and self.state.editing_object_type == 'circle':
+                # Режим редактирования - обновляем существующий объект
+                circle = self.state.editing_object
+                circle.center = Point(self.state.preview_circle.center.x, self.state.preview_circle.center.y)
+                circle.radius = self.state.preview_circle.radius
+                circle.style_name = self.state.current_style_name
+                circle.color = self.state.current_color
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_circle = Circle(
+                    self.state.preview_circle.center,
+                    self.state.preview_circle.radius,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+                self.state.circles.append(final_circle)
             self.set_app_state('IDLE')
 
     def finalize_arc(self, event=None):
         if self.state.preview_arc:
-            final_arc = Arc(
-                self.state.preview_arc.center,
-                self.state.preview_arc.radius,
-                self.state.preview_arc.start_angle,
-                self.state.preview_arc.end_angle,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color
-            )
-            self.state.arcs.append(final_arc)
+            if self.state.editing_object and self.state.editing_object_type == 'arc':
+                # Режим редактирования - обновляем существующий объект
+                arc = self.state.editing_object
+                arc.center = Point(self.state.preview_arc.center.x, self.state.preview_arc.center.y)
+                arc.radius = self.state.preview_arc.radius
+                arc.start_angle = self.state.preview_arc.start_angle
+                arc.end_angle = self.state.preview_arc.end_angle
+                arc.style_name = self.state.current_style_name
+                arc.color = self.state.current_color
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_arc = Arc(
+                    self.state.preview_arc.center,
+                    self.state.preview_arc.radius,
+                    self.state.preview_arc.start_angle,
+                    self.state.preview_arc.end_angle,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+                self.state.arcs.append(final_arc)
             self.set_app_state('IDLE')
 
     def finalize_rectangle(self, event=None):
         if self.state.preview_rectangle:
             rect = self.state.preview_rectangle
-            final_rect = Rectangle(
-                rect.min_x, rect.min_y, rect.max_x, rect.max_y,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color,
-                corner_type=rect.corner_type,
-                corner_value=rect.corner_value
-            )
-            self.state.rectangles.append(final_rect)
+            if self.state.editing_object and self.state.editing_object_type == 'rectangle':
+                # Режим редактирования - обновляем существующий объект
+                edit_rect = self.state.editing_object
+                edit_rect.min_x = rect.min_x
+                edit_rect.min_y = rect.min_y
+                edit_rect.max_x = rect.max_x
+                edit_rect.max_y = rect.max_y
+                edit_rect.style_name = self.state.current_style_name
+                edit_rect.color = self.state.current_color
+                edit_rect.corner_type = rect.corner_type
+                edit_rect.corner_value = rect.corner_value
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_rect = Rectangle(
+                    rect.min_x, rect.min_y, rect.max_x, rect.max_y,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color,
+                    corner_type=rect.corner_type,
+                    corner_value=rect.corner_value
+                )
+                self.state.rectangles.append(final_rect)
             self.set_app_state('IDLE')
 
     def finalize_ellipse(self, event=None):
         if self.state.preview_ellipse:
             ell = self.state.preview_ellipse
-            final_ellipse = Ellipse(
-                ell.center,
-                ell.axis_point_a,
-                ell.axis_point_b,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color
-            )
-            self.state.ellipses.append(final_ellipse)
+            if self.state.editing_object and self.state.editing_object_type == 'ellipse':
+                # Режим редактирования - обновляем существующий объект
+                edit_ell = self.state.editing_object
+                edit_ell.center = Point(ell.center.x, ell.center.y)
+                edit_ell.axis_point_a = Point(ell.axis_point_a.x, ell.axis_point_a.y)
+                edit_ell.axis_point_b = Point(ell.axis_point_b.x, ell.axis_point_b.y)
+                edit_ell.style_name = self.state.current_style_name
+                edit_ell.color = self.state.current_color
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_ellipse = Ellipse(
+                    ell.center,
+                    ell.axis_point_a,
+                    ell.axis_point_b,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+                self.state.ellipses.append(final_ellipse)
             self.set_app_state('IDLE')
 
     def finalize_polygon(self, event=None):
         if self.state.preview_polygon:
             poly = self.state.preview_polygon
-            final_poly = RegularPolygon(
-                poly.center,
-                poly.base_radius,
-                poly.sides,
-                variant=poly.variant,
-                start_angle=poly.start_angle,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color
-            )
-            self.state.polygons.append(final_poly)
+            if self.state.editing_object and self.state.editing_object_type == 'polygon':
+                # Режим редактирования - обновляем существующий объект
+                edit_poly = self.state.editing_object
+                edit_poly.center = Point(poly.center.x, poly.center.y)
+                edit_poly.base_radius = poly.base_radius
+                edit_poly.sides = poly.sides
+                edit_poly.variant = poly.variant
+                edit_poly.start_angle = poly.start_angle
+                edit_poly.style_name = self.state.current_style_name
+                edit_poly.color = self.state.current_color
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_poly = RegularPolygon(
+                    poly.center,
+                    poly.base_radius,
+                    poly.sides,
+                    variant=poly.variant,
+                    start_angle=poly.start_angle,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+                self.state.polygons.append(final_poly)
             self.set_app_state('IDLE')
 
     def finalize_spline(self, event=None):
         if self.state.preview_spline:
             sp = self.state.preview_spline
             ctrl_copy = [Point(p.x, p.y) for p in sp.control_points]
-            final_spline = Spline(
-                ctrl_copy,
-                style_name=self.state.current_style_name,
-                color=self.state.current_color,
-                kinks_count=getattr(sp, 'kinks_count', None),
-                waves_count=getattr(sp, 'waves_count', None)
-            )
-            self.state.splines.append(final_spline)
+            if self.state.editing_object and self.state.editing_object_type == 'spline':
+                # Режим редактирования - обновляем существующий объект
+                edit_spline = self.state.editing_object
+                edit_spline.control_points = ctrl_copy
+                edit_spline.style_name = self.state.current_style_name
+                edit_spline.color = self.state.current_color
+                edit_spline.kinks_count = getattr(sp, 'kinks_count', None)
+                edit_spline.waves_count = getattr(sp, 'waves_count', None)
+                # Сбрасываем режим редактирования
+                self.state.editing_object = None
+                self.state.editing_object_type = None
+            else:
+                # Режим создания - добавляем новый объект
+                final_spline = Spline(
+                    ctrl_copy,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color,
+                    kinks_count=getattr(sp, 'kinks_count', None),
+                    waves_count=getattr(sp, 'waves_count', None)
+                )
+                self.state.splines.append(final_spline)
             self.set_app_state('IDLE')
 
     def on_escape_key(self, event=None):
         if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING']:
+            # Сбрасываем режим редактирования
+            self.state.editing_object = None
+            self.state.editing_object_type = None
             self.set_app_state('IDLE')
         elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons or self.state.selected_splines:
             # Если есть выделение - снимаем его
@@ -1360,6 +1481,265 @@ class Callbacks:
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
             self.root.destroy()
+
+    # === МЕТОДЫ РЕДАКТИРОВАНИЯ ПРИМИТИВОВ ===
+
+    def on_double_click(self, event):
+        """Обработчик двойного клика - вход в режим редактирования."""
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        hit_threshold_pixels = 8
+        hit_threshold_world = hit_threshold_pixels / self.state.zoom
+
+        # Ищем объект под курсором
+        for segment in self.state.segments:
+            if segment.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_segment(segment)
+                return
+        for circle in self.state.circles:
+            if circle.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_circle(circle)
+                return
+        for arc in self.state.arcs:
+            if arc.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_arc(arc)
+                return
+        for rect in self.state.rectangles:
+            if rect.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_rectangle(rect)
+                return
+        for ellipse in self.state.ellipses:
+            if ellipse.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_ellipse(ellipse)
+                return
+        for poly in self.state.polygons:
+            if poly.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_polygon(poly)
+                return
+        for spline in self.state.splines:
+            if spline.distance_to_point(wx, wy) < hit_threshold_world:
+                self.start_edit_spline(spline)
+                return
+
+    def on_edit_selected(self, event=None):
+        """Редактирует выделенный объект (вызывается из контекстного меню)."""
+        if len(self.state.selected_segments) == 1:
+            self.start_edit_segment(self.state.selected_segments[0])
+        elif len(self.state.selected_circles) == 1:
+            self.start_edit_circle(self.state.selected_circles[0])
+        elif len(self.state.selected_arcs) == 1:
+            self.start_edit_arc(self.state.selected_arcs[0])
+        elif len(self.state.selected_rectangles) == 1:
+            self.start_edit_rectangle(self.state.selected_rectangles[0])
+        elif len(self.state.selected_ellipses) == 1:
+            self.start_edit_ellipse(self.state.selected_ellipses[0])
+        elif len(self.state.selected_polygons) == 1:
+            self.start_edit_polygon(self.state.selected_polygons[0])
+        elif len(self.state.selected_splines) == 1:
+            self.start_edit_spline(self.state.selected_splines[0])
+
+    def start_edit_segment(self, segment):
+        """Входит в режим редактирования отрезка."""
+        self.state.editing_object = segment
+        self.state.editing_object_type = 'segment'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = segment.style_name
+        self.state.current_color = segment.color
+
+        # Входим в режим создания отрезка
+        self.set_app_state('CREATING_SEGMENT')
+        
+        # Заполняем поля текущими значениями
+        self.view.p1_x_entry.delete(0, tk.END)
+        self.view.p1_x_entry.insert(0, f"{segment.p1.x:.2f}")
+        self.view.p1_y_entry.delete(0, tk.END)
+        self.view.p1_y_entry.insert(0, f"{segment.p1.y:.2f}")
+        self.view.p2_x_entry.delete(0, tk.END)
+        self.view.p2_x_entry.insert(0, f"{segment.p2.x:.2f}")
+        self.view.p2_y_entry.delete(0, tk.END)
+        self.view.p2_y_entry.insert(0, f"{segment.p2.y:.2f}")
+        
+        self.state.points_clicked = 2
+        self.update_preview_segment()
+
+    def start_edit_circle(self, circle):
+        """Входит в режим редактирования окружности."""
+        self.state.editing_object = circle
+        self.state.editing_object_type = 'circle'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = circle.style_name
+        self.state.current_color = circle.color
+        
+        # Устанавливаем метод center_radius для редактирования
+        self.state.circle_creation_method = 'center_radius'
+        self.view.circle_method.set('center_radius')
+        self.view._update_circle_params_ui()
+
+        # Входим в режим создания окружности
+        self.set_app_state('CREATING_CIRCLE')
+        
+        # Заполняем поля текущими значениями
+        self.view.circle_center_x_entry.delete(0, tk.END)
+        self.view.circle_center_x_entry.insert(0, f"{circle.center.x:.2f}")
+        self.view.circle_center_y_entry.delete(0, tk.END)
+        self.view.circle_center_y_entry.insert(0, f"{circle.center.y:.2f}")
+        self.view.circle_param_entry.delete(0, tk.END)
+        self.view.circle_param_entry.insert(0, f"{circle.radius:.2f}")
+        
+        self.state.points_clicked = 2
+        self.update_preview_circle()
+
+    def start_edit_arc(self, arc):
+        """Входит в режим редактирования дуги."""
+        self.state.editing_object = arc
+        self.state.editing_object_type = 'arc'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = arc.style_name
+        self.state.current_color = arc.color
+        
+        # Устанавливаем метод center_angles для редактирования
+        self.state.arc_creation_method = 'center_angles'
+        self.view.arc_method.set('center_angles')
+        self.view._update_arc_params_ui()
+
+        # Входим в режим создания дуги
+        self.set_app_state('CREATING_ARC')
+        
+        # Определяем единицы угла
+        angle_unit = self.view.angle_units.get()
+        start_angle = arc.start_angle
+        end_angle = arc.end_angle
+        if angle_unit == 'degrees':
+            start_angle = math.degrees(start_angle)
+            end_angle = math.degrees(end_angle)
+        
+        # Заполняем поля текущими значениями
+        self.view.arc_center_x_entry.delete(0, tk.END)
+        self.view.arc_center_x_entry.insert(0, f"{arc.center.x:.2f}")
+        self.view.arc_center_y_entry.delete(0, tk.END)
+        self.view.arc_center_y_entry.insert(0, f"{arc.center.y:.2f}")
+        self.view.arc_radius_entry.delete(0, tk.END)
+        self.view.arc_radius_entry.insert(0, f"{arc.radius:.2f}")
+        self.view.arc_start_angle_entry.delete(0, tk.END)
+        self.view.arc_start_angle_entry.insert(0, f"{start_angle:.2f}")
+        self.view.arc_end_angle_entry.delete(0, tk.END)
+        self.view.arc_end_angle_entry.insert(0, f"{end_angle:.2f}")
+        
+        self.state.points_clicked = 3
+        self.update_preview_arc()
+
+    def start_edit_rectangle(self, rect):
+        """Входит в режим редактирования прямоугольника."""
+        self.state.editing_object = rect
+        self.state.editing_object_type = 'rectangle'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = rect.style_name
+        self.state.current_color = rect.color
+        
+        # Устанавливаем метод two_points для редактирования
+        self.state.rectangle_creation_method = 'two_points'
+        self.view.rect_method.set('two_points')
+        self.view._update_rectangle_params_ui()
+
+        # Входим в режим создания прямоугольника
+        self.set_app_state('CREATING_RECTANGLE')
+        
+        # Заполняем поля текущими значениями
+        self.view.rect_p1_x_entry.delete(0, tk.END)
+        self.view.rect_p1_x_entry.insert(0, f"{rect.min_x:.2f}")
+        self.view.rect_p1_y_entry.delete(0, tk.END)
+        self.view.rect_p1_y_entry.insert(0, f"{rect.min_y:.2f}")
+        self.view.rect_p2_x_entry.delete(0, tk.END)
+        self.view.rect_p2_x_entry.insert(0, f"{rect.max_x:.2f}")
+        self.view.rect_p2_y_entry.delete(0, tk.END)
+        self.view.rect_p2_y_entry.insert(0, f"{rect.max_y:.2f}")
+        
+        # Устанавливаем параметры углов
+        self.view.rect_corner_type.set(rect.corner_type)
+        self.view.rect_corner_value_entry.delete(0, tk.END)
+        if rect.corner_value > 0:
+            self.view.rect_corner_value_entry.insert(0, f"{rect.corner_value:.2f}")
+        
+        self.state.points_clicked = 2
+        self.update_preview_rectangle()
+
+    def start_edit_ellipse(self, ellipse):
+        """Входит в режим редактирования эллипса."""
+        self.state.editing_object = ellipse
+        self.state.editing_object_type = 'ellipse'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = ellipse.style_name
+        self.state.current_color = ellipse.color
+
+        # Входим в режим создания эллипса
+        self.set_app_state('CREATING_ELLIPSE')
+        
+        # Заполняем поля текущими значениями
+        self.view.ellipse_center_x_entry.delete(0, tk.END)
+        self.view.ellipse_center_x_entry.insert(0, f"{ellipse.center.x:.2f}")
+        self.view.ellipse_center_y_entry.delete(0, tk.END)
+        self.view.ellipse_center_y_entry.insert(0, f"{ellipse.center.y:.2f}")
+        self.view.ellipse_a_x_entry.delete(0, tk.END)
+        self.view.ellipse_a_x_entry.insert(0, f"{ellipse.axis_point_a.x:.2f}")
+        self.view.ellipse_a_y_entry.delete(0, tk.END)
+        self.view.ellipse_a_y_entry.insert(0, f"{ellipse.axis_point_a.y:.2f}")
+        self.view.ellipse_b_x_entry.delete(0, tk.END)
+        self.view.ellipse_b_x_entry.insert(0, f"{ellipse.axis_point_b.x:.2f}")
+        self.view.ellipse_b_y_entry.delete(0, tk.END)
+        self.view.ellipse_b_y_entry.insert(0, f"{ellipse.axis_point_b.y:.2f}")
+        
+        self.state.points_clicked = 3
+        self.update_preview_ellipse()
+
+    def start_edit_polygon(self, poly):
+        """Входит в режим редактирования многоугольника."""
+        self.state.editing_object = poly
+        self.state.editing_object_type = 'polygon'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = poly.style_name
+        self.state.current_color = poly.color
+
+        # Входим в режим создания многоугольника
+        self.set_app_state('CREATING_POLYGON')
+        
+        # Заполняем поля текущими значениями
+        self.view.polygon_center_x_entry.delete(0, tk.END)
+        self.view.polygon_center_x_entry.insert(0, f"{poly.center.x:.2f}")
+        self.view.polygon_center_y_entry.delete(0, tk.END)
+        self.view.polygon_center_y_entry.insert(0, f"{poly.center.y:.2f}")
+        self.view.polygon_radius_entry.delete(0, tk.END)
+        self.view.polygon_radius_entry.insert(0, f"{poly.base_radius:.2f}")
+        self.view.polygon_sides_var.set(str(poly.sides))
+        self.view.polygon_variant.set(poly.variant)
+        
+        self.state.polygon_sides = poly.sides
+        self.state.polygon_variant = poly.variant
+        
+        self.state.points_clicked = 2
+        self.update_preview_polygon()
+
+    def start_edit_spline(self, spline):
+        """Входит в режим редактирования сплайна."""
+        self.state.editing_object = spline
+        self.state.editing_object_type = 'spline'
+        
+        # Сохраняем стиль и цвет
+        self.state.current_style_name = spline.style_name
+        self.state.current_color = spline.color
+
+        # Входим в режим создания сплайна
+        self.set_app_state('CREATING_SPLINE')
+        
+        # Копируем контрольные точки
+        self.state.spline_control_points = [Point(p.x, p.y) for p in spline.control_points]
+        self._update_spline_points_listbox()
+        
+        self.update_preview_spline()
 
     def on_delete_segment(self, event=None):
         if self.state.selected_segments:
@@ -1666,9 +2046,53 @@ class Callbacks:
 
     def _update_spline_points_listbox(self):
         lb = self.view.spline_points_listbox
+        # Сохраняем текущее выделение
+        current_selection = lb.curselection()
         lb.delete(0, tk.END)
         for idx, p in enumerate(self.state.spline_control_points, start=1):
             lb.insert(tk.END, f"{idx}: ({p.x:.2f}, {p.y:.2f})")
+        # Восстанавливаем выделение, если возможно
+        if current_selection and current_selection[0] < len(self.state.spline_control_points):
+            lb.selection_set(current_selection[0])
+
+    def on_spline_point_selected(self, event=None):
+        """Обработчик выбора точки в списке - заполняет поля координатами выбранной точки."""
+        selection = self.view.spline_points_listbox.curselection()
+        if selection and self.state.spline_control_points:
+            idx = selection[0]
+            if 0 <= idx < len(self.state.spline_control_points):
+                pt = self.state.spline_control_points[idx]
+                self.view.spline_point_x_entry.delete(0, tk.END)
+                self.view.spline_point_x_entry.insert(0, f"{pt.x:.2f}")
+                self.view.spline_point_y_entry.delete(0, tk.END)
+                self.view.spline_point_y_entry.insert(0, f"{pt.y:.2f}")
+
+    def on_update_selected_spline_point(self, event=None):
+        """Обновляет координаты выбранной точки на значения из полей ввода."""
+        selection = self.view.spline_points_listbox.curselection()
+        if not selection or not self.state.spline_control_points:
+            return
+        
+        idx = selection[0]
+        if not (0 <= idx < len(self.state.spline_control_points)):
+            return
+        
+        try:
+            x = float(self.view.spline_point_x_entry.get())
+            y = float(self.view.spline_point_y_entry.get())
+        except (ValueError, tk.TclError):
+            return
+        
+        # Обновляем координаты точки
+        self.state.spline_control_points[idx] = Point(x, y)
+        self._update_spline_points_listbox()
+        
+        # Восстанавливаем выделение
+        self.view.spline_points_listbox.selection_clear(0, tk.END)
+        self.view.spline_points_listbox.selection_set(idx)
+        self.view.spline_points_listbox.see(idx)
+        
+        self.update_preview_spline()
 
     def on_add_spline_point_manual(self, event=None):
         try:
@@ -1700,6 +2124,60 @@ class Callbacks:
         self.view.spline_point_y_entry.delete(0, tk.END); self.view.spline_point_y_entry.insert(0, f"{wy:.2f}")
         self._update_spline_points_listbox()
         self.update_preview_spline()
+
+    def on_insert_spline_point_before(self, event=None):
+        """Вставляет точку перед выбранной в списке (или в начало, если ничего не выбрано)."""
+        try:
+            x = float(self.view.spline_point_x_entry.get())
+            y = float(self.view.spline_point_y_entry.get())
+        except (ValueError, tk.TclError):
+            return
+        
+        # Получаем индекс выбранной точки
+        selection = self.view.spline_points_listbox.curselection()
+        if selection:
+            insert_idx = selection[0]
+        else:
+            # Если ничего не выбрано - вставляем в начало
+            insert_idx = 0
+        
+        # Вставляем точку
+        self.state.spline_control_points.insert(insert_idx, Point(x, y))
+        self._update_spline_points_listbox()
+        
+        # Выделяем вставленную точку
+        self.view.spline_points_listbox.selection_clear(0, tk.END)
+        self.view.spline_points_listbox.selection_set(insert_idx)
+        self.view.spline_points_listbox.see(insert_idx)
+        
+        self.update_preview_spline()
+
+    def on_remove_selected_spline_point(self, event=None):
+        """Удаляет выбранную точку из списка контрольных точек."""
+        if not self.state.spline_control_points:
+            return
+        
+        # Получаем индекс выбранной точки
+        selection = self.view.spline_points_listbox.curselection()
+        if selection:
+            remove_idx = selection[0]
+        else:
+            # Если ничего не выбрано - удаляем последнюю
+            remove_idx = len(self.state.spline_control_points) - 1
+        
+        # Удаляем точку
+        if 0 <= remove_idx < len(self.state.spline_control_points):
+            self.state.spline_control_points.pop(remove_idx)
+            self._update_spline_points_listbox()
+            
+            # Выделяем следующую точку (или предыдущую, если удалили последнюю)
+            if self.state.spline_control_points:
+                new_idx = min(remove_idx, len(self.state.spline_control_points) - 1)
+                self.view.spline_points_listbox.selection_clear(0, tk.END)
+                self.view.spline_points_listbox.selection_set(new_idx)
+                self.view.spline_points_listbox.see(new_idx)
+            
+            self.update_preview_spline()
 
     def on_rmb_click_rectangle(self, event):
         """ПКМ для удаления точек при создании прямоугольника."""
@@ -2600,7 +3078,23 @@ class Callbacks:
             + len(self.state.selected_polygons)
             + len(self.state.selected_splines)
         )
-        if total_selected > 0:
+        
+        # Проверяем, находимся ли мы в режиме редактирования
+        is_editing = self.state.editing_object is not None
+        
+        if is_editing:
+            # Режим редактирования
+            edit_modes = {
+                'segment': "Редактирование отрезка",
+                'circle': "Редактирование окружности",
+                'arc': "Редактирование дуги",
+                'rectangle': "Редактирование прямоугольника",
+                'ellipse': "Редактирование эллипса",
+                'polygon': "Редактирование многоугольника",
+                'spline': "Редактирование сплайна"
+            }
+            mode_text = edit_modes.get(self.state.editing_object_type, "Редактирование")
+        elif total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
         else:
             modes = {
@@ -2635,6 +3129,22 @@ class Callbacks:
             else:
                 self.on_rmb_click_spline(event)
         else:
+            # Проверяем, есть ли выделенный объект для редактирования
+            total_selected = (
+                len(self.state.selected_segments)
+                + len(self.state.selected_circles)
+                + len(self.state.selected_arcs)
+                + len(self.state.selected_rectangles)
+                + len(self.state.selected_ellipses)
+                + len(self.state.selected_polygons)
+                + len(self.state.selected_splines)
+            )
+            # Активируем/деактивируем пункт "Редактировать"
+            if total_selected == 1:
+                self.view.context_menu.entryconfig(0, state='normal')
+            else:
+                self.view.context_menu.entryconfig(0, state='disabled')
+            
             self.view.context_menu.post(event.x_root, event.y_root)
 
     # Вызывается, когда в Менеджере нажали "Применить"
