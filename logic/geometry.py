@@ -6,6 +6,25 @@
 '''
 
 import math
+from abc import ABC, abstractmethod
+
+
+class GeometryPrimitive(ABC):
+    """Базовый класс для всех геометрических примитивов."""
+
+    def __init__(self, style_name='solid_main', color='black'):
+        self.style_name = style_name
+        self.color = color
+
+    @abstractmethod
+    def distance_to_point(self, mx, my):
+        """Кратчайшее расстояние от произвольной точки до примитива."""
+        raise NotImplementedError
+
+    @property
+    def primitive_type(self):
+        """Читаемое имя примитива, пригодное для логов/UI."""
+        return self.__class__.__name__.lower()
 
 class Point:
     # Устанавливаем точку в декартовых по умолчанию
@@ -27,15 +46,14 @@ class Point:
     def __repr__(self):
         return f"Point(x={self.x:.2f}, y={self.y:.2f})"
 
-class Segment:
+class Segment(GeometryPrimitive):
     # Инициализация отрезка по умолчанию
     def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black', kinks_count=None, waves_count=None):
+        super().__init__(style_name=style_name, color=color)
         self.p1 = p1
         self.p2 = p2
         # Храним только ID стиля (ссылку), а не параметры.
         # Это позволяет менять стиль централизованно в Менеджере.
-        self.style_name = style_name
-        self.color = color
         self.kinks_count = kinks_count
         self.waves_count = waves_count
 
@@ -73,13 +91,12 @@ class Segment:
         return f"Segment({self.p1}, {self.p2}, style='{self.style_name}')"
 
 
-class Spline:
+class Spline(GeometryPrimitive):
     """Гладкий сплайн по набору контрольных точек (Catmull-Rom)."""
 
     def __init__(self, control_points, style_name='solid_main', color='black', kinks_count=None, waves_count=None):
+        super().__init__(style_name=style_name, color=color)
         self.control_points = list(control_points)
-        self.style_name = style_name
-        self.color = color
         # Поддержка параметров для зигзага/волны, как у отрезков
         self.kinks_count = kinks_count
         self.waves_count = waves_count
@@ -162,7 +179,7 @@ class Spline:
         return f"Spline(points={len(self.control_points)}, style='{self.style_name}')"
 
 
-class Circle:
+class Circle(GeometryPrimitive):
     # Создание окружности различными способами
     @classmethod
     def from_center_radius(cls, center: Point, radius: float, style_name='solid_main', color='black'):
@@ -233,10 +250,9 @@ class Circle:
         return cls(center, radius, style_name, color)
 
     def __init__(self, center: Point, radius: float, style_name='solid_main', color='black'):
+        super().__init__(style_name=style_name, color=color)
         self.center = center
         self.radius = abs(radius)  # Радиус всегда положительный
-        self.style_name = style_name
-        self.color = color
 
     # Свойства окружности
     @property
@@ -271,7 +287,7 @@ class Circle:
         return f"Circle(center={self.center}, radius={self.radius:.2f}, style='{self.style_name}')"
 
 
-class Arc:
+class Arc(GeometryPrimitive):
     """Дуга окружности."""
 
     @staticmethod
@@ -322,12 +338,11 @@ class Arc:
         return cls(center, abs(radius), start_angle_rad, end_angle_rad, style_name, color)
 
     def __init__(self, center: Point, radius: float, start_angle_rad: float, end_angle_rad: float, style_name='solid_main', color='black'):
+        super().__init__(style_name=style_name, color=color)
         self.center = center
         self.radius = abs(radius)
         self.start_angle = self._normalize_angle(start_angle_rad)
         self.end_angle = self._normalize_angle(end_angle_rad)
-        self.style_name = style_name
-        self.color = color
 
     @property
     def sweep_angle(self):
@@ -370,7 +385,7 @@ class Arc:
         return f"Arc(center={self.center}, radius={self.radius:.2f}, start={sa_deg:.1f}°, end={ea_deg:.1f}°, style='{self.style_name}')"
 
 
-class Rectangle:
+class Rectangle(GeometryPrimitive):
     """Осьориентированный прямоугольник с опциональными фасками или скруглениями."""
 
     def __init__(
@@ -384,12 +399,11 @@ class Rectangle:
         corner_type: str = 'none',  # none | chamfer | fillet
         corner_value: float = 0.0
     ):
+        super().__init__(style_name=style_name, color=color)
         self.min_x = min(min_x, max_x)
         self.max_x = max(min_x, max_x)
         self.min_y = min(min_y, max_y)
         self.max_y = max(min_y, max_y)
-        self.style_name = style_name
-        self.color = color
         self.corner_type = corner_type
         self.corner_value = max(0.0, float(corner_value))
 
@@ -531,7 +545,7 @@ class Rectangle:
         )
 
 
-class RegularPolygon:
+class RegularPolygon(GeometryPrimitive):
     """Правильный многоугольник, задаваемый центром, радиусом и количеством сторон."""
 
     @classmethod
@@ -540,13 +554,12 @@ class RegularPolygon:
         return cls(center, radius, sides, variant=variant, start_angle=start_angle, style_name=style_name, color=color)
 
     def __init__(self, center: Point, radius: float, sides: int, variant: str = 'inscribed', start_angle: float = 0.0, style_name='solid_main', color='black'):
+        super().__init__(style_name=style_name, color=color)
         self.center = center
         self.base_radius = abs(radius)
         self.sides = max(3, int(sides))
         self.variant = variant if variant in ('inscribed', 'circumscribed') else 'inscribed'
         self.start_angle = float(start_angle)
-        self.style_name = style_name
-        self.color = color
 
     def _circumradius(self):
         """Возвращает радиус описанной окружности для текущего варианта построения."""
@@ -597,7 +610,7 @@ class RegularPolygon:
         )
 
 
-class Ellipse:
+class Ellipse(GeometryPrimitive):
     """Обобщенный эллипс, заданный центром и концами полуосей."""
 
     @classmethod
@@ -606,11 +619,10 @@ class Ellipse:
         return cls(center, axis_point_a, axis_point_b, style_name, color)
 
     def __init__(self, center: Point, axis_point_a: Point, axis_point_b: Point, style_name='solid_main', color='black'):
+        super().__init__(style_name=style_name, color=color)
         self.center = center
         self.axis_point_a = axis_point_a
         self.axis_point_b = axis_point_b
-        self.style_name = style_name
-        self.color = color
 
     def _basis(self):
         """Возвращает ортонормированный базис (e1, e2) и длины полуосей (a, b)."""
