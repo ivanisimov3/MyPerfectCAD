@@ -86,6 +86,7 @@ class MainWindow:
         # Группа 1: основные инструменты рисования
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Окружность", command=callbacks.on_new_circle_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Эллипс", command=callbacks.on_new_ellipse_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Прямоугольник", command=callbacks.on_new_rectangle_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
@@ -202,6 +203,10 @@ class MainWindow:
         rectangle_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(rectangle_tab, text="Прямоугольники")
 
+        # Вкладка "Эллипсы"
+        ellipse_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(ellipse_tab, text="Эллипсы")
+
         # Настраиваем общую вкладку
         self._setup_general_tab(general_tab, callbacks)
 
@@ -216,6 +221,9 @@ class MainWindow:
 
         # Настраиваем вкладку прямоугольников
         self._setup_rectangle_tab(rectangle_tab, callbacks)
+
+        # Настраиваем вкладку эллипсов
+        self._setup_ellipse_tab(ellipse_tab, callbacks)
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -473,6 +481,30 @@ class MainWindow:
 
         # Изначально показываем "две точки"
         self._update_rectangle_params_ui()
+
+    def _setup_ellipse_tab(self, parent, callbacks):
+        # Пока поддерживается один метод: центр и две оси
+        self.ellipse_method = tk.StringVar(value="center_axes")
+
+        ttk.Label(parent, text="Способ: центр и две конечные точки осей").pack(anchor=tk.W, padx=8, pady=(4, 0))
+
+        coords_frame = ttk.LabelFrame(parent, text="Координаты")
+        coords_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        center_frame = ttk.LabelFrame(coords_frame, text="Центр")
+        center_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.ellipse_center_label1, self.ellipse_center_x_entry = self._create_coord_entry(center_frame, "Xc:", callbacks.update_preview_ellipse)
+        self.ellipse_center_label2, self.ellipse_center_y_entry = self._create_coord_entry(center_frame, "Yc:", callbacks.update_preview_ellipse)
+
+        axis_a_frame = ttk.LabelFrame(coords_frame, text="Конец оси A")
+        axis_a_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.ellipse_a_label1, self.ellipse_a_x_entry = self._create_coord_entry(axis_a_frame, "Xa:", callbacks.update_preview_ellipse)
+        self.ellipse_a_label2, self.ellipse_a_y_entry = self._create_coord_entry(axis_a_frame, "Ya:", callbacks.update_preview_ellipse)
+
+        axis_b_frame = ttk.LabelFrame(coords_frame, text="Конец оси B")
+        axis_b_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.ellipse_b_label1, self.ellipse_b_x_entry = self._create_coord_entry(axis_b_frame, "Xb:", callbacks.update_preview_ellipse)
+        self.ellipse_b_label2, self.ellipse_b_y_entry = self._create_coord_entry(axis_b_frame, "Yb:", callbacks.update_preview_ellipse)
 
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):

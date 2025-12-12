@@ -440,3 +440,113 @@ class Rectangle:
             f"Rectangle([{self.min_x:.2f},{self.min_y:.2f}]→[{self.max_x:.2f},{self.max_y:.2f}], "
             f"corner={self.corner_type}:{self.corner_value:.2f}, style='{self.style_name}')"
         )
+
+
+class Ellipse:
+    """Обобщенный эллипс, заданный центром и концами полуосей."""
+
+    @classmethod
+    def from_center_axes(cls, center: Point, axis_point_a: Point, axis_point_b: Point, style_name='solid_main', color='black'):
+        """Создает эллипс по центру и двум конечным точкам осей."""
+        return cls(center, axis_point_a, axis_point_b, style_name, color)
+
+    def __init__(self, center: Point, axis_point_a: Point, axis_point_b: Point, style_name='solid_main', color='black'):
+        self.center = center
+        self.axis_point_a = axis_point_a
+        self.axis_point_b = axis_point_b
+        self.style_name = style_name
+        self.color = color
+
+    def _basis(self):
+        """Возвращает ортонормированный базис (e1, e2) и длины полуосей (a, b)."""
+        v1x = self.axis_point_a.x - self.center.x
+        v1y = self.axis_point_a.y - self.center.y
+        v2x = self.axis_point_b.x - self.center.x
+        v2y = self.axis_point_b.y - self.center.y
+
+        a = math.sqrt(v1x * v1x + v1y * v1y)
+        b_raw = math.sqrt(v2x * v2x + v2y * v2y)
+
+        # Если оси вырожденные, подставляем минимальные значения, чтобы не падать
+        if a < 1e-9:
+            a = 1e-6
+            v1x, v1y = 1.0, 0.0
+        if b_raw < 1e-9:
+            b_raw = 1e-6
+            v2x, v2y = 0.0, 1.0
+
+        e1x, e1y = v1x / a, v1y / a
+        # Ортогонализуем второй вектор относительно первого
+        proj = e1x * v2x + e1y * v2y
+        ortho_x = v2x - proj * e1x
+        ortho_y = v2y - proj * e1y
+        ortho_len = math.sqrt(ortho_x * ortho_x + ortho_y * ortho_y)
+        if ortho_len < 1e-9:
+            # Если оси почти коллинеарны, берем перпендикуляр к первой оси
+            ortho_x, ortho_y = -e1y, e1x
+            ortho_len = 1.0
+        e2x, e2y = ortho_x / ortho_len, ortho_y / ortho_len
+        b = ortho_len
+        return e1x, e1y, a, e2x, e2y, b
+
+    def sample_points(self, num_points=180):
+        """Возвращает список точек вдоль периметра эллипса."""
+        e1x, e1y, a, e2x, e2y, b = self._basis()
+        pts = []
+        for i in range(num_points + 1):
+            ang = (2 * math.pi * i) / num_points
+            cos_a = math.cos(ang)
+            sin_a = math.sin(ang)
+            x = self.center.x + a * cos_a * e1x + b * sin_a * e2x
+            y = self.center.y + a * cos_a * e1y + b * sin_a * e2y
+            pts.append(Point(x, y))
+        return pts
+
+    def bounding_box(self):
+        """Оценка ограничивающего прямоугольника эллипса."""
+        e1x, e1y, a, e2x, e2y, b = self._basis()
+        dx = abs(e1x) * a + abs(e2x) * b
+        dy = abs(e1y) * a + abs(e2y) * b
+        return (
+            self.center.x - dx,
+            self.center.x + dx,
+            self.center.y - dy,
+            self.center.y + dy,
+        )
+
+    def perimeter_approx(self):
+        """Аппроксимация периметра (формула Рамануджана)."""
+        _, _, a, _, _, b = self._basis()
+        h = ((a - b) ** 2) / ((a + b) ** 2 + 1e-12)
+        return math.pi * (a + b) * (1 + (3 * h) / (10 + math.sqrt(4 - 3 * h)))
+
+    def distance_to_point(self, mx, my):
+        """Оценка расстояния от точки до границы эллипса."""
+        e1x, e1y, a, e2x, e2y, b = self._basis()
+        rx = mx - self.center.x
+        ry = my - self.center.y
+
+        local_x = rx * e1x + ry * e1y
+        local_y = rx * e2x + ry * e2y
+
+        # Нормированная величина: (x/a)^2 + (y/b)^2
+        q = (local_x / a) ** 2 + (local_y / b) ** 2
+
+        if q < 1e-12:
+            # Точка в центре
+            return min(a, b)
+
+        scale = 1 / math.sqrt(q)
+        nearest_x = local_x * scale
+        nearest_y = local_y * scale
+        dx = local_x - nearest_x
+        dy = local_y - nearest_y
+        return math.sqrt(dx * dx + dy * dy)
+
+    def __repr__(self):
+        min_x, max_x, min_y, max_y = self.bounding_box()
+        return (
+            f"Ellipse(center={self.center}, "
+            f"box=([{min_x:.2f},{min_y:.2f}]→[{max_x:.2f},{max_y:.2f}]), "
+            f"style='{self.style_name}')"
+        )

@@ -17,18 +17,21 @@ class AppState:
         self.circles = []
         self.arcs = []
         self.rectangles = []
+        self.ellipses = []
 
         # Список выделенных объектов
         self.selected_segments = []
         self.selected_circles = []
         self.selected_arcs = []
         self.selected_rectangles = []
+        self.selected_ellipses = []
 
         # Временные данные для интерактивного построения
         self.preview_segment = None
         self.preview_circle = None
         self.preview_arc = None
         self.preview_rectangle = None
+        self.preview_ellipse = None
         self.points_clicked = 0
         self.active_p1 = None
         self.active_p2 = None
@@ -69,3 +72,5 @@ class AppState:
         self.rectangle_creation_method = 'two_points'  # two_points, corner_size, center_size
         self.rectangle_corner_type = 'none'  # none, chamfer, fillet
         self.rectangle_corner_value = 0.0
+        # Параметры для создания эллипсов
+        self.ellipse_creation_method = 'center_axes'  # center_axes

@@ -764,6 +764,245 @@ class Renderer:
         for arc in arcs:
             self.draw_arc(arc, override_color=override_color, override_width=override_width)
 
+    # --- ЭЛЛИПСЫ ---
+
+    def _ellipse_polyline(self, ellipse, num_points=None):
+        """Возвращает экранные точки эллипса и накопленные длины для последующей стилизации."""
+        basis = ellipse._basis()
+        perim_px = ellipse.perimeter_approx() * self.state.zoom
+        if num_points is None:
+            num_points = max(160, int(perim_px / 4))  # ~4 px между опорными точками
+
+        coords = []
+        cum_lengths = [0.0]
+        prev = None
+
+        for i in range(num_points + 1):
+            ang = (2 * math.pi * i) / num_points
+            sx, sy = self._ellipse_point_screen(ellipse, ang, basis)
+            coords.append((sx, sy))
+            if prev is not None:
+                seg_len = math.sqrt((sx - prev[0]) ** 2 + (sy - prev[1]) ** 2)
+                cum_lengths.append(cum_lengths[-1] + seg_len)
+            prev = (sx, sy)
+
+        # Убеждаемся, что путь замкнут
+        if coords and (coords[0][0] != coords[-1][0] or coords[0][1] != coords[-1][1]):
+            coords.append(coords[0])
+            seg_len = math.sqrt((coords[-1][0] - prev[0]) ** 2 + (coords[-1][1] - prev[1]) ** 2)
+            cum_lengths.append(cum_lengths[-1] + seg_len)
+
+        return coords, cum_lengths
+
+    def _ellipse_point_screen(self, ellipse, angle, basis=None):
+        """Экранная точка эллипса по углу параметра."""
+        if basis is None:
+            basis = ellipse._basis()
+        e1x, e1y, a, e2x, e2y, b = basis
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        wx = ellipse.center.x + a * cos_a * e1x + b * sin_a * e2x
+        wy = ellipse.center.y + a * cos_a * e1y + b * sin_a * e2y
+        return self.converter.world_to_screen(wx, wy)
+
+    def _point_on_polyline(self, coords, cum_lengths, target_len):
+        """Интерполяция точки и касательной вдоль полилинии по целевой длине."""
+        if not coords or target_len <= 0:
+            if len(coords) >= 2:
+                dx = coords[1][0] - coords[0][0]
+                dy = coords[1][1] - coords[0][1]
+                return coords[0][0], coords[0][1], dx, dy
+            return 0.0, 0.0, 0.0, 0.0
+
+        total = cum_lengths[-1] if cum_lengths else 0.0
+        if target_len >= total:
+            if len(coords) >= 2:
+                dx = coords[-1][0] - coords[-2][0]
+                dy = coords[-1][1] - coords[-2][1]
+                return coords[-1][0], coords[-1][1], dx, dy
+            return coords[-1][0], coords[-1][1], 0.0, 0.0
+
+        for i in range(1, len(cum_lengths)):
+            if cum_lengths[i] >= target_len:
+                seg_len = cum_lengths[i] - cum_lengths[i - 1]
+                if seg_len < 1e-9:
+                    return coords[i][0], coords[i][1], 0.0, 0.0
+                t = (target_len - cum_lengths[i - 1]) / seg_len
+                x0, y0 = coords[i - 1]
+                x1, y1 = coords[i]
+                x = x0 + t * (x1 - x0)
+                y = y0 + t * (y1 - y0)
+                dx = x1 - x0
+                dy = y1 - y0
+                return x, y, dx, dy
+        return coords[-1][0], coords[-1][1], 0.0, 0.0
+
+    def _generate_ellipse_wave_coords(self, coords, cum_lengths):
+        zoom = self.state.zoom
+        amplitude = 3 * (zoom / 5.0)
+        freq = 0.2 / (zoom / 5.0)
+        step = 4
+
+        total_len = cum_lengths[-1] if cum_lengths else 0.0
+        out = []
+        t = 0.0
+        prev_base = None
+        arc_len = 0.0
+
+        while t <= total_len + 1e-6:
+            x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, t)
+            if prev_base:
+                arc_len += math.sqrt((x - prev_base[0]) ** 2 + (y - prev_base[1]) ** 2)
+            norm_len = math.sqrt(dx * dx + dy * dy)
+            if norm_len < 1e-9:
+                nx, ny = 0.0, 0.0
+            else:
+                nx, ny = -dy / norm_len, dx / norm_len
+            offset = amplitude * math.sin(arc_len * freq)
+            out.extend([x + nx * offset, y + ny * offset])
+            prev_base = (x, y)
+            t += step
+
+        return out
+
+    def _generate_ellipse_zigzag_coords(self, coords, cum_lengths):
+        zoom = self.state.zoom
+        period = 40 * (zoom / 5.0)
+        kink_len = 8 * (zoom / 5.0)
+        amplitude = 5 * (zoom / 5.0)
+
+        total_len = cum_lengths[-1] if cum_lengths else 0.0
+        out = []
+        s = 0.0
+
+        def normal_at(dist):
+            x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, dist)
+            norm_len = math.sqrt(dx * dx + dy * dy)
+            nx, ny = (0.0, 0.0) if norm_len < 1e-9 else (-dy / norm_len, dx / norm_len)
+            return x, y, nx, ny
+
+        x0, y0, _, _ = self._point_on_polyline(coords, cum_lengths, 0.0)
+        out.extend([x0, y0])
+
+        while s < total_len - 1e-6:
+            next_s = min(s + period, total_len)
+            x_end, y_end, nx_end, ny_end = normal_at(next_s)
+            out.extend([x_end, y_end])
+            s = next_s
+
+            if s + kink_len <= total_len:
+                d1 = s + kink_len * 0.25
+                d2 = s + kink_len * 0.75
+                d3 = s + kink_len
+
+                x1, y1, nx1, ny1 = normal_at(d1)
+                x2, y2, nx2, ny2 = normal_at(d2)
+                x3, y3, nx3, ny3 = normal_at(d3)
+
+                out.extend([
+                    x1 - nx1 * amplitude, y1 - ny1 * amplitude,
+                    x2 + nx2 * amplitude, y2 + ny2 * amplitude,
+                    x3, y3
+                ])
+                s = d3
+            else:
+                break
+
+        return out
+
+    def draw_ellipse(self, ellipse, override_color=None, override_width=None):
+        draw_color = override_color if override_color else ellipse.color
+        style = self.state.line_styles.get(ellipse.style_name)
+
+        line_width = 1
+        dash_pattern = None
+        base_type = 'solid'
+
+        if style:
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            line_width = max(1, int(s_px)) if style.is_main else max(1, int(s_px / 2))
+            base_type = getattr(style, 'base_type', 'solid')
+            if style.dash_pattern:
+                main_dash, main_gap = style.dash_pattern
+                if base_type == 'dash_dot_dot':
+                    part = main_gap / 5.0
+                    dash_pattern = [main_dash, part, part, part, part, part]
+                elif base_type == 'dash_dot':
+                    part = main_gap / 3.0
+                    dash_pattern = [main_dash, part, part, part]
+                else:
+                    dash_pattern = [main_dash, main_gap]
+
+        if override_width:
+            line_width = override_width
+            dash_pattern = None
+            base_type = 'solid'
+
+        coords, cum_lengths = self._ellipse_polyline(ellipse)
+        if not coords:
+            return
+
+        flat_coords = []
+        for x, y in coords:
+            flat_coords.extend([x, y])
+
+        if dash_pattern:
+            # Рисуем вручную штриховые сегменты как у других примитивов
+            scaled = [float(v) * self.state.zoom for v in dash_pattern]
+            if not scaled:
+                scaled = [4.0 * self.state.zoom, 4.0 * self.state.zoom]
+            self._draw_dashed_polyline(coords, scaled, draw_color, line_width)
+        elif base_type in ['wave', 'zigzag']:
+            if base_type == 'wave':
+                styled = self._generate_ellipse_wave_coords(coords, cum_lengths)
+                smooth_flag = True
+            else:
+                styled = self._generate_ellipse_zigzag_coords(coords, cum_lengths)
+                smooth_flag = False
+            if len(styled) >= 4:
+                self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
+        else:
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
+
+    def _draw_dashed_polyline(self, coords, pattern, color, width):
+        """Рисуем штриховой контур polyline по аналогии с отрезками/окружностями."""
+        if len(coords) < 2:
+            return
+        pat = pattern
+        pat_len = len(pat)
+        pat_idx = 0
+        remain_in_dash = pat[0] if pat_len else 0
+        draw_on = True  # стартуем с рисования, как в сегментах
+
+        for i in range(len(coords) - 1):
+            x1, y1 = coords[i]
+            x2, y2 = coords[i + 1]
+            dx, dy = x2 - x1, y2 - y1
+            seg_len = math.sqrt(dx * dx + dy * dy)
+            if seg_len < 1e-9:
+                continue
+
+            ux, uy = dx / seg_len, dy / seg_len
+            dist_done = 0.0
+            cx, cy = x1, y1
+
+            while dist_done < seg_len - 1e-9:
+                if remain_in_dash <= 1e-9:
+                    pat_idx = (pat_idx + 1) % pat_len
+                    remain_in_dash = pat[pat_idx]
+                    draw_on = not draw_on
+
+                step = min(remain_in_dash, seg_len - dist_done)
+                nx = cx + ux * step
+                ny = cy + uy * step
+
+                if draw_on:
+                    self.canvas.create_line(cx, cy, nx, ny, fill=color, width=width, capstyle=tk.ROUND)
+
+                cx, cy = nx, ny
+                dist_done += step
+                remain_in_dash -= step
+
     def draw_point(self, point, size=4, color='black'):
         x, y = self.converter.world_to_screen(point.x, point.y)
         self.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
@@ -792,6 +1031,9 @@ class Renderer:
         # 5.1 Рисуем выделенные прямоугольники
         for rect in self.state.selected_rectangles:
             self.draw_rectangle(rect, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        # 5.2 Рисуем выделенные эллипсы
+        for ellipse in self.state.selected_ellipses:
+            self.draw_ellipse(ellipse, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
@@ -809,6 +1051,10 @@ class Renderer:
         for rect in self.state.rectangles:
             self.draw_rectangle(rect)
 
+        # 7.2 Рисуем все эллипсы
+        for ellipse in self.state.ellipses:
+            self.draw_ellipse(ellipse)
+
         # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
@@ -824,6 +1070,10 @@ class Renderer:
         # 10.1 Рисуем превью прямоугольника
         if self.state.preview_rectangle:
             self.draw_rectangle(self.state.preview_rectangle, override_color='blue')
+
+        # 10.2 Рисуем превью эллипса
+        if self.state.preview_ellipse:
+            self.draw_ellipse(self.state.preview_ellipse, override_color='blue')
 
         # 11. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:

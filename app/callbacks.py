@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment, Circle, Arc, Rectangle
+from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -51,6 +51,8 @@ class Callbacks:
         if self.state.rectangle_corner_value:
             self.view.rect_corner_value_entry.insert(0, f"{self.state.rectangle_corner_value:.2f}")
         self.view._update_rectangle_params_ui()
+        # Инициализируем метод создания эллипса
+        self.view.ellipse_method.set(self.state.ellipse_creation_method)
 
         self.set_app_state(self.state.app_mode)
 
@@ -60,7 +62,8 @@ class Callbacks:
         is_creating_circle = mode.startswith('CREATING_CIRCLE')
         is_creating_arc = mode.startswith('CREATING_ARC')
         is_creating_rectangle = mode.startswith('CREATING_RECTANGLE')
-        is_creating = is_creating_segment or is_creating_circle or is_creating_arc or is_creating_rectangle
+        is_creating_ellipse = mode.startswith('CREATING_ELLIPSE')
+        is_creating = is_creating_segment or is_creating_circle or is_creating_arc or is_creating_rectangle or is_creating_ellipse
         is_panning = (mode == 'PANNING')
 
         # Сброс превью других типов при смене режима
@@ -68,18 +71,27 @@ class Callbacks:
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
         elif is_creating_circle:
             self.state.preview_segment = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
         elif is_creating_arc:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
         elif is_creating_rectangle:
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
+            self.state.preview_ellipse = None
+        elif is_creating_ellipse:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
+            self.state.preview_arc = None
+            self.state.preview_rectangle = None
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -112,6 +124,13 @@ class Callbacks:
             self.view.rect_corner_value_entry
         ]
 
+        # Поля эллипсов
+        ellipse_entries = [
+            self.view.ellipse_center_x_entry, self.view.ellipse_center_y_entry,
+            self.view.ellipse_a_x_entry, self.view.ellipse_a_y_entry,
+            self.view.ellipse_b_x_entry, self.view.ellipse_b_y_entry
+        ]
+
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
         self.view.canvas.unbind("<ButtonRelease-1>")
@@ -134,10 +153,15 @@ class Callbacks:
             for entry in rect_entries:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
+            # Блокируем поля эллипсов
+            for entry in ellipse_entries:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
@@ -186,6 +210,16 @@ class Callbacks:
             self.root.bind("<Return>", self.finalize_rectangle)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click_rectangle)
             self.view.canvas.config(cursor="crosshair")
+        elif is_creating_ellipse:
+            for entry in entries: entry.config(state=entry_state)
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='disabled')
+            for entry in ellipse_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.root.bind("<Return>", self.finalize_ellipse)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_ellipse)
+            self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
@@ -210,6 +244,7 @@ class Callbacks:
         found_circle = None
         found_arc = None
         found_rectangle = None
+        found_ellipse = None
 
         # Ищем сегменты
         for segment in self.state.segments:
@@ -242,6 +277,14 @@ class Callbacks:
                     found_rectangle = rect
                     break
 
+        # Ищем эллипсы
+        if not found_segment and not found_circle and not found_arc and not found_rectangle:
+            for ellipse in self.state.ellipses:
+                dist = ellipse.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_ellipse = ellipse
+                    break
+
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
 
@@ -256,12 +299,14 @@ class Callbacks:
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
         elif found_circle:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -273,12 +318,14 @@ class Callbacks:
                 self.state.selected_segments = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
                 self.state.selected_circles = [found_circle]
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
         elif found_arc:
             if ctrl_pressed:
                 if found_arc in self.state.selected_arcs:
@@ -288,11 +335,29 @@ class Callbacks:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = [found_arc]
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
+        elif found_ellipse:
+            if ctrl_pressed:
+                if found_ellipse in self.state.selected_ellipses:
+                    self.state.selected_ellipses.remove(found_ellipse)
+                else:
+                    self.state.selected_ellipses.append(found_ellipse)
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+            else:
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = []
+                self.state.selected_ellipses = [found_ellipse]
         elif found_rectangle:
             if ctrl_pressed:
                 if found_rectangle in self.state.selected_rectangles:
@@ -302,11 +367,13 @@ class Callbacks:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
+                self.state.selected_ellipses = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = [found_rectangle]
+                self.state.selected_ellipses = []
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
@@ -314,6 +381,7 @@ class Callbacks:
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
                 self.state.selected_rectangles = []
+                self.state.selected_ellipses = []
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
@@ -327,9 +395,10 @@ class Callbacks:
         sel_circles = self.state.selected_circles
         sel_arcs = self.state.selected_arcs
         sel_rectangles = self.state.selected_rectangles
+        sel_ellipses = self.state.selected_ellipses
 
         # Если ничего не выделено
-        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles:
+        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -346,8 +415,10 @@ class Callbacks:
         elif sel_arcs and not sel_segments and not sel_circles:
             # Выделены только дуги
             self._sync_ui_with_arcs(sel_arcs)
-        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs:
+        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs and not sel_ellipses:
             self._sync_ui_with_rectangles(sel_rectangles)
+        elif sel_ellipses and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles:
+            self._sync_ui_with_ellipses(sel_ellipses)
         else:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
@@ -458,6 +529,22 @@ class Callbacks:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
 
+    def _sync_ui_with_ellipses(self, sel_ellipses):
+        """Синхронизация UI с выделенными эллипсами."""
+        unique_styles = {ell.style_name for ell in sel_ellipses}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_ellipses[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
     # Изменение количества изломов или волн
     def on_kinks_changed(self, event=None):
         if not self.state.selected_segments: return
@@ -535,6 +622,9 @@ class Callbacks:
         elif self.state.selected_rectangles:
             for rect in self.state.selected_rectangles:
                 rect.style_name = new_style_name
+        elif self.state.selected_ellipses:
+            for ellipse in self.state.selected_ellipses:
+                ellipse.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
@@ -542,6 +632,7 @@ class Callbacks:
         self.update_preview_circle()
         self.update_preview_arc()
         self.update_preview_rectangle()
+        self.update_preview_ellipse()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
@@ -621,6 +712,19 @@ class Callbacks:
             self.view.rect_corner_x_entry.focus_set()
         else:
             self.view.rect_center_x_entry.focus_set()
+
+    def on_new_ellipse_mode(self, event=None):
+        self.set_app_state('CREATING_ELLIPSE')
+        self.view.settings_notebook.select(5)  # Вкладка "Эллипсы"
+
+        for entry in [
+            self.view.ellipse_center_x_entry, self.view.ellipse_center_y_entry,
+            self.view.ellipse_a_x_entry, self.view.ellipse_a_y_entry,
+            self.view.ellipse_b_x_entry, self.view.ellipse_b_y_entry
+        ]:
+            entry.delete(0, tk.END)
+
+        self.view.ellipse_center_x_entry.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -763,6 +867,20 @@ class Callbacks:
             self.state.preview_rectangle = None
         self.redraw_all()
 
+    def update_preview_ellipse(self, event=None):
+        try:
+            center = Point(float(self.view.ellipse_center_x_entry.get()), float(self.view.ellipse_center_y_entry.get()))
+            axis_a = Point(float(self.view.ellipse_a_x_entry.get()), float(self.view.ellipse_a_y_entry.get()))
+            axis_b = Point(float(self.view.ellipse_b_x_entry.get()), float(self.view.ellipse_b_y_entry.get()))
+            self.state.preview_ellipse = Ellipse.from_center_axes(
+                center, axis_a, axis_b,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+        except (ValueError, tk.TclError):
+            self.state.preview_ellipse = None
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -811,15 +929,29 @@ class Callbacks:
             self.state.rectangles.append(final_rect)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'PANNING']:
+    def finalize_ellipse(self, event=None):
+        if self.state.preview_ellipse:
+            ell = self.state.preview_ellipse
+            final_ellipse = Ellipse(
+                ell.center,
+                ell.axis_point_a,
+                ell.axis_point_b,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            self.state.ellipses.append(final_ellipse)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
             self.state.selected_circles = []
             self.state.selected_arcs = []
             self.state.selected_rectangles = []
+            self.state.selected_ellipses = []
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -846,6 +978,11 @@ class Callbacks:
                 if rect in self.state.rectangles:
                     self.state.rectangles.remove(rect)
             self.state.selected_rectangles = []
+        elif self.state.selected_ellipses:
+            for ellipse in self.state.selected_ellipses:
+                if ellipse in self.state.ellipses:
+                    self.state.ellipses.remove(ellipse)
+            self.state.selected_ellipses = []
         elif self.state.segments:
             self.state.segments.pop()
         elif self.state.circles:
@@ -854,6 +991,8 @@ class Callbacks:
             self.state.arcs.pop()
         elif self.state.rectangles:
             self.state.rectangles.pop()
+        elif self.state.ellipses:
+            self.state.ellipses.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -1058,6 +1197,23 @@ class Callbacks:
 
         self.update_preview_rectangle()
 
+    def on_lmb_click_ellipse(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        if self.state.points_clicked == 0:
+            self.view.ellipse_center_x_entry.delete(0, tk.END); self.view.ellipse_center_x_entry.insert(0, f"{wx:.2f}")
+            self.view.ellipse_center_y_entry.delete(0, tk.END); self.view.ellipse_center_y_entry.insert(0, f"{wy:.2f}")
+            self.state.points_clicked = 1
+        elif self.state.points_clicked == 1:
+            self.view.ellipse_a_x_entry.delete(0, tk.END); self.view.ellipse_a_x_entry.insert(0, f"{wx:.2f}")
+            self.view.ellipse_a_y_entry.delete(0, tk.END); self.view.ellipse_a_y_entry.insert(0, f"{wy:.2f}")
+            self.state.points_clicked = 2
+        elif self.state.points_clicked == 2:
+            self.view.ellipse_b_x_entry.delete(0, tk.END); self.view.ellipse_b_x_entry.insert(0, f"{wx:.2f}")
+            self.view.ellipse_b_y_entry.delete(0, tk.END); self.view.ellipse_b_y_entry.insert(0, f"{wy:.2f}")
+            self.state.points_clicked = 3
+
+        self.update_preview_ellipse()
+
     def on_rmb_click_rectangle(self, event):
         """ПКМ для удаления точек при создании прямоугольника."""
         method = self.state.rectangle_creation_method
@@ -1085,6 +1241,19 @@ class Callbacks:
                 self.state.points_clicked = 0
 
         self.update_preview_rectangle()
+
+    def on_rmb_click_ellipse(self, event):
+        """ПКМ для удаления точек при создании эллипса."""
+        if self.view.ellipse_b_x_entry.get():
+            self.view.ellipse_b_x_entry.delete(0, tk.END); self.view.ellipse_b_y_entry.delete(0, tk.END)
+            self.state.points_clicked = 2
+        elif self.view.ellipse_a_x_entry.get():
+            self.view.ellipse_a_x_entry.delete(0, tk.END); self.view.ellipse_a_y_entry.delete(0, tk.END)
+            self.state.points_clicked = 1
+        elif self.view.ellipse_center_x_entry.get():
+            self.view.ellipse_center_x_entry.delete(0, tk.END); self.view.ellipse_center_y_entry.delete(0, tk.END)
+            self.state.points_clicked = 0
+        self.update_preview_ellipse()
 
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get():
@@ -1198,7 +1367,7 @@ class Callbacks:
         self.view.canvas.focus_set()
 
     def on_fit_to_view(self, event=None):
-        all_objects = self.state.segments + self.state.circles + self.state.arcs + self.state.rectangles
+        all_objects = self.state.segments + self.state.circles + self.state.arcs + self.state.rectangles + self.state.ellipses
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
@@ -1234,6 +1403,12 @@ class Callbacks:
         for rect in self.state.rectangles:
             xs.extend([rect.min_x, rect.max_x])
             ys.extend([rect.min_y, rect.max_y])
+
+        # Эллипсы: используем их ограничивающие прямоугольники
+        for ellipse in self.state.ellipses:
+            min_x_e, max_x_e, min_y_e, max_y_e = ellipse.bounding_box()
+            xs.extend([min_x_e, max_x_e])
+            ys.extend([min_y_e, max_y_e])
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -1301,6 +1476,8 @@ class Callbacks:
                 arc.color = c
             for rect in self.state.selected_rectangles:
                 rect.color = c
+            for ellipse in self.state.selected_ellipses:
+                ellipse.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -1656,6 +1833,49 @@ class Callbacks:
 
             return
 
+        # ПРИОРИТЕТ 1.9: РЕЖИМ СОЗДАНИЯ ЭЛЛИПСА
+        if self.state.app_mode == 'CREATING_ELLIPSE':
+            center = axis_a = axis_b = None
+            try:
+                center = Point(float(self.view.ellipse_center_x_entry.get()), float(self.view.ellipse_center_y_entry.get()))
+                self.state.active_p1 = center
+                self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
+            except (ValueError, tk.TclError):
+                self.view.p1_coord_var.set("Центр: N/A")
+            try:
+                axis_a = Point(float(self.view.ellipse_a_x_entry.get()), float(self.view.ellipse_a_y_entry.get()))
+                self.state.active_p2 = axis_a
+                self.view.p2_coord_var.set(f"A({axis_a.x:.2f}, {axis_a.y:.2f})")
+            except (ValueError, tk.TclError):
+                if center:
+                    self.view.p2_coord_var.set("A: ...")
+                else:
+                    self.view.p2_coord_var.set("A: N/A")
+            try:
+                axis_b = Point(float(self.view.ellipse_b_x_entry.get()), float(self.view.ellipse_b_y_entry.get()))
+                self.state.active_p3 = axis_b
+                self.view.p3_coord_var.set(f"B({axis_b.x:.2f}, {axis_b.y:.2f})")
+            except (ValueError, tk.TclError):
+                self.view.p3_coord_var.set("B: N/A")
+
+            preview = self.state.preview_ellipse
+            if preview:
+                e1x, e1y, a, _, _, b = preview._basis()
+                ang = math.atan2(e1y, e1x)
+                if self.view.angle_units.get() == 'degrees':
+                    ang_disp = math.degrees(ang)
+                    sym = "°"
+                else:
+                    ang_disp = ang
+                    sym = " rad"
+                self.view.length_var.set(f"a: {a:.2f} | b: {b:.2f}")
+                self.view.angle_var.set(f"Ось A: {ang_disp:.2f}{sym}")
+            else:
+                self.view.length_var.set("a/b: N/A")
+                self.view.angle_var.set("Эллипс")
+
+            return
+
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
@@ -1722,6 +1942,24 @@ class Callbacks:
             self.view.angle_var.set("Прямоугольник")
             return
 
+        # ПРИОРИТЕТ 2.8: ВЫДЕЛЕНИЕ ЭЛЛИПСА
+        if self.state.selected_ellipses:
+            ell = self.state.selected_ellipses[0]
+            self.view.p1_coord_var.set(f"Центр({ell.center.x:.2f}, {ell.center.y:.2f})")
+            self.view.p2_coord_var.set(f"A({ell.axis_point_a.x:.2f}, {ell.axis_point_a.y:.2f})")
+            self.view.p3_coord_var.set(f"B({ell.axis_point_b.x:.2f}, {ell.axis_point_b.y:.2f})")
+            e1x, e1y, a, _, _, b = ell._basis()
+            ang = math.atan2(e1y, e1x)
+            if self.view.angle_units.get() == 'degrees':
+                ang_disp = math.degrees(ang)
+                sym = "°"
+            else:
+                ang_disp = ang
+                sym = " rad"
+            self.view.length_var.set(f"a: {a:.2f} | b: {b:.2f}")
+            self.view.angle_var.set(f"Ось A: {ang_disp:.2f}{sym}")
+            return
+
         # ПРИОРИТЕТ 3: ПУСТОТА
         self.view.length_var.set("Длина: N/A")
         self.view.angle_var.set("Угол: N/A")
@@ -1751,6 +1989,7 @@ class Callbacks:
             + len(self.state.selected_circles)
             + len(self.state.selected_arcs)
             + len(self.state.selected_rectangles)
+            + len(self.state.selected_ellipses)
         )
         if total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
@@ -1761,6 +2000,7 @@ class Callbacks:
                 'CREATING_CIRCLE': "Создание окружности",
                 'CREATING_ARC': "Создание дуги",
                 'CREATING_RECTANGLE': "Создание прямоугольника",
+                'CREATING_ELLIPSE': "Создание эллипса",
                 'PANNING': "Панорамирование"
             }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
@@ -1768,15 +2008,17 @@ class Callbacks:
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE']:
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
                 self.on_rmb_click_circle(event)
             elif self.state.app_mode == 'CREATING_ARC':
                 self.on_rmb_click_arc(event)
-            else:
+            elif self.state.app_mode == 'CREATING_RECTANGLE':
                 self.on_rmb_click_rectangle(event)
+            else:
+                self.on_rmb_click_ellipse(event)
         else:
             self.view.context_menu.post(event.x_root, event.y_root)
 
@@ -1822,6 +2064,10 @@ class Callbacks:
             for rect in self.state.selected_rectangles:
                 rect.style_name = style_key
             self._sync_ui_with_selection()
+        elif self.state.selected_ellipses:
+            for ellipse in self.state.selected_ellipses:
+                ellipse.style_name = style_key
+            self._sync_ui_with_selection()
         else:
             # Если нет выделения -> просто обновляем UI для будущего рисования
             self.view.set_style_selection(style_key)
@@ -1830,4 +2076,5 @@ class Callbacks:
         self.update_preview_circle()
         self.update_preview_arc()
         self.update_preview_rectangle()
+        self.update_preview_ellipse()
         self.redraw_all()
