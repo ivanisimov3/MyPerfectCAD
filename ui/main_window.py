@@ -25,6 +25,9 @@ class MainWindow:
         
         # Настройка сеточной раскладки - левая колонка с весом 1 будет растягиваться
         root.columnconfigure(0, weight=1)
+        # Правая колонка: фиксированная ширина панели настроек (чтобы не "дрыгалось" окно)
+        self.sidebar_width = 360
+        root.columnconfigure(1, weight=0, minsize=self.sidebar_width)
         # Средняя строка с весом 1 будет занимать оставшееся пространство
         root.rowconfigure(1, weight=1)
 
@@ -41,8 +44,17 @@ class MainWindow:
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
         # === ПАНЕЛЬ НАСТРОЕК (справа) ===
-        settings_panel = ttk.LabelFrame(root, text="Настройки", padding="5")
-        settings_panel.grid(row=1, column=1, sticky=('E', 'N', 'S'), padx=5, pady=5)
+        # Делаем внешний контейнер фиксированной ширины — так вкладки/контент не смогут менять ширину окна
+        self.sidebar_container = tk.Frame(root, width=self.sidebar_width)
+        self.sidebar_container.grid(row=1, column=1, sticky=('N', 'S', 'E', 'W'), padx=5, pady=5)
+        # Внутри контейнера используется pack(), поэтому отключаем pack-propagation,
+        # иначе контейнер (и, следом, окно) будет менять ширину от контента.
+        self.sidebar_container.pack_propagate(False)
+        # На всякий случай также отключаем grid-propagation (если поменяем layout позже)
+        self.sidebar_container.grid_propagate(False)
+
+        settings_panel = ttk.LabelFrame(self.sidebar_container, text="Настройки", padding="5")
+        settings_panel.pack(fill=tk.BOTH, expand=True)
         self.setup_settings_panel(settings_panel, callbacks)
         
         # === ИНФОРМАЦИОННАЯ ПАНЕЛЬ (снизу, под холстом) ===
@@ -82,36 +94,50 @@ class MainWindow:
 
     # Создание кнопок на верхней панели инструментов
     def _setup_toolbar_buttons(self, parent, callbacks):
-        
-        # Группа 1: основные инструменты рисования
-        ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Окружность", command=callbacks.on_new_circle_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Эллипс", command=callbacks.on_new_ellipse_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Прямоугольник", command=callbacks.on_new_rectangle_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Многоугольник", command=callbacks.on_new_polygon_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Сплайн", command=callbacks.on_new_spline_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
-        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
-        
-        # Группа 2: навигация и масштабирование
-        ttk.Button(parent, text="Рука", command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Лупа+", command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Лупа-", command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Показать все", command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
-        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
-        
-        # Группа 3: вращение и сброс вида
-        ttk.Button(parent, text="↶", width=3, command=callbacks.on_rotate_left).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="↷", width=3, command=callbacks.on_rotate_right).pack(side=tk.LEFT, padx=2)
-        ttk.Button(parent, text="Сброс", command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)
+        def _add_menu_button(text, items):
+            mb = ttk.Menubutton(parent, text=text)
+            menu = tk.Menu(mb, tearoff=0)
+            for label, cmd in items:
+                if label in (None, "", "—"):
+                    menu.add_separator()
+                else:
+                    menu.add_command(label=label, command=cmd)
+            mb["menu"] = menu
+            mb.pack(side=tk.LEFT, padx=2)
+            return mb
 
-        # Группа 4: быстрые стили линий (основная, тонкая, штриховая и т.д.)
-        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
-        ttk.Button(parent, text="Основная", command=lambda: callbacks.on_quick_style_set('solid_main')).pack(side=tk.LEFT, padx=1)
-        ttk.Button(parent, text="Тонкая", command=lambda: callbacks.on_quick_style_set('solid_thin')).pack(side=tk.LEFT, padx=1)
-        ttk.Button(parent, text="Штриховая", command=lambda: callbacks.on_quick_style_set('dashed')).pack(side=tk.LEFT, padx=1)
-        ttk.Button(parent, text="Осевая", command=lambda: callbacks.on_quick_style_set('dash_dot_thin')).pack(side=tk.LEFT, padx=1)
+        # === Примитивы (все 7 в одном меню) ===
+        _add_menu_button("Примитивы", [
+            ("Отрезок", callbacks.on_new_segment_mode),
+            ("Окружность", callbacks.on_new_circle_mode),
+            ("Эллипс", callbacks.on_new_ellipse_mode),
+            ("Дуга", callbacks.on_new_arc_mode),
+            ("Прямоугольник", callbacks.on_new_rectangle_mode),
+            ("Многоугольник", callbacks.on_new_polygon_mode),
+            ("Сплайн", callbacks.on_new_spline_mode),
+        ])
+        ttk.Button(parent, text="Del", width=5, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
+        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        # === Навигация/вид ===
+        ttk.Button(parent, text="Рука", width=6, command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="+", width=3, command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=1)
+        ttk.Button(parent, text="-", width=3, command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=1)
+        ttk.Button(parent, text="Fit", width=4, command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="↶", width=3, command=callbacks.on_rotate_left).pack(side=tk.LEFT, padx=1)
+        ttk.Button(parent, text="↷", width=3, command=callbacks.on_rotate_right).pack(side=tk.LEFT, padx=1)
+        ttk.Button(parent, text="0°", width=3, command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        # === Стили (быстрый выбор) ===
+        _add_menu_button("Стиль", [
+            ("Основная", lambda: callbacks.on_quick_style_set('solid_main')),
+            ("Тонкая", lambda: callbacks.on_quick_style_set('solid_thin')),
+            ("Штриховая", lambda: callbacks.on_quick_style_set('dashed')),
+            ("Осевая", lambda: callbacks.on_quick_style_set('dash_dot_thin')),
+            ("—", None),
+            ("Менеджер стилей…", callbacks.on_open_style_manager),
+        ])
 
     # Создание главного меню приложения
     def setup_main_menu(self, root, callbacks):
@@ -181,63 +207,91 @@ class MainWindow:
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
 
-        # Создаем вкладки для разных типов примитивов
+        # Две вкладки:
+        # - "Общие" (всегда доступна)
+        # - "Контекст" (текущий инструмент построения / один выбранный объект)
         self.settings_notebook = ttk.Notebook(parent)
         self.settings_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Вкладка "Общие настройки"
-        general_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(general_tab, text="Общие")
+        # --- Общие ---
+        self.general_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(self.general_tab, text="Общие")
+        self._setup_general_tab(self.general_tab, callbacks)
 
-        # Вкладка "Отрезки"
-        segment_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(segment_tab, text="Отрезки")
+        # --- Контекст ---
+        self.context_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(self.context_tab, text="Контекст")
 
-        # Вкладка "Окружности"
-        circle_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(circle_tab, text="Окружности")
+        self.context_title_var = tk.StringVar(value="—")
+        ttk.Label(self.context_tab, textvariable=self.context_title_var).pack(anchor=tk.W, padx=6, pady=(6, 4))
 
-        # Вкладка "Дуги"
-        arc_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(arc_tab, text="Дуги")
+        self.context_hint = ttk.Label(
+            self.context_tab,
+            text="Выберите один объект или начните построение примитива."
+        )
+        self.context_hint.pack(anchor=tk.W, padx=6, pady=(0, 6))
 
-        # Вкладка "Прямоугольники"
-        rectangle_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(rectangle_tab, text="Прямоугольники")
+        self.context_pages_container = ttk.Frame(self.context_tab)
+        self.context_pages_container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
-        # Вкладка "Эллипсы"
-        ellipse_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(ellipse_tab, text="Эллипсы")
+        # Создаем "страницы" контекста (по одной на примитив) и скрываем их до необходимости
+        self._context_pages = {}
 
-        # Вкладка "Многоугольники"
-        polygon_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(polygon_tab, text="Многоугольники")
-        # Вкладка "Сплайны"
-        spline_tab = ttk.Frame(self.settings_notebook)
-        self.settings_notebook.add(spline_tab, text="Сплайны")
+        segment_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["segment"] = segment_page
+        self._setup_segment_tab(segment_page, callbacks)
 
-        # Настраиваем общую вкладку
-        self._setup_general_tab(general_tab, callbacks)
+        circle_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["circle"] = circle_page
+        self._setup_circle_tab(circle_page, callbacks)
 
-        # Настраиваем вкладку отрезков
-        self._setup_segment_tab(segment_tab, callbacks)
+        arc_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["arc"] = arc_page
+        self._setup_arc_tab(arc_page, callbacks)
 
-        # Настраиваем вкладку окружностей
-        self._setup_circle_tab(circle_tab, callbacks)
+        rectangle_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["rectangle"] = rectangle_page
+        self._setup_rectangle_tab(rectangle_page, callbacks)
 
-        # Настраиваем вкладку дуг
-        self._setup_arc_tab(arc_tab, callbacks)
+        ellipse_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["ellipse"] = ellipse_page
+        self._setup_ellipse_tab(ellipse_page, callbacks)
 
-        # Настраиваем вкладку прямоугольников
-        self._setup_rectangle_tab(rectangle_tab, callbacks)
+        polygon_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["polygon"] = polygon_page
+        self._setup_polygon_tab(polygon_page, callbacks)
 
-        # Настраиваем вкладку эллипсов
-        self._setup_ellipse_tab(ellipse_tab, callbacks)
+        spline_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["spline"] = spline_page
+        self._setup_spline_tab(spline_page, callbacks)
 
-        # Настраиваем вкладку многоугольников
-        self._setup_polygon_tab(polygon_tab, callbacks)
-        # Настраиваем вкладку сплайнов
-        self._setup_spline_tab(spline_tab, callbacks)
+        for page in self._context_pages.values():
+            page.pack_forget()
+
+        self._active_context_key = None
+
+    def set_context_panel(self, key, title=None):
+        """Показывает контекстную панель примитива (или скрывает, если key=None)."""
+        # Прячем текущую
+        if getattr(self, "_active_context_key", None) in getattr(self, "_context_pages", {}):
+            self._context_pages[self._active_context_key].pack_forget()
+        self._active_context_key = None
+
+        if not key:
+            self.context_title_var.set(title or "—")
+            self.context_hint.pack(anchor=tk.W, padx=6, pady=(0, 6))
+            return
+
+        page = self._context_pages.get(key)
+        if not page:
+            self.context_title_var.set(title or "—")
+            self.context_hint.pack(anchor=tk.W, padx=6, pady=(0, 6))
+            return
+
+        self.context_title_var.set(title or "Параметры")
+        self.context_hint.pack_forget()
+        page.pack(fill=tk.BOTH, expand=True)
+        self._active_context_key = key
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -341,8 +395,8 @@ class MainWindow:
         self.p2_label2, self.p2_y_entry = self._create_coord_entry(p2_frame, "Y₂:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
 
         # Радиокнопки для выбора системы координат второй точки
-        ttk.Radiobutton(parent, text="P2: Декартова (X₂, Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
-        ttk.Radiobutton(parent, text="P2: Полярная (R₂, θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
+        ttk.Radiobutton(parent, text="P2: Декартова (X₂,Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
+        ttk.Radiobutton(parent, text="P2: Полярная (R₂,θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
 
         # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
@@ -500,7 +554,7 @@ class MainWindow:
         # Пока поддерживается один метод: центр и две оси
         self.ellipse_method = tk.StringVar(value="center_axes")
 
-        ttk.Label(parent, text="Способ: центр и две конечные точки осей").pack(anchor=tk.W, padx=8, pady=(4, 0))
+        ttk.Label(parent, text="Способ: центр + концы осей").pack(anchor=tk.W, padx=8, pady=(4, 0))
 
         coords_frame = ttk.LabelFrame(parent, text="Координаты")
         coords_frame.pack(padx=5, pady=5, fill=tk.X)
@@ -526,7 +580,7 @@ class MainWindow:
         self.polygon_variant = tk.StringVar(value="inscribed")
         self.polygon_sides_var = tk.StringVar(value="5")
 
-        ttk.Label(parent, text="Метод: центр и радиус окружности").pack(anchor=tk.W, padx=8, pady=(4, 0))
+        ttk.Label(parent, text="Метод: центр + радиус").pack(anchor=tk.W, padx=8, pady=(4, 0))
 
         coords_frame = ttk.LabelFrame(parent, text="Координаты")
         coords_frame.pack(padx=5, pady=5, fill=tk.X)

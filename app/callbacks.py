@@ -27,6 +27,80 @@ class Callbacks:
         self._drag_start_x = 0
         self._drag_start_y = 0
 
+    def _refresh_settings_context_panel(self, *, auto_switch_tab=False):
+        """Обновляет контекстную часть правой панели.
+
+        Важно: вкладки НЕ переключаем автоматически, кроме случая, когда пользователь
+        только что вошёл в режим построения примитива (auto_switch_tab=True).
+        """
+        if not self.view:
+            return
+
+        def _select_tab(tab_widget):
+            nb = getattr(self.view, "settings_notebook", None)
+            if not nb or not tab_widget:
+                return
+            try:
+                nb.select(tab_widget)
+            except Exception:
+                # На всякий случай не падаем из-за UI
+                return
+
+        total_selected = (
+            len(self.state.selected_segments)
+            + len(self.state.selected_circles)
+            + len(self.state.selected_arcs)
+            + len(self.state.selected_rectangles)
+            + len(self.state.selected_ellipses)
+            + len(self.state.selected_polygons)
+            + len(self.state.selected_splines)
+        )
+
+        # 1) Если выделено ровно 1 объект -> показываем его панель
+        if total_selected == 1:
+            if self.state.selected_segments:
+                self.view.set_context_panel("segment", "Выбрано: Отрезок")
+            elif self.state.selected_circles:
+                self.view.set_context_panel("circle", "Выбрано: Окружность")
+            elif self.state.selected_arcs:
+                self.view.set_context_panel("arc", "Выбрано: Дуга")
+            elif self.state.selected_rectangles:
+                self.view.set_context_panel("rectangle", "Выбрано: Прямоугольник")
+            elif self.state.selected_ellipses:
+                self.view.set_context_panel("ellipse", "Выбрано: Эллипс")
+            elif self.state.selected_polygons:
+                self.view.set_context_panel("polygon", "Выбрано: Многоугольник")
+            elif self.state.selected_splines:
+                self.view.set_context_panel("spline", "Выбрано: Сплайн")
+            else:
+                self.view.set_context_panel(None, "—")
+                return
+            return
+
+        # 2) Если выделено несколько -> только "Общие"
+        if total_selected > 1:
+            self.view.set_context_panel(None, "Выбрано: несколько объектов")
+            return
+
+        # 3) Если выделения нет -> ориентируемся на текущий режим построения
+        mode_to_panel = {
+            "CREATING_SEGMENT": ("segment", "Создание: Отрезок"),
+            "CREATING_CIRCLE": ("circle", "Создание: Окружность"),
+            "CREATING_ARC": ("arc", "Создание: Дуга"),
+            "CREATING_RECTANGLE": ("rectangle", "Создание: Прямоугольник"),
+            "CREATING_ELLIPSE": ("ellipse", "Создание: Эллипс"),
+            "CREATING_POLYGON": ("polygon", "Создание: Многоугольник"),
+            "CREATING_SPLINE": ("spline", "Создание: Сплайн"),
+        }
+        if self.state.app_mode in mode_to_panel:
+            key, title = mode_to_panel[self.state.app_mode]
+            self.view.set_context_panel(key, title)
+            # Автопереход на "Контекст" только при старте построения примитива
+            if auto_switch_tab:
+                _select_tab(getattr(self.view, "context_tab", None))
+        else:
+            self.view.set_context_panel(None, "—")
+
     def initialize_view(self):
         self.converter = CoordinateConverter(self.state, self.view.canvas)
         self.renderer = Renderer(self.view.canvas, self.state, self.converter)
@@ -61,6 +135,7 @@ class Callbacks:
         self.set_app_state(self.state.app_mode)
 
     def set_app_state(self, mode):
+        prev_mode = self.state.app_mode
         self.state.app_mode = mode
         is_creating_segment = (mode == 'CREATING_SEGMENT')
         is_creating_circle = mode.startswith('CREATING_CIRCLE')
@@ -130,6 +205,10 @@ class Callbacks:
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+
+        # Синхронизируем правую панель (контекст)
+        entered_creating = (not str(prev_mode).startswith("CREATING_")) and str(mode).startswith("CREATING_")
+        self._refresh_settings_context_panel(auto_switch_tab=entered_creating)
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -555,6 +634,7 @@ class Callbacks:
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
+        self._refresh_settings_context_panel()
         self.redraw_all()
 
     def _sync_ui_with_selection(self):
@@ -575,6 +655,7 @@ class Callbacks:
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
                 self.view.segment_swatch.config(bg=self.state.current_color)
+            self._refresh_settings_context_panel()
             return
 
         # Определяем, что выделено
@@ -599,6 +680,7 @@ class Callbacks:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
+        self._refresh_settings_context_panel()
 
     def _sync_ui_with_segments(self, sel_segments):
         """Синхронизация UI с выделенными сегментами."""
@@ -877,7 +959,6 @@ class Callbacks:
 
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
-        self.view.settings_notebook.select(1)  # Переключаемся на вкладку "Отрезки"
 
         # Очищаем поля отрезков
         self.view.p1_x_entry.delete(0, tk.END)
@@ -889,7 +970,6 @@ class Callbacks:
 
     def on_new_circle_mode(self, event=None):
         self.set_app_state('CREATING_CIRCLE')
-        self.view.settings_notebook.select(2)  # Переключаемся на вкладку "Окружности"
 
         # Очищаем поля окружностей
         self.view.circle_center_x_entry.delete(0, tk.END)
@@ -909,7 +989,6 @@ class Callbacks:
 
     def on_new_arc_mode(self, event=None):
         self.set_app_state('CREATING_ARC')
-        self.view.settings_notebook.select(3)  # Вкладка "Дуги"
 
         # Очищаем поля дуг
         for entry in [
@@ -930,7 +1009,6 @@ class Callbacks:
 
     def on_new_rectangle_mode(self, event=None):
         self.set_app_state('CREATING_RECTANGLE')
-        self.view.settings_notebook.select(4)  # Вкладка "Прямоугольники"
 
         for entry in [
             self.view.rect_p1_x_entry, self.view.rect_p1_y_entry,
@@ -953,7 +1031,6 @@ class Callbacks:
 
     def on_new_ellipse_mode(self, event=None):
         self.set_app_state('CREATING_ELLIPSE')
-        self.view.settings_notebook.select(5)  # Вкладка "Эллипсы"
 
         for entry in [
             self.view.ellipse_center_x_entry, self.view.ellipse_center_y_entry,
@@ -966,7 +1043,6 @@ class Callbacks:
 
     def on_new_polygon_mode(self, event=None):
         self.set_app_state('CREATING_POLYGON')
-        self.view.settings_notebook.select(6)  # Вкладка "Многоугольники"
 
         for entry in [
             self.view.polygon_center_x_entry, self.view.polygon_center_y_entry,
@@ -977,8 +1053,6 @@ class Callbacks:
 
     def on_new_spline_mode(self, event=None):
         self.set_app_state('CREATING_SPLINE')
-        # Вкладка будет добавлена после многоугольников
-        self.view.settings_notebook.select(7)
         self.state.spline_control_points = []
         self.state.preview_spline = None
         self.view.spline_point_x_entry.delete(0, tk.END)
