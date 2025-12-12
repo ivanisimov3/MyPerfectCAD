@@ -180,3 +180,102 @@ class Circle:
 
     def __repr__(self):
         return f"Circle(center={self.center}, radius={self.radius:.2f}, style='{self.style_name}')"
+
+
+class Arc:
+    """Дуга окружности."""
+
+    @staticmethod
+    def _normalize_angle(angle_rad):
+        """Нормализует угол в диапазон [0, 2*pi)."""
+        two_pi = 2 * math.pi
+        angle_rad = angle_rad % two_pi
+        return angle_rad
+
+    @staticmethod
+    def _is_angle_between_ccw(test_angle, start_angle, end_angle):
+        """Проверяет, лежит ли угол test_angle на дуге от start_angle до end_angle против часовой стрелки."""
+        test_angle = Arc._normalize_angle(test_angle)
+        start_angle = Arc._normalize_angle(start_angle)
+        end_angle = Arc._normalize_angle(end_angle)
+
+        if start_angle <= end_angle:
+            return start_angle - 1e-9 <= test_angle <= end_angle + 1e-9
+        return test_angle >= start_angle - 1e-9 or test_angle <= end_angle + 1e-9
+
+    @classmethod
+    def from_three_points(cls, p1: Point, p2: Point, p3: Point, style_name='solid_main', color='black'):
+        """Строит дугу по трем точкам: начало, точка на дуге, конец."""
+        circle = Circle.from_three_points(p1, p2, p3, style_name=style_name, color=color)
+        # Вычисляем углы относительно центра окружности
+        start_ang = math.atan2(p1.y - circle.center.y, p1.x - circle.center.x)
+        mid_ang = math.atan2(p2.y - circle.center.y, p2.x - circle.center.x)
+        end_ang = math.atan2(p3.y - circle.center.y, p3.x - circle.center.x)
+
+        def _ccw_delta(a, b):
+            return (b - a) % (2 * math.pi)
+
+        # Проверяем, лежит ли mid на дуге от start к end против часовой стрелки
+        mid_on_ccw = _ccw_delta(start_ang, mid_ang) <= _ccw_delta(start_ang, end_ang) + 1e-9
+
+        if mid_on_ccw:
+            final_start, final_end = start_ang, end_ang
+        else:
+            # Идем от end к start, чтобы включить mid
+            final_start, final_end = start_ang, end_ang
+            final_start, final_end = final_end, final_start
+
+        return cls(circle.center, circle.radius, final_start, final_end, style_name, color)
+
+    @classmethod
+    def from_center_angles(cls, center: Point, radius: float, start_angle_rad: float, end_angle_rad: float, style_name='solid_main', color='black'):
+        """Строит дугу по центру, радиусу и нач/кон углам."""
+        return cls(center, abs(radius), start_angle_rad, end_angle_rad, style_name, color)
+
+    def __init__(self, center: Point, radius: float, start_angle_rad: float, end_angle_rad: float, style_name='solid_main', color='black'):
+        self.center = center
+        self.radius = abs(radius)
+        self.start_angle = self._normalize_angle(start_angle_rad)
+        self.end_angle = self._normalize_angle(end_angle_rad)
+        self.style_name = style_name
+        self.color = color
+
+    @property
+    def sweep_angle(self):
+        """Полный угол дуги (0..2π) против часовой стрелки."""
+        delta = self.end_angle - self.start_angle
+        if delta < 0:
+            delta += 2 * math.pi
+        if abs(delta) < 1e-9:
+            return 2 * math.pi
+        return delta
+
+    def distance_to_point(self, mx, my):
+        """Кратчайшее расстояние от точки до дуги."""
+        dx = mx - self.center.x
+        dy = my - self.center.y
+        dist_to_center = math.sqrt(dx * dx + dy * dy)
+        angle = math.atan2(dy, dx)
+
+        # Если проекция лежит на дуге, расстояние до окружности
+        if self._is_angle_between_ccw(angle, self.start_angle, self.end_angle):
+            return abs(dist_to_center - self.radius)
+
+        # Иначе расстояние до ближайшего конца дуги
+        p_start = Point(
+            self.center.x + self.radius * math.cos(self.start_angle),
+            self.center.y + self.radius * math.sin(self.start_angle)
+        )
+        p_end = Point(
+            self.center.x + self.radius * math.cos(self.end_angle),
+            self.center.y + self.radius * math.sin(self.end_angle)
+        )
+
+        dist_start = math.sqrt((mx - p_start.x) ** 2 + (my - p_start.y) ** 2)
+        dist_end = math.sqrt((mx - p_end.x) ** 2 + (my - p_end.y) ** 2)
+        return min(dist_start, dist_end)
+
+    def __repr__(self):
+        sa_deg = math.degrees(self.start_angle)
+        ea_deg = math.degrees(self.end_angle)
+        return f"Arc(center={self.center}, radius={self.radius:.2f}, start={sa_deg:.1f}°, end={ea_deg:.1f}°, style='{self.style_name}')"

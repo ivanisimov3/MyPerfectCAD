@@ -363,6 +363,221 @@ class Renderer:
         if len(coords) >= 4:
             self.canvas.create_line(*coords, fill=draw_color, width=line_width, smooth=smooth)
 
+    def draw_arc(self, arc, override_color=None, override_width=None):
+        """Отрисовывает дугу с учетом стиля."""
+        draw_color = override_color if override_color else arc.color
+        style = self.state.line_styles.get(arc.style_name)
+
+        line_width = 1
+        dash_pattern = None
+        is_complex_style = False
+
+        if style:
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            line_width = max(1, int(s_px)) if style.is_main else max(1, int(s_px / 2))
+
+            if style.dash_pattern:
+                main_dash, main_gap = style.dash_pattern
+                base = getattr(style, 'base_type', 'solid')
+                if base == 'dash_dot_dot':
+                    part = main_gap / 5.0
+                    dash_pattern = [main_dash, part, part, part, part, part]
+                elif base == 'dash_dot':
+                    part = main_gap / 3.0
+                    dash_pattern = [main_dash, part, part, part]
+                else:
+                    dash_pattern = [main_dash, main_gap]
+
+            if getattr(style, 'base_type', 'solid') in ['wave', 'zigzag']:
+                is_complex_style = True
+
+        if override_width:
+            line_width = override_width
+            dash_pattern = None
+            is_complex_style = False
+
+        cx, cy = self.converter.world_to_screen(arc.center.x, arc.center.y)
+        radius_px = arc.radius * self.state.zoom
+        # Ограничиваем sweep, чтобы не превращался визуально в полную окружность
+        sweep = min(arc.sweep_angle, 2 * math.pi - 1e-4)
+        start_deg = math.degrees(arc.start_angle)
+        extent_deg = min(359.999, math.degrees(sweep))
+
+        x1 = cx - radius_px
+        y1 = cy - radius_px
+        x2 = cx + radius_px
+        y2 = cy + radius_px
+
+        if dash_pattern:
+            self._draw_dashed_arc(arc, cx, cy, radius_px, draw_color, line_width, dash_pattern)
+        elif is_complex_style:
+            self._draw_styled_arc(arc, cx, cy, radius_px, draw_color, line_width, getattr(style, 'base_type', 'solid'))
+        else:
+            self.canvas.create_arc(x1, y1, x2, y2,
+                                   start=start_deg,
+                                   extent=extent_deg,
+                                   outline=draw_color,
+                                   width=line_width,
+                                   style=tk.ARC)
+
+    def _draw_dashed_arc(self, arc, cx, cy, radius_px, draw_color, line_width, dash_pattern):
+        """Отрисовка штриховой дуги."""
+        if radius_px <= 0:
+            return
+
+        sweep = min(arc.sweep_angle, 2 * math.pi - 1e-4)
+        start = arc.start_angle
+        zoom = self.state.zoom
+        scaled_pattern = [float(val) * zoom for val in dash_pattern]
+
+        current_angle = 0.0
+        pat_idx = 0
+        is_drawing = True
+
+        x1 = cx - radius_px
+        y1 = cy - radius_px
+        x2 = cx + radius_px
+        y2 = cy + radius_px
+
+        while current_angle < sweep - 1e-6:
+            seg_len = scaled_pattern[pat_idx % len(scaled_pattern)]
+            seg_angle = seg_len / radius_px
+            actual_angle = min(seg_angle, sweep - current_angle)
+
+            if is_drawing and actual_angle > 0.01:
+                start_deg = math.degrees(start + current_angle)
+                extent_deg = math.degrees(actual_angle)
+                self.canvas.create_arc(x1, y1, x2, y2,
+                                       start=start_deg,
+                                       extent=extent_deg,
+                                       outline=draw_color,
+                                       width=line_width,
+                                       style=tk.ARC)
+
+            current_angle += actual_angle
+            pat_idx += 1
+            is_drawing = not is_drawing
+
+    def _draw_styled_arc(self, arc, cx, cy, radius_px, draw_color, line_width, style_type):
+        """Отрисовка дуги со стилем волна/зигзаг (с учётом текущего преобразования координат)."""
+        sweep = min(arc.sweep_angle, 2 * math.pi - 1e-4)
+        if sweep < 1e-6 or radius_px <= 0:
+            return
+
+        if style_type == 'wave':
+            coords = self._generate_arc_wave_coords(arc, sweep)
+            smooth_flag = True
+        else:
+            coords = self._generate_arc_zigzag_coords(arc, sweep)
+            smooth_flag = False
+
+        if len(coords) >= 4:
+            self.canvas.create_line(*coords, fill=draw_color, width=line_width, smooth=smooth_flag)
+
+    def _compute_screen_point_and_tangent(self, center, radius, angle_world):
+        """Возвращает экранную точку на дуге и касательный вектор в экранных координатах."""
+        # Точка в мировых
+        wx = center.x + radius * math.cos(angle_world)
+        wy = center.y + radius * math.sin(angle_world)
+        sx, sy = self.converter.world_to_screen(wx, wy)
+
+        # Касательный вектор в мировых (до поворота вида)
+        tx_w = -math.sin(angle_world)
+        ty_w = math.cos(angle_world)
+
+        # Учитываем поворот вида
+        rot = self.state.rotation
+        tx_r = tx_w * math.cos(rot) - ty_w * math.sin(rot)
+        ty_r = tx_w * math.sin(rot) + ty_w * math.cos(rot)
+
+        # Масштаб и инверсию Y, как в world_to_screen
+        tx_s = tx_r * self.state.zoom
+        ty_s = -ty_r * self.state.zoom
+
+        return sx, sy, tx_s, ty_s
+
+    def _generate_arc_wave_coords(self, arc, sweep_limit):
+        zoom = self.state.zoom
+        amplitude = 3 * (zoom / 5.0)
+        freq = 0.2 / (zoom / 5.0)
+
+        radius_px = arc.radius * zoom
+        arc_length_px = radius_px * sweep_limit
+        num_points = max(60, int(arc_length_px / 4))
+        angle_step = sweep_limit / num_points if num_points else sweep_limit
+
+        coords = []
+        arc_len = 0.0
+        prev_base = None
+
+        for i in range(num_points + 1):
+            ang = arc.start_angle + i * angle_step
+            sx, sy, tx, ty = self._compute_screen_point_and_tangent(arc.center, arc.radius, ang)
+
+            if prev_base:
+                arc_len += math.sqrt((sx - prev_base[0]) ** 2 + (sy - prev_base[1]) ** 2)
+
+            # Нормаль к касательной (в экранных координатах)
+            n_len = math.sqrt(tx * tx + ty * ty)
+            if n_len < 1e-9:
+                nx, ny = 0.0, 0.0
+            else:
+                nx, ny = -ty / n_len, tx / n_len
+
+            offset = amplitude * math.sin(arc_len * freq)
+            coords.extend([sx + nx * offset, sy + ny * offset])
+            prev_base = (sx, sy)
+
+        return coords
+
+    def _generate_arc_zigzag_coords(self, arc, sweep_limit):
+        zoom = self.state.zoom
+        period = 40 * (zoom / 5.0)
+        kink_len = 8 * (zoom / 5.0)
+        amplitude = 5 * (zoom / 5.0)
+
+        radius_px = arc.radius * zoom
+        arc_length_px = radius_px * sweep_limit
+        coords = []
+        s = 0.0
+
+        def point_at_length(length_px):
+            ang = arc.start_angle + (length_px / radius_px)
+            sx, sy, tx, ty = self._compute_screen_point_and_tangent(arc.center, arc.radius, ang)
+            # Нормаль к касательной
+            n_len = math.sqrt(tx * tx + ty * ty)
+            nx, ny = (0.0, 0.0) if n_len < 1e-9 else (-ty / n_len, tx / n_len)
+            return sx, sy, nx, ny
+
+        x0, y0, _, _ = point_at_length(0.0)
+        coords.extend([x0, y0])
+
+        while s < arc_length_px - 1e-6:
+            next_s = min(s + period, arc_length_px)
+            x_end, y_end, nx_end, ny_end = point_at_length(next_s)
+            coords.extend([x_end, y_end])
+            s = next_s
+
+            if s + kink_len <= arc_length_px:
+                d1 = s + kink_len * 0.25
+                d2 = s + kink_len * 0.75
+                d3 = s + kink_len
+
+                x1, y1, nx1, ny1 = point_at_length(d1)
+                x2, y2, nx2, ny2 = point_at_length(d2)
+                x3, y3, _, _ = point_at_length(d3)
+
+                coords.extend([
+                    x1 - nx1 * amplitude, y1 - ny1 * amplitude,
+                    x2 + nx2 * amplitude, y2 + ny2 * amplitude,
+                    x3, y3
+                ])
+                s = d3
+            else:
+                break
+
+        return coords
+
     def _generate_circle_wave_coords(self, cx, cy, radius_px):
         """Генерация координат волнистой окружности по тем же параметрам, что и для отрезка."""
         zoom = self.state.zoom
@@ -563,6 +778,10 @@ class Renderer:
         for circle in self.state.selected_circles:
             self.draw_circle(circle, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
+        # 5. Рисуем выделенные дуги
+        for arc in self.state.selected_arcs:
+            self.draw_arc(arc, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+
         # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
             self.draw_segment(segment)
@@ -571,18 +790,28 @@ class Renderer:
         for circle in self.state.circles:
             self.draw_circle(circle)
 
-        # 7. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
+        # 7. Рисуем все дуги
+        for arc in self.state.arcs:
+            self.draw_arc(arc)
+
+        # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
 
-        # 8. Рисуем превью окружности (синяя окружность при рисовании новой окружности)
+        # 9. Рисуем превью окружности (синяя окружность при рисовании новой окружности)
         if self.state.preview_circle:
             self.draw_circle(self.state.preview_circle, override_color='blue')
 
-        # 9. Рисуем активные точки (начало и конец текущего отрезка/окружности)
+        # 10. Рисуем превью дуги
+        if self.state.preview_arc:
+            self.draw_arc(self.state.preview_arc, override_color='blue')
+
+        # 11. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:
             self.draw_point(self.state.active_p1)
         if self.state.active_p2:
             self.draw_point(self.state.active_p2)
         if self.state.active_p3:
             self.draw_point(self.state.active_p3)
+        if self.state.active_p4:
+            self.draw_point(self.state.active_p4)

@@ -9,24 +9,28 @@ from logic.styles import GOST_STYLES
 
 class AppState:
     def __init__(self):
-        # Текущий режим работы (IDLE, CREATING_SEGMENT, CREATING_CIRCLE, PANNING)
+        # Текущий режим работы (IDLE, CREATING_SEGMENT, CREATING_CIRCLE, CREATING_ARC, PANNING)
         self.app_mode = 'IDLE'
         
         # Список всех геометрических примитивов
         self.segments = []
         self.circles = []
+        self.arcs = []
 
         # Список выделенных объектов
         self.selected_segments = []
         self.selected_circles = []
+        self.selected_arcs = []
 
         # Временные данные для интерактивного построения
         self.preview_segment = None
         self.preview_circle = None
+        self.preview_arc = None
         self.points_clicked = 0
         self.active_p1 = None
         self.active_p2 = None
         self.active_p3 = None  # Для создания окружности по трем точкам
+        self.active_p4 = None  # Для дуг (доп. точка конца)
         
         # Параметры Вида
         self.pan_x, self.pan_y = 0, 0
@@ -54,3 +58,6 @@ class AppState:
 
         # Параметры для создания окружностей
         self.circle_creation_method = 'center_radius'  # center_radius, center_diameter, two_points, three_points
+
+        # Параметры для создания дуг
+        self.arc_creation_method = 'three_points'  # three_points, center_angles

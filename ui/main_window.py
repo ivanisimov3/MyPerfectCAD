@@ -86,6 +86,7 @@ class MainWindow:
         # Группа 1: основные инструменты рисования
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Окружность", command=callbacks.on_new_circle_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
@@ -192,6 +193,10 @@ class MainWindow:
         circle_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(circle_tab, text="Окружности")
 
+        # Вкладка "Дуги"
+        arc_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(arc_tab, text="Дуги")
+
         # Настраиваем общую вкладку
         self._setup_general_tab(general_tab, callbacks)
 
@@ -200,6 +205,9 @@ class MainWindow:
 
         # Настраиваем вкладку окружностей
         self._setup_circle_tab(circle_tab, callbacks)
+
+        # Настраиваем вкладку дуг
+        self._setup_arc_tab(arc_tab, callbacks)
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -309,8 +317,8 @@ class MainWindow:
         # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
         angle_frame.pack(padx=5, pady=5, fill=tk.X)
-        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle())).pack(anchor=tk.W)
-        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle())).pack(anchor=tk.W)
+        ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle(), callbacks.update_preview_arc())).pack(anchor=tk.W)
+        ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle(), callbacks.update_preview_arc())).pack(anchor=tk.W)
 
     def _setup_circle_tab(self, parent, callbacks):
         # === РАЗДЕЛ: МЕТОД СОЗДАНИЯ ОКРУЖНОСТИ ===
@@ -364,6 +372,43 @@ class MainWindow:
 
         # Обновляем интерфейс для текущего метода
         self._update_circle_params_ui()
+
+    def _setup_arc_tab(self, parent, callbacks):
+        # Переменная метода построения
+        self.arc_method = tk.StringVar(value="three_points")
+
+        method_frame = ttk.LabelFrame(parent, text="Метод создания дуги")
+        method_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        ttk.Radiobutton(method_frame, text="Три точки", variable=self.arc_method, value="three_points",
+                        command=lambda: self._on_arc_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(method_frame, text="Центр, углы", variable=self.arc_method, value="center_angles",
+                        command=lambda: self._on_arc_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+
+        # Блок ввода для метода три точки
+        self.arc_three_points_frame = ttk.LabelFrame(parent, text="Точки дуги")
+        self.arc_three_points_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.arc_p1_label1, self.arc_p1_x_entry = self._create_coord_entry(self.arc_three_points_frame, "X₁:", callbacks.update_preview_arc)
+        self.arc_p1_label2, self.arc_p1_y_entry = self._create_coord_entry(self.arc_three_points_frame, "Y₁:", callbacks.update_preview_arc)
+        self.arc_p2_label1, self.arc_p2_x_entry = self._create_coord_entry(self.arc_three_points_frame, "X₂:", callbacks.update_preview_arc)
+        self.arc_p2_label2, self.arc_p2_y_entry = self._create_coord_entry(self.arc_three_points_frame, "Y₂:", callbacks.update_preview_arc)
+        self.arc_p3_label1, self.arc_p3_x_entry = self._create_coord_entry(self.arc_three_points_frame, "X₃:", callbacks.update_preview_arc)
+        self.arc_p3_label2, self.arc_p3_y_entry = self._create_coord_entry(self.arc_three_points_frame, "Y₃:", callbacks.update_preview_arc)
+
+        # Блок ввода для метода центр+углы
+        self.arc_center_frame = ttk.LabelFrame(parent, text="Центр")
+        self.arc_center_x_label, self.arc_center_x_entry = self._create_coord_entry(self.arc_center_frame, "Xc:", callbacks.update_preview_arc)
+        self.arc_center_y_label, self.arc_center_y_entry = self._create_coord_entry(self.arc_center_frame, "Yc:", callbacks.update_preview_arc)
+
+        self.arc_radius_frame = ttk.Frame(parent)
+        self.arc_radius_label, self.arc_radius_entry = self._create_coord_entry(self.arc_radius_frame, "R:", callbacks.update_preview_arc)
+
+        self.arc_angles_frame = ttk.LabelFrame(parent, text="Углы")
+        self.arc_start_label, self.arc_start_angle_entry = self._create_coord_entry(self.arc_angles_frame, "θ₁:", callbacks.update_preview_arc)
+        self.arc_end_label, self.arc_end_angle_entry = self._create_coord_entry(self.arc_angles_frame, "θ₂:", callbacks.update_preview_arc)
+
+        # Изначально показываем три точки
+        self._update_arc_params_ui()
 
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
@@ -459,6 +504,39 @@ class MainWindow:
             self.circle_param_frame.pack_forget()
             self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
             self.circle_p3_frame.pack(padx=5, pady=5, fill=tk.X)
+
+    def _on_arc_method_change(self, callbacks):
+        """Обработчик смены метода построения дуги."""
+        method = self.arc_method.get()
+        callbacks.state.arc_creation_method = method
+
+        # Очищаем поля
+        for entry in [
+            self.arc_p1_x_entry, self.arc_p1_y_entry,
+            self.arc_p2_x_entry, self.arc_p2_y_entry,
+            self.arc_p3_x_entry, self.arc_p3_y_entry,
+            self.arc_center_x_entry, self.arc_center_y_entry,
+            self.arc_radius_entry, self.arc_start_angle_entry, self.arc_end_angle_entry
+        ]:
+            entry.delete(0, tk.END)
+
+        self._update_arc_params_ui()
+        callbacks.update_preview_arc()
+
+    def _update_arc_params_ui(self):
+        """Показывает нужные поля в зависимости от метода построения дуги."""
+        method = self.arc_method.get()
+
+        if method == 'three_points':
+            self.arc_three_points_frame.pack(padx=5, pady=5, fill=tk.X)
+            self.arc_center_frame.pack_forget()
+            self.arc_radius_frame.pack_forget()
+            self.arc_angles_frame.pack_forget()
+        else:
+            self.arc_three_points_frame.pack_forget()
+            self.arc_center_frame.pack(padx=5, pady=5, fill=tk.X)
+            self.arc_radius_frame.pack(fill=tk.X, padx=5, pady=2)
+            self.arc_angles_frame.pack(padx=5, pady=5, fill=tk.X)
 
 
     # --- ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---

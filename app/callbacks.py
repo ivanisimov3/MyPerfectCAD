@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment, Circle
+from logic.geometry import Point, Segment, Circle, Arc
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -41,6 +41,9 @@ class Callbacks:
 
         # Инициализируем метод создания окружности
         self.view.circle_method.set(self.state.circle_creation_method)
+        # Инициализируем метод создания дуги
+        self.view.arc_method.set(self.state.arc_creation_method)
+        self.view._update_arc_params_ui()
 
         self.set_app_state(self.state.app_mode)
 
@@ -48,8 +51,20 @@ class Callbacks:
         self.state.app_mode = mode
         is_creating_segment = (mode == 'CREATING_SEGMENT')
         is_creating_circle = mode.startswith('CREATING_CIRCLE')
-        is_creating = is_creating_segment or is_creating_circle
+        is_creating_arc = mode.startswith('CREATING_ARC')
+        is_creating = is_creating_segment or is_creating_circle or is_creating_arc
         is_panning = (mode == 'PANNING')
+
+        # Сброс превью других типов при смене режима
+        if is_creating_segment:
+            self.state.preview_circle = None
+            self.state.preview_arc = None
+        elif is_creating_circle:
+            self.state.preview_segment = None
+            self.state.preview_arc = None
+        elif is_creating_arc:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -60,6 +75,15 @@ class Callbacks:
             self.view.circle_param_entry, self.view.circle_p2_x_entry,
             self.view.circle_p2_y_entry, self.view.circle_p3_x_entry,
             self.view.circle_p3_y_entry
+        ]
+
+        # Поля дуг
+        arc_entries = [
+            self.view.arc_p1_x_entry, self.view.arc_p1_y_entry,
+            self.view.arc_p2_x_entry, self.view.arc_p2_y_entry,
+            self.view.arc_p3_x_entry, self.view.arc_p3_y_entry,
+            self.view.arc_center_x_entry, self.view.arc_center_y_entry,
+            self.view.arc_radius_entry, self.view.arc_start_angle_entry, self.view.arc_end_angle_entry
         ]
 
         self.view.canvas.unbind("<Button-1>")
@@ -76,11 +100,17 @@ class Callbacks:
             for entry in circle_entries:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
+            # Блокируем поля дуг
+            for entry in arc_entries:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
             self.state.preview_segment = None
             self.state.preview_circle = None
+            self.state.preview_arc = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
+            self.state.active_p4 = None
 
         if is_creating or is_panning:
             self.view.hotkey_frame.pack(side=tk.RIGHT, padx=5)
@@ -107,6 +137,15 @@ class Callbacks:
             self.root.bind("<Return>", self.finalize_circle)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click_circle)
             self.view.canvas.config(cursor="crosshair") 
+        elif is_creating_arc:
+            # Разблокируем поля
+            for entry in entries: entry.config(state=entry_state)
+            for entry in circle_entries: entry.config(state=entry_state)
+            for entry in arc_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.root.bind("<Return>", self.finalize_arc)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_arc)
+            self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
@@ -129,6 +168,7 @@ class Callbacks:
 
         found_segment = None
         found_circle = None
+        found_arc = None
 
         # Ищем сегменты
         for segment in self.state.segments:
@@ -145,6 +185,14 @@ class Callbacks:
                     found_circle = circle
                     break
 
+        # Ищем дуги
+        if not found_segment and not found_circle:
+            for arc in self.state.arcs:
+                dist = arc.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_arc = arc
+                    break
+
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
 
@@ -157,10 +205,12 @@ class Callbacks:
                     self.state.selected_segments.append(found_segment)
                 # Очищаем выделение окружностей при выборе сегмента
                 self.state.selected_circles = []
+                self.state.selected_arcs = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
                 self.state.selected_circles = []
+                self.state.selected_arcs = []
         elif found_circle:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -170,15 +220,30 @@ class Callbacks:
                     self.state.selected_circles.append(found_circle)
                 # Очищаем выделение сегментов при выборе окружности
                 self.state.selected_segments = []
+                self.state.selected_arcs = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
                 self.state.selected_circles = [found_circle]
+                self.state.selected_arcs = []
+        elif found_arc:
+            if ctrl_pressed:
+                if found_arc in self.state.selected_arcs:
+                    self.state.selected_arcs.remove(found_arc)
+                else:
+                    self.state.selected_arcs.append(found_arc)
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+            else:
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = [found_arc]
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
+                self.state.selected_arcs = []
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
@@ -190,9 +255,10 @@ class Callbacks:
 
         sel_segments = self.state.selected_segments
         sel_circles = self.state.selected_circles
+        sel_arcs = self.state.selected_arcs
 
         # Если ничего не выделено
-        if not sel_segments and not sel_circles:
+        if not sel_segments and not sel_circles and not sel_arcs:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -200,12 +266,15 @@ class Callbacks:
             return
 
         # Определяем, что выделено
-        if sel_segments and not sel_circles:
+        if sel_segments and not sel_circles and not sel_arcs:
             # Выделены только сегменты
             self._sync_ui_with_segments(sel_segments)
-        elif sel_circles and not sel_segments:
+        elif sel_circles and not sel_segments and not sel_arcs:
             # Выделены только окружности
             self._sync_ui_with_circles(sel_circles)
+        elif sel_arcs and not sel_segments and not sel_circles:
+            # Выделены только дуги
+            self._sync_ui_with_arcs(sel_arcs)
         else:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
@@ -276,6 +345,22 @@ class Callbacks:
             style_name = list(unique_styles)[0]
             self.view.set_style_selection(style_name)
             first_color = sel_circles[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
+    def _sync_ui_with_arcs(self, sel_arcs):
+        """Синхронизация UI с выделенными дугами."""
+        unique_styles = {arc.style_name for arc in sel_arcs}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_arcs[0].color
             self.view.segment_swatch.config(bg=first_color)
 
             self.state.current_style_name = style_name
@@ -355,11 +440,15 @@ class Callbacks:
         elif self.state.selected_circles:
             for circle in self.state.selected_circles:
                 circle.style_name = new_style_name
+        elif self.state.selected_arcs:
+            for arc in self.state.selected_arcs:
+                arc.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
         self.update_preview_segment()
         self.update_preview_circle()
+        self.update_preview_arc()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
@@ -395,6 +484,27 @@ class Callbacks:
             self.view.circle_center_x_entry.focus_set()
         else:
             self.view.circle_center_x_entry.focus_set()
+
+    def on_new_arc_mode(self, event=None):
+        self.set_app_state('CREATING_ARC')
+        self.view.settings_notebook.select(3)  # Вкладка "Дуги"
+
+        # Очищаем поля дуг
+        for entry in [
+            self.view.arc_p1_x_entry, self.view.arc_p1_y_entry,
+            self.view.arc_p2_x_entry, self.view.arc_p2_y_entry,
+            self.view.arc_p3_x_entry, self.view.arc_p3_y_entry,
+            self.view.arc_center_x_entry, self.view.arc_center_y_entry,
+            self.view.arc_radius_entry, self.view.arc_start_angle_entry, self.view.arc_end_angle_entry
+        ]:
+            entry.delete(0, tk.END)
+
+        # Фокус на первую точку/центр
+        method = self.state.arc_creation_method
+        if method == 'three_points':
+            self.view.arc_p1_x_entry.focus_set()
+        else:
+            self.view.arc_center_x_entry.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -470,6 +580,37 @@ class Callbacks:
             self.state.preview_circle = None
         self.redraw_all()
 
+    def update_preview_arc(self, event=None):
+        try:
+            method = self.state.arc_creation_method
+            angle_unit = self.view.angle_units.get()
+
+            def _to_rad(val):
+                return math.radians(val) if angle_unit == 'degrees' else val
+
+            if method == 'three_points':
+                p1 = Point(float(self.view.arc_p1_x_entry.get()), float(self.view.arc_p1_y_entry.get()))
+                p2 = Point(float(self.view.arc_p2_x_entry.get()), float(self.view.arc_p2_y_entry.get()))
+                p3 = Point(float(self.view.arc_p3_x_entry.get()), float(self.view.arc_p3_y_entry.get()))
+                self.state.preview_arc = Arc.from_three_points(
+                    p1, p2, p3,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+            else:
+                center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
+                radius = float(self.view.arc_radius_entry.get())
+                start_ang = _to_rad(float(self.view.arc_start_angle_entry.get()))
+                end_ang = _to_rad(float(self.view.arc_end_angle_entry.get()))
+                self.state.preview_arc = Arc.from_center_angles(
+                    center, radius, start_ang, end_ang,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color
+                )
+        except (ValueError, tk.TclError):
+            self.state.preview_arc = None
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -492,13 +633,27 @@ class Callbacks:
             self.state.circles.append(final_circle)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'PANNING']:
+    def finalize_arc(self, event=None):
+        if self.state.preview_arc:
+            final_arc = Arc(
+                self.state.preview_arc.center,
+                self.state.preview_arc.radius,
+                self.state.preview_arc.start_angle,
+                self.state.preview_arc.end_angle,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color
+            )
+            self.state.arcs.append(final_arc)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
             self.state.selected_circles = []
+            self.state.selected_arcs = []
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -515,10 +670,17 @@ class Callbacks:
                 if circle in self.state.circles:
                     self.state.circles.remove(circle)
             self.state.selected_circles = []
+        elif self.state.selected_arcs:
+            for arc in self.state.selected_arcs:
+                if arc in self.state.arcs:
+                    self.state.arcs.remove(arc)
+            self.state.selected_arcs = []
         elif self.state.segments:
             self.state.segments.pop()
         elif self.state.circles:
             self.state.circles.pop()
+        elif self.state.arcs:
+            self.state.arcs.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -628,6 +790,57 @@ class Callbacks:
 
         self.update_preview_circle()
 
+    def on_lmb_click_arc(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        method = self.state.arc_creation_method
+        angle_unit = self.view.angle_units.get()
+
+        def _to_display_angle(rad_val):
+            return math.degrees(rad_val) if angle_unit == 'degrees' else rad_val
+
+        if method == 'three_points':
+            if self.state.points_clicked == 0:
+                self.view.arc_p1_x_entry.delete(0, tk.END); self.view.arc_p1_x_entry.insert(0, f"{wx:.2f}")
+                self.view.arc_p1_y_entry.delete(0, tk.END); self.view.arc_p1_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                self.view.arc_p2_x_entry.delete(0, tk.END); self.view.arc_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.arc_p2_y_entry.delete(0, tk.END); self.view.arc_p2_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 2
+            elif self.state.points_clicked == 2:
+                self.view.arc_p3_x_entry.delete(0, tk.END); self.view.arc_p3_x_entry.insert(0, f"{wx:.2f}")
+                self.view.arc_p3_y_entry.delete(0, tk.END); self.view.arc_p3_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 3
+        else:
+            if self.state.points_clicked == 0:
+                # Центр
+                self.view.arc_center_x_entry.delete(0, tk.END); self.view.arc_center_x_entry.insert(0, f"{wx:.2f}")
+                self.view.arc_center_y_entry.delete(0, tk.END); self.view.arc_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                # Устанавливаем радиус и начальный угол
+                cx = float(self.view.arc_center_x_entry.get())
+                cy = float(self.view.arc_center_y_entry.get())
+                radius = math.sqrt((wx - cx)**2 + (wy - cy)**2)
+                ang = math.atan2(wy - cy, wx - cx)
+
+                self.view.arc_radius_entry.delete(0, tk.END); self.view.arc_radius_entry.insert(0, f"{radius:.2f}")
+                self.view.arc_start_angle_entry.delete(0, tk.END); self.view.arc_start_angle_entry.insert(0, f"{_to_display_angle(ang):.2f}")
+                self.state.points_clicked = 2
+            elif self.state.points_clicked == 2:
+                cx = float(self.view.arc_center_x_entry.get())
+                cy = float(self.view.arc_center_y_entry.get())
+                ang = math.atan2(wy - cy, wx - cx)
+                self.view.arc_end_angle_entry.delete(0, tk.END); self.view.arc_end_angle_entry.insert(0, f"{_to_display_angle(ang):.2f}")
+
+                # Если радиус еще не задан, берем из текущей точки
+                if not self.view.arc_radius_entry.get():
+                    radius = math.sqrt((wx - cx)**2 + (wy - cy)**2)
+                    self.view.arc_radius_entry.insert(0, f"{radius:.2f}")
+                self.state.points_clicked = 3
+
+        self.update_preview_arc()
+
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get():
             self.view.p2_x_entry.delete(0, tk.END); self.view.p2_y_entry.delete(0, tk.END)
@@ -677,6 +890,37 @@ class Callbacks:
 
         self.update_preview_circle()
 
+    def on_rmb_click_arc(self, event):
+        """ПКМ для удаления точек при создании дуги"""
+        method = self.state.arc_creation_method
+
+        if method == 'three_points':
+            if self.view.arc_p3_x_entry.get():
+                self.view.arc_p3_x_entry.delete(0, tk.END); self.view.arc_p3_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 2
+            elif self.view.arc_p2_x_entry.get():
+                self.view.arc_p2_x_entry.delete(0, tk.END); self.view.arc_p2_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.arc_p1_x_entry.get():
+                self.view.arc_p1_x_entry.delete(0, tk.END); self.view.arc_p1_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+        else:
+            if self.view.arc_end_angle_entry.get():
+                self.view.arc_end_angle_entry.delete(0, tk.END)
+                self.state.points_clicked = 2
+            elif self.view.arc_start_angle_entry.get():
+                self.view.arc_start_angle_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.arc_radius_entry.get():
+                self.view.arc_radius_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.arc_center_x_entry.get():
+                self.view.arc_center_x_entry.delete(0, tk.END)
+                self.view.arc_center_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+
+        self.update_preview_arc()
+
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
@@ -709,7 +953,7 @@ class Callbacks:
         self.view.canvas.focus_set()
 
     def on_fit_to_view(self, event=None):
-        all_objects = self.state.segments + self.state.circles
+        all_objects = self.state.segments + self.state.circles + self.state.arcs
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
@@ -728,6 +972,18 @@ class Callbacks:
         for circle in self.state.circles:
             xs.extend([circle.center.x - circle.radius, circle.center.x + circle.radius])
             ys.extend([circle.center.y - circle.radius, circle.center.y + circle.radius])
+
+        # Собираем координаты из дуг (учитываем критические углы)
+        for arc in self.state.arcs:
+            xs.append(arc.center.x); ys.append(arc.center.y)
+            angles = [arc.start_angle, arc.end_angle]
+            critical = [0, math.pi / 2, math.pi, 3 * math.pi / 2]
+            for ang in critical:
+                if Arc._is_angle_between_ccw(ang, arc.start_angle, arc.end_angle):
+                    angles.append(ang)
+            for ang in angles:
+                xs.append(arc.center.x + arc.radius * math.cos(ang))
+                ys.append(arc.center.y + arc.radius * math.sin(ang))
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -791,6 +1047,8 @@ class Callbacks:
                 seg.color = c
             for circle in self.state.selected_circles:
                 circle.color = c
+            for arc in self.state.selected_arcs:
+                arc.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -831,7 +1089,7 @@ class Callbacks:
     
     def update_info_panel(self):
         # Сбрасываем активные точки (по умолчанию ничего не рисуем)
-        self.state.active_p1, self.state.active_p2, self.state.active_p3 = None, None, None
+        self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = None, None, None, None
 
         # ПРИОРИТЕТ 1: РЕЖИМ СОЗДАНИЯ
         # Если мы строим отрезок или окружность, нам важно видеть именно ЕГО точки и размеры
@@ -961,6 +1219,98 @@ class Callbacks:
 
             return # Выходим, чтобы не перетереть данные выделением
 
+        # ПРИОРИТЕТ 1.7: РЕЖИМ СОЗДАНИЯ ДУГИ
+        if self.state.app_mode == 'CREATING_ARC':
+            method = self.state.arc_creation_method
+            angle_unit = self.view.angle_units.get()
+            sym = "°" if angle_unit == 'degrees' else " rad"
+
+            if method == 'three_points':
+                p1 = p2 = p3 = None
+                try:
+                    p1 = Point(float(self.view.arc_p1_x_entry.get()), float(self.view.arc_p1_y_entry.get()))
+                    self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
+                except (ValueError, tk.TclError):
+                    self.view.p1_coord_var.set("P1: N/A")
+                try:
+                    p2 = Point(float(self.view.arc_p2_x_entry.get()), float(self.view.arc_p2_y_entry.get()))
+                    self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
+                except (ValueError, tk.TclError):
+                    self.view.p2_coord_var.set("P2: N/A")
+                try:
+                    p3 = Point(float(self.view.arc_p3_x_entry.get()), float(self.view.arc_p3_y_entry.get()))
+                    self.view.p3_coord_var.set(f"P3({p3.x:.2f}, {p3.y:.2f})")
+                except (ValueError, tk.TclError):
+                    self.view.p3_coord_var.set("P3: N/A")
+
+                self.state.active_p1 = p1
+                self.state.active_p2 = p2
+                self.state.active_p3 = p3
+            else:
+                center = None
+                start_pt = None
+                end_pt = None
+                try:
+                    center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
+                    self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
+                except (ValueError, tk.TclError):
+                    self.view.p1_coord_var.set("Центр: N/A")
+                try:
+                    radius = float(self.view.arc_radius_entry.get())
+                    self.view.p2_coord_var.set(f"Радиус: {radius:.2f}")
+                except (ValueError, tk.TclError):
+                    self.view.p2_coord_var.set("Радиус: N/A")
+                try:
+                    start_val = float(self.view.arc_start_angle_entry.get())
+                    end_val = float(self.view.arc_end_angle_entry.get())
+                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: {end_val:.2f}{sym}")
+                except (ValueError, tk.TclError):
+                    self.view.p3_coord_var.set("Углы: N/A")
+
+                # Если есть радиус и углы, вычисляем активные точки
+                try:
+                    if center is None:
+                        center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
+                    r = float(self.view.arc_radius_entry.get())
+                    start_ang = float(self.view.arc_start_angle_entry.get())
+                    end_ang = float(self.view.arc_end_angle_entry.get())
+                    if angle_unit == 'degrees':
+                        start_ang = math.radians(start_ang)
+                        end_ang = math.radians(end_ang)
+                    start_pt = Point(center.x + r * math.cos(start_ang), center.y + r * math.sin(start_ang))
+                    end_pt = Point(center.x + r * math.cos(end_ang), center.y + r * math.sin(end_ang))
+                    self.state.active_p1 = center
+                    self.state.active_p2 = start_pt
+                    self.state.active_p3 = end_pt
+                except (ValueError, tk.TclError):
+                    self.state.active_p1 = center
+                    self.state.active_p2 = start_pt
+                    self.state.active_p3 = end_pt
+
+            # Если есть превью, оно приоритетно для точек только для метода центр+углы
+            arc_preview = self.state.preview_arc
+            if arc_preview and method != 'three_points':
+                center = arc_preview.center
+                start_pt = Point(center.x + arc_preview.radius * math.cos(arc_preview.start_angle),
+                                 center.y + arc_preview.radius * math.sin(arc_preview.start_angle))
+                end_pt = Point(center.x + arc_preview.radius * math.cos(arc_preview.end_angle),
+                               center.y + arc_preview.radius * math.sin(arc_preview.end_angle))
+                self.state.active_p1 = center
+                self.state.active_p2 = start_pt
+                self.state.active_p3 = end_pt
+
+            if arc_preview:
+                sweep = arc_preview.sweep_angle
+                sweep_disp = math.degrees(sweep) if angle_unit == 'degrees' else sweep
+                self.view.length_var.set(f"Угол дуги: {sweep_disp:.2f}{sym}")
+                self.view.angle_var.set("Дуга")
+                self.view.p2_coord_var.set(f"Радиус: {arc_preview.radius:.2f}")
+            else:
+                self.view.length_var.set("Угол дуги: N/A")
+                self.view.angle_var.set("Дуга")
+
+            return
+
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
@@ -996,6 +1346,27 @@ class Callbacks:
 
             return 
 
+        # ПРИОРИТЕТ 2.6: ВЫДЕЛЕНИЕ ДУГИ
+        if self.state.selected_arcs:
+            arc = self.state.selected_arcs[0]
+            angle_unit = self.view.angle_units.get()
+            sym = "°" if angle_unit == 'degrees' else " rad"
+            sweep_disp = math.degrees(arc.sweep_angle) if angle_unit == 'degrees' else arc.sweep_angle
+
+            center = arc.center
+            start_pt = Point(center.x + arc.radius * math.cos(arc.start_angle),
+                             center.y + arc.radius * math.sin(arc.start_angle))
+            end_pt = Point(center.x + arc.radius * math.cos(arc.end_angle),
+                           center.y + arc.radius * math.sin(arc.end_angle))
+
+            self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
+            self.view.p2_coord_var.set(f"Радиус: {arc.radius:.2f}")
+            self.view.p3_coord_var.set(f"Угол: {sweep_disp:.2f}{sym}")
+            self.view.length_var.set(f"Угол дуги: {sweep_disp:.2f}{sym}")
+            self.view.angle_var.set("Дуга")
+
+            return
+
         # ПРИОРИТЕТ 3: ПУСТОТА
         self.view.length_var.set("Длина: N/A")
         self.view.angle_var.set("Угол: N/A")
@@ -1020,18 +1391,29 @@ class Callbacks:
         deg = math.degrees(self.state.rotation)
         self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
 
-        total_selected = len(self.state.selected_segments) + len(self.state.selected_circles)
+        total_selected = len(self.state.selected_segments) + len(self.state.selected_circles) + len(self.state.selected_arcs)
         if total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
         else:
-            modes = {'IDLE': "Ожидание", 'CREATING_SEGMENT': "Создание отрезка", 'CREATING_CIRCLE': "Создание окружности", 'PANNING': "Панорамирование"}
+            modes = {
+                'IDLE': "Ожидание",
+                'CREATING_SEGMENT': "Создание отрезка",
+                'CREATING_CIRCLE': "Создание окружности",
+                'CREATING_ARC': "Создание дуги",
+                'PANNING': "Панорамирование"
+            }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
 
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE']:
-            self.on_rmb_click_circle(event)
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC']:
+            if self.state.app_mode == 'CREATING_SEGMENT':
+                self.on_rmb_click(event)
+            elif self.state.app_mode == 'CREATING_CIRCLE':
+                self.on_rmb_click_circle(event)
+            else:
+                self.on_rmb_click_arc(event)
         else:
             self.view.context_menu.post(event.x_root, event.y_root)
 
@@ -1065,9 +1447,19 @@ class Callbacks:
                 seg.style_name = style_key
             # Синхронизируем UI (Combobox и превью обновятся сами)
             self._sync_ui_with_selection()
+        elif self.state.selected_circles:
+            for circle in self.state.selected_circles:
+                circle.style_name = style_key
+            self._sync_ui_with_selection()
+        elif self.state.selected_arcs:
+            for arc in self.state.selected_arcs:
+                arc.style_name = style_key
+            self._sync_ui_with_selection()
         else:
             # Если нет выделения -> просто обновляем UI для будущего рисования
             self.view.set_style_selection(style_key)
 
         self.update_preview_segment()
+        self.update_preview_circle()
+        self.update_preview_arc()
         self.redraw_all()
