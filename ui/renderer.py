@@ -756,6 +756,14 @@ class Renderer:
             # === РИСОВАНИЕ ОБЫЧНОЙ СПЛОШНОЙ ЛИНИИ ===
             self.canvas.create_line(sx1, sy1, sx2, sy2, fill=draw_color, width=line_width, capstyle=tk.ROUND)
 
+    def draw_rectangle(self, rectangle, override_color=None, override_width=None):
+        """Отрисовка прямоугольника через набор сегментов и дуг."""
+        segments, arcs = rectangle.build_edges()
+        for seg in segments:
+            self.draw_segment(seg, override_color=override_color, override_width=override_width)
+        for arc in arcs:
+            self.draw_arc(arc, override_color=override_color, override_width=override_width)
+
     def draw_point(self, point, size=4, color='black'):
         x, y = self.converter.world_to_screen(point.x, point.y)
         self.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
@@ -781,6 +789,9 @@ class Renderer:
         # 5. Рисуем выделенные дуги
         for arc in self.state.selected_arcs:
             self.draw_arc(arc, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        # 5.1 Рисуем выделенные прямоугольники
+        for rect in self.state.selected_rectangles:
+            self.draw_rectangle(rect, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         # 5. Рисуем все остальные сегменты
         for segment in self.state.segments:
@@ -794,6 +805,10 @@ class Renderer:
         for arc in self.state.arcs:
             self.draw_arc(arc)
 
+        # 7.1 Рисуем все прямоугольники
+        for rect in self.state.rectangles:
+            self.draw_rectangle(rect)
+
         # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
@@ -805,6 +820,10 @@ class Renderer:
         # 10. Рисуем превью дуги
         if self.state.preview_arc:
             self.draw_arc(self.state.preview_arc, override_color='blue')
+
+        # 10.1 Рисуем превью прямоугольника
+        if self.state.preview_rectangle:
+            self.draw_rectangle(self.state.preview_rectangle, override_color='blue')
 
         # 11. Рисуем активные точки (начало и конец текущего отрезка/окружности)
         if self.state.active_p1:

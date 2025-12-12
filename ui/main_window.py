@@ -87,6 +87,7 @@ class MainWindow:
         ttk.Button(parent, text="Отрезок", command=callbacks.on_new_segment_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Окружность", command=callbacks.on_new_circle_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Дуга", command=callbacks.on_new_arc_mode).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Прямоугольник", command=callbacks.on_new_rectangle_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="Удалить", command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=2)
         
@@ -197,6 +198,10 @@ class MainWindow:
         arc_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(arc_tab, text="Дуги")
 
+        # Вкладка "Прямоугольники"
+        rectangle_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(rectangle_tab, text="Прямоугольники")
+
         # Настраиваем общую вкладку
         self._setup_general_tab(general_tab, callbacks)
 
@@ -208,6 +213,9 @@ class MainWindow:
 
         # Настраиваем вкладку дуг
         self._setup_arc_tab(arc_tab, callbacks)
+
+        # Настраиваем вкладку прямоугольников
+        self._setup_rectangle_tab(rectangle_tab, callbacks)
 
     def _setup_general_tab(self, parent, callbacks):
         # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
@@ -410,6 +418,62 @@ class MainWindow:
         # Изначально показываем три точки
         self._update_arc_params_ui()
 
+    def _setup_rectangle_tab(self, parent, callbacks):
+        # Переменная метода построения
+        self.rect_method = tk.StringVar(value="two_points")
+
+        method_frame = ttk.LabelFrame(parent, text="Метод создания")
+        method_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        ttk.Radiobutton(method_frame, text="Две точки", variable=self.rect_method, value="two_points",
+                        command=lambda: self._on_rectangle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(method_frame, text="Точка, ширина/высота", variable=self.rect_method, value="corner_size",
+                        command=lambda: self._on_rectangle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(method_frame, text="Центр, ширина/высота", variable=self.rect_method, value="center_size",
+                        command=lambda: self._on_rectangle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
+
+        # Блок для метода "две точки"
+        self.rect_two_points_frame = ttk.LabelFrame(parent, text="Точки")
+        self.rect_p1_label1, self.rect_p1_x_entry = self._create_coord_entry(self.rect_two_points_frame, "X₁:", callbacks.update_preview_rectangle)
+        self.rect_p1_label2, self.rect_p1_y_entry = self._create_coord_entry(self.rect_two_points_frame, "Y₁:", callbacks.update_preview_rectangle)
+        self.rect_p2_label1, self.rect_p2_x_entry = self._create_coord_entry(self.rect_two_points_frame, "X₂:", callbacks.update_preview_rectangle)
+        self.rect_p2_label2, self.rect_p2_y_entry = self._create_coord_entry(self.rect_two_points_frame, "Y₂:", callbacks.update_preview_rectangle)
+
+        # Блок для метода "угол + размеры"
+        self.rect_corner_frame = ttk.LabelFrame(parent, text="Вершина + размеры")
+        self.rect_corner_label1, self.rect_corner_x_entry = self._create_coord_entry(self.rect_corner_frame, "X:", callbacks.update_preview_rectangle)
+        self.rect_corner_label2, self.rect_corner_y_entry = self._create_coord_entry(self.rect_corner_frame, "Y:", callbacks.update_preview_rectangle)
+        self.rect_width_label, self.rect_width_entry = self._create_coord_entry(self.rect_corner_frame, "W:", callbacks.update_preview_rectangle)
+        self.rect_height_label, self.rect_height_entry = self._create_coord_entry(self.rect_corner_frame, "H:", callbacks.update_preview_rectangle)
+
+        # Блок для метода "центр + размеры"
+        self.rect_center_frame = ttk.LabelFrame(parent, text="Центр + размеры")
+        self.rect_center_label1, self.rect_center_x_entry = self._create_coord_entry(self.rect_center_frame, "Xc:", callbacks.update_preview_rectangle)
+        self.rect_center_label2, self.rect_center_y_entry = self._create_coord_entry(self.rect_center_frame, "Yc:", callbacks.update_preview_rectangle)
+        self.rect_center_w_label, self.rect_center_w_entry = self._create_coord_entry(self.rect_center_frame, "W:", callbacks.update_preview_rectangle)
+        self.rect_center_h_label, self.rect_center_h_entry = self._create_coord_entry(self.rect_center_frame, "H:", callbacks.update_preview_rectangle)
+
+        # Блок настроек углов
+        corner_frame = ttk.LabelFrame(parent, text="Углы")
+        corner_frame.pack(padx=5, pady=5, fill=tk.X)
+        self.rect_corner_type = tk.StringVar(value="none")
+        ttk.Radiobutton(corner_frame, text="Без обработки", variable=self.rect_corner_type, value="none",
+                        command=callbacks.update_preview_rectangle).pack(anchor=tk.W, padx=5, pady=1)
+        ttk.Radiobutton(corner_frame, text="Фаска", variable=self.rect_corner_type, value="chamfer",
+                        command=callbacks.update_preview_rectangle).pack(anchor=tk.W, padx=5, pady=1)
+        ttk.Radiobutton(corner_frame, text="Скругление", variable=self.rect_corner_type, value="fillet",
+                        command=callbacks.update_preview_rectangle).pack(anchor=tk.W, padx=5, pady=1)
+
+        val_frame = ttk.Frame(corner_frame)
+        val_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(val_frame, text="Размер:").pack(side=tk.LEFT)
+        self.rect_corner_value_entry = ttk.Entry(val_frame, width=8)
+        self.rect_corner_value_entry.pack(side=tk.LEFT, padx=5)
+        self.rect_corner_value_entry.bind("<KeyRelease>", callbacks.update_preview_rectangle)
+
+        # Изначально показываем "две точки"
+        self._update_rectangle_params_ui()
+
     # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
 
@@ -537,6 +601,35 @@ class MainWindow:
             self.arc_center_frame.pack(padx=5, pady=5, fill=tk.X)
             self.arc_radius_frame.pack(fill=tk.X, padx=5, pady=2)
             self.arc_angles_frame.pack(padx=5, pady=5, fill=tk.X)
+
+    def _on_rectangle_method_change(self, callbacks):
+        self.callbacks.state.rectangle_creation_method = self.rect_method.get()
+        callbacks.state.points_clicked = 0
+        # Очищаем все поля
+        for entry in [
+            self.rect_p1_x_entry, self.rect_p1_y_entry,
+            self.rect_p2_x_entry, self.rect_p2_y_entry,
+            self.rect_corner_x_entry, self.rect_corner_y_entry,
+            self.rect_width_entry, self.rect_height_entry,
+            self.rect_center_x_entry, self.rect_center_y_entry,
+            self.rect_center_w_entry, self.rect_center_h_entry
+        ]:
+            entry.delete(0, tk.END)
+        self._update_rectangle_params_ui()
+        callbacks.update_preview_rectangle()
+
+    def _update_rectangle_params_ui(self):
+        method = self.rect_method.get()
+        self.rect_two_points_frame.pack_forget()
+        self.rect_corner_frame.pack_forget()
+        self.rect_center_frame.pack_forget()
+
+        if method == 'two_points':
+            self.rect_two_points_frame.pack(padx=5, pady=5, fill=tk.X)
+        elif method == 'corner_size':
+            self.rect_corner_frame.pack(padx=5, pady=5, fill=tk.X)
+        elif method == 'center_size':
+            self.rect_center_frame.pack(padx=5, pady=5, fill=tk.X)
 
 
     # --- ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---

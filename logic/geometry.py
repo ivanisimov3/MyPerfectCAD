@@ -279,3 +279,164 @@ class Arc:
         sa_deg = math.degrees(self.start_angle)
         ea_deg = math.degrees(self.end_angle)
         return f"Arc(center={self.center}, radius={self.radius:.2f}, start={sa_deg:.1f}°, end={ea_deg:.1f}°, style='{self.style_name}')"
+
+
+class Rectangle:
+    """Осьориентированный прямоугольник с опциональными фасками или скруглениями."""
+
+    def __init__(
+        self,
+        min_x: float,
+        min_y: float,
+        max_x: float,
+        max_y: float,
+        style_name: str = 'solid_main',
+        color: str = 'black',
+        corner_type: str = 'none',  # none | chamfer | fillet
+        corner_value: float = 0.0
+    ):
+        self.min_x = min(min_x, max_x)
+        self.max_x = max(min_x, max_x)
+        self.min_y = min(min_y, max_y)
+        self.max_y = max(min_y, max_y)
+        self.style_name = style_name
+        self.color = color
+        self.corner_type = corner_type
+        self.corner_value = max(0.0, float(corner_value))
+
+    # ---- КЛАСС-МЕТОДЫ СОЗДАНИЯ ----
+    @classmethod
+    def from_two_points(cls, p1: Point, p2: Point, **kwargs):
+        """Строит прямоугольник по двум противоположным вершинам."""
+        return cls(p1.x, p1.y, p2.x, p2.y, **kwargs)
+
+    @classmethod
+    def from_corner_size(cls, corner: Point, width: float, height: float, **kwargs):
+        """Строит прямоугольник от заданной вершины по ширине и высоте."""
+        dx = float(width)
+        dy = float(height)
+        return cls(corner.x, corner.y, corner.x + dx, corner.y + dy, **kwargs)
+
+    @classmethod
+    def from_center_size(cls, center: Point, width: float, height: float, **kwargs):
+        """Строит прямоугольник по центру, ширине и высоте."""
+        w2 = float(width) / 2.0
+        h2 = float(height) / 2.0
+        return cls(center.x - w2, center.y - h2, center.x + w2, center.y + h2, **kwargs)
+
+    # ---- СВОЙСТВА ----
+    @property
+    def width(self) -> float:
+        return self.max_x - self.min_x
+
+    @property
+    def height(self) -> float:
+        return self.max_y - self.min_y
+
+    @property
+    def center(self) -> Point:
+        return Point((self.min_x + self.max_x) / 2.0, (self.min_y + self.max_y) / 2.0)
+
+    def corners(self):
+        """Возвращает вершины в порядке: BL, BR, TR, TL."""
+        return [
+            Point(self.min_x, self.min_y),
+            Point(self.max_x, self.min_y),
+            Point(self.max_x, self.max_y),
+            Point(self.min_x, self.max_y),
+        ]
+
+    # ---- ГЕОМЕТРИЯ ДЛЯ ОТРИСОВКИ ----
+    def _clamped_corner_value(self):
+        return min(self.corner_value, self.width / 2.0, self.height / 2.0)
+
+    def build_edges(self):
+        """
+        Генерирует список примитивов для отрисовки:
+        - segments: прямые отрезки
+        - arcs: дуги скруглений (если corner_type == fillet)
+        """
+        cv = self._clamped_corner_value()
+        corners = self.corners()
+
+        segments = []
+        arcs = []
+
+        if self.corner_type == 'none' or cv <= 0:
+            # Обычный прямоугольник
+            for i in range(4):
+                p1 = corners[i]
+                p2 = corners[(i + 1) % 4]
+                segments.append(Segment(p1, p2, style_name=self.style_name, color=self.color))
+            return segments, arcs
+
+        if self.corner_type == 'chamfer':
+            # Раскладываем фаски. Используем фиксированные координаты по осям.
+            d = cv
+            bl, br, tr, tl = corners
+
+            bottom_start = Point(bl.x + d, bl.y)
+            bottom_end = Point(br.x - d, br.y)
+            right_start = Point(br.x, br.y + d)
+            right_end = Point(tr.x, tr.y - d)
+            top_start = Point(tr.x - d, tr.y)
+            top_end = Point(tl.x + d, tl.y)
+            left_start = Point(tl.x, tl.y - d)
+            left_end = Point(bl.x, bl.y + d)
+
+            # Стороны
+            segments.extend([
+                Segment(bottom_start, bottom_end, style_name=self.style_name, color=self.color),
+                Segment(right_start, right_end, style_name=self.style_name, color=self.color),
+                Segment(top_start, top_end, style_name=self.style_name, color=self.color),
+                Segment(left_start, left_end, style_name=self.style_name, color=self.color),
+                # Фаски
+                Segment(bottom_end, right_start, style_name=self.style_name, color=self.color),
+                Segment(right_end, top_start, style_name=self.style_name, color=self.color),
+                Segment(top_end, left_start, style_name=self.style_name, color=self.color),
+                Segment(left_end, bottom_start, style_name=self.style_name, color=self.color),
+            ])
+            return segments, arcs
+
+        if self.corner_type == 'fillet':
+            r = cv
+            bl, br, tr, tl = corners
+            # Прямые участки
+            segments.extend([
+                Segment(Point(bl.x + r, bl.y), Point(br.x - r, br.y), style_name=self.style_name, color=self.color),
+                Segment(Point(br.x, br.y + r), Point(tr.x, tr.y - r), style_name=self.style_name, color=self.color),
+                Segment(Point(tr.x - r, tr.y), Point(tl.x + r, tl.y), style_name=self.style_name, color=self.color),
+                Segment(Point(tl.x, tl.y - r), Point(bl.x, bl.y + r), style_name=self.style_name, color=self.color),
+            ])
+
+            # Дуги по углам (CCW)
+            arcs.extend([
+                Arc.from_center_angles(Point(bl.x + r, bl.y + r), r, math.pi, 1.5 * math.pi, style_name=self.style_name, color=self.color),
+                Arc.from_center_angles(Point(br.x - r, br.y + r), r, 1.5 * math.pi, 2 * math.pi, style_name=self.style_name, color=self.color),
+                Arc.from_center_angles(Point(tr.x - r, tr.y - r), r, 0.0, 0.5 * math.pi, style_name=self.style_name, color=self.color),
+                Arc.from_center_angles(Point(tl.x + r, tl.y - r), r, 0.5 * math.pi, math.pi, style_name=self.style_name, color=self.color),
+            ])
+            return segments, arcs
+
+        # Фолбэк: обычный прямоугольник
+        for i in range(4):
+            p1 = corners[i]
+            p2 = corners[(i + 1) % 4]
+            segments.append(Segment(p1, p2, style_name=self.style_name, color=self.color))
+        return segments, arcs
+
+    def distance_to_point(self, mx, my):
+        """Кратчайшее расстояние от точки до прямоугольника (учитывая фаски/скругления)."""
+        segments, arcs = self.build_edges()
+        distances = []
+        for seg in segments:
+            distances.append(seg.distance_to_point(mx, my))
+        for arc in arcs:
+            distances.append(arc.distance_to_point(mx, my))
+        return min(distances) if distances else 0.0
+
+    def __repr__(self):
+        return (
+            f"Rectangle([{self.min_x:.2f},{self.min_y:.2f}]→[{self.max_x:.2f},{self.max_y:.2f}], "
+            f"corner={self.corner_type}:{self.corner_value:.2f}, style='{self.style_name}')"
+        )

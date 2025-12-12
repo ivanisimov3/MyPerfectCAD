@@ -9,7 +9,7 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 import math
-from logic.geometry import Point, Segment, Circle, Arc
+from logic.geometry import Point, Segment, Circle, Arc, Rectangle
 from logic.converter import CoordinateConverter
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
@@ -44,6 +44,13 @@ class Callbacks:
         # Инициализируем метод создания дуги
         self.view.arc_method.set(self.state.arc_creation_method)
         self.view._update_arc_params_ui()
+        # Инициализируем метод создания прямоугольника
+        self.view.rect_method.set(self.state.rectangle_creation_method)
+        self.view.rect_corner_type.set(self.state.rectangle_corner_type)
+        self.view.rect_corner_value_entry.delete(0, tk.END)
+        if self.state.rectangle_corner_value:
+            self.view.rect_corner_value_entry.insert(0, f"{self.state.rectangle_corner_value:.2f}")
+        self.view._update_rectangle_params_ui()
 
         self.set_app_state(self.state.app_mode)
 
@@ -52,19 +59,27 @@ class Callbacks:
         is_creating_segment = (mode == 'CREATING_SEGMENT')
         is_creating_circle = mode.startswith('CREATING_CIRCLE')
         is_creating_arc = mode.startswith('CREATING_ARC')
-        is_creating = is_creating_segment or is_creating_circle or is_creating_arc
+        is_creating_rectangle = mode.startswith('CREATING_RECTANGLE')
+        is_creating = is_creating_segment or is_creating_circle or is_creating_arc or is_creating_rectangle
         is_panning = (mode == 'PANNING')
 
         # Сброс превью других типов при смене режима
         if is_creating_segment:
             self.state.preview_circle = None
             self.state.preview_arc = None
+            self.state.preview_rectangle = None
         elif is_creating_circle:
             self.state.preview_segment = None
             self.state.preview_arc = None
+            self.state.preview_rectangle = None
         elif is_creating_arc:
             self.state.preview_segment = None
             self.state.preview_circle = None
+            self.state.preview_rectangle = None
+        elif is_creating_rectangle:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
+            self.state.preview_arc = None
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
@@ -86,6 +101,17 @@ class Callbacks:
             self.view.arc_radius_entry, self.view.arc_start_angle_entry, self.view.arc_end_angle_entry
         ]
 
+        # Поля прямоугольников
+        rect_entries = [
+            self.view.rect_p1_x_entry, self.view.rect_p1_y_entry,
+            self.view.rect_p2_x_entry, self.view.rect_p2_y_entry,
+            self.view.rect_corner_x_entry, self.view.rect_corner_y_entry,
+            self.view.rect_width_entry, self.view.rect_height_entry,
+            self.view.rect_center_x_entry, self.view.rect_center_y_entry,
+            self.view.rect_center_w_entry, self.view.rect_center_h_entry,
+            self.view.rect_corner_value_entry
+        ]
+
         self.view.canvas.unbind("<Button-1>")
         self.view.canvas.unbind("<B1-Motion>")
         self.view.canvas.unbind("<ButtonRelease-1>")
@@ -104,9 +130,14 @@ class Callbacks:
             for entry in arc_entries:
                 entry.delete(0, tk.END)
                 entry.config(state='disabled')
+            # Блокируем поля прямоугольников
+            for entry in rect_entries:
+                entry.delete(0, tk.END)
+                entry.config(state='disabled')
             self.state.preview_segment = None
             self.state.preview_circle = None
             self.state.preview_arc = None
+            self.state.preview_rectangle = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
@@ -146,6 +177,15 @@ class Callbacks:
             self.root.bind("<Return>", self.finalize_arc)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click_arc)
             self.view.canvas.config(cursor="crosshair")
+        elif is_creating_rectangle:
+            for entry in entries: entry.config(state=entry_state)
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='normal')
+            self.state.points_clicked = 0
+            self.root.bind("<Return>", self.finalize_rectangle)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_rectangle)
+            self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
@@ -169,6 +209,7 @@ class Callbacks:
         found_segment = None
         found_circle = None
         found_arc = None
+        found_rectangle = None
 
         # Ищем сегменты
         for segment in self.state.segments:
@@ -193,6 +234,14 @@ class Callbacks:
                     found_arc = arc
                     break
 
+        # Ищем прямоугольники
+        if not found_segment and not found_circle and not found_arc:
+            for rect in self.state.rectangles:
+                dist = rect.distance_to_point(wx, wy)
+                if dist < hit_threshold_world:
+                    found_rectangle = rect
+                    break
+
         # Проверка нажатия Ctrl (бит 0x0004)
         ctrl_pressed = (event.state & 0x0004)
 
@@ -206,11 +255,13 @@ class Callbacks:
                 # Очищаем выделение окружностей при выборе сегмента
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
+                self.state.selected_rectangles = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
+                self.state.selected_rectangles = []
         elif found_circle:
             if ctrl_pressed:
                 # Если Ctrl зажат - добавляем или убираем из списка
@@ -221,11 +272,13 @@ class Callbacks:
                 # Очищаем выделение сегментов при выборе окружности
                 self.state.selected_segments = []
                 self.state.selected_arcs = []
+                self.state.selected_rectangles = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
                 self.state.selected_circles = [found_circle]
                 self.state.selected_arcs = []
+                self.state.selected_rectangles = []
         elif found_arc:
             if ctrl_pressed:
                 if found_arc in self.state.selected_arcs:
@@ -234,16 +287,33 @@ class Callbacks:
                     self.state.selected_arcs.append(found_arc)
                 self.state.selected_segments = []
                 self.state.selected_circles = []
+                self.state.selected_rectangles = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = [found_arc]
+                self.state.selected_rectangles = []
+        elif found_rectangle:
+            if ctrl_pressed:
+                if found_rectangle in self.state.selected_rectangles:
+                    self.state.selected_rectangles.remove(found_rectangle)
+                else:
+                    self.state.selected_rectangles.append(found_rectangle)
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+            else:
+                self.state.selected_segments = []
+                self.state.selected_circles = []
+                self.state.selected_arcs = []
+                self.state.selected_rectangles = [found_rectangle]
         else:
             # Если клик в пустоту и Ctrl НЕ зажат - сбрасываем всё
             if not ctrl_pressed:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
                 self.state.selected_arcs = []
+                self.state.selected_rectangles = []
 
         # Синхронизируем UI (список стилей, превью) с тем, что мы выделили
         self._sync_ui_with_selection()
@@ -256,9 +326,10 @@ class Callbacks:
         sel_segments = self.state.selected_segments
         sel_circles = self.state.selected_circles
         sel_arcs = self.state.selected_arcs
+        sel_rectangles = self.state.selected_rectangles
 
         # Если ничего не выделено
-        if not sel_segments and not sel_circles and not sel_arcs:
+        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -275,6 +346,8 @@ class Callbacks:
         elif sel_arcs and not sel_segments and not sel_circles:
             # Выделены только дуги
             self._sync_ui_with_arcs(sel_arcs)
+        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs:
+            self._sync_ui_with_rectangles(sel_rectangles)
         else:
             # Смешанное выделение - показываем "Разные"
             self.view.set_style_selection("Разные")
@@ -369,6 +442,22 @@ class Callbacks:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
 
+    def _sync_ui_with_rectangles(self, sel_rectangles):
+        """Синхронизация UI с выделенными прямоугольниками."""
+        unique_styles = {rect.style_name for rect in sel_rectangles}
+
+        if len(unique_styles) == 1:
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            first_color = sel_rectangles[0].color
+            self.view.segment_swatch.config(bg=first_color)
+
+            self.state.current_style_name = style_name
+            self.state.current_color = first_color
+        else:
+            self.view.set_style_selection("Разные")
+            self.view.segment_swatch.config(bg="#cccccc")
+
     # Изменение количества изломов или волн
     def on_kinks_changed(self, event=None):
         if not self.state.selected_segments: return
@@ -443,12 +532,16 @@ class Callbacks:
         elif self.state.selected_arcs:
             for arc in self.state.selected_arcs:
                 arc.style_name = new_style_name
+        elif self.state.selected_rectangles:
+            for rect in self.state.selected_rectangles:
+                rect.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
         self.update_preview_segment()
         self.update_preview_circle()
         self.update_preview_arc()
+        self.update_preview_rectangle()
         self.redraw_all()
 
     # --- СТАНДАРТНЫЕ МЕТОДЫ ---
@@ -505,6 +598,29 @@ class Callbacks:
             self.view.arc_p1_x_entry.focus_set()
         else:
             self.view.arc_center_x_entry.focus_set()
+
+    def on_new_rectangle_mode(self, event=None):
+        self.set_app_state('CREATING_RECTANGLE')
+        self.view.settings_notebook.select(4)  # Вкладка "Прямоугольники"
+
+        for entry in [
+            self.view.rect_p1_x_entry, self.view.rect_p1_y_entry,
+            self.view.rect_p2_x_entry, self.view.rect_p2_y_entry,
+            self.view.rect_corner_x_entry, self.view.rect_corner_y_entry,
+            self.view.rect_width_entry, self.view.rect_height_entry,
+            self.view.rect_center_x_entry, self.view.rect_center_y_entry,
+            self.view.rect_center_w_entry, self.view.rect_center_h_entry,
+            self.view.rect_corner_value_entry
+        ]:
+            entry.delete(0, tk.END)
+
+        method = self.state.rectangle_creation_method
+        if method == 'two_points':
+            self.view.rect_p1_x_entry.focus_set()
+        elif method == 'corner_size':
+            self.view.rect_corner_x_entry.focus_set()
+        else:
+            self.view.rect_center_x_entry.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -611,6 +727,42 @@ class Callbacks:
             self.state.preview_arc = None
         self.redraw_all()
 
+    def update_preview_rectangle(self, event=None):
+        try:
+            method = self.state.rectangle_creation_method
+            corner_type = self.view.rect_corner_type.get()
+            self.state.rectangle_corner_type = corner_type
+            try:
+                corner_val = float(self.view.rect_corner_value_entry.get())
+            except (ValueError, tk.TclError):
+                corner_val = 0.0
+            self.state.rectangle_corner_value = corner_val
+
+            common_kwargs = dict(
+                style_name=self.state.current_style_name,
+                color=self.state.current_color,
+                corner_type=corner_type,
+                corner_value=corner_val
+            )
+
+            if method == 'two_points':
+                p1 = Point(float(self.view.rect_p1_x_entry.get()), float(self.view.rect_p1_y_entry.get()))
+                p2 = Point(float(self.view.rect_p2_x_entry.get()), float(self.view.rect_p2_y_entry.get()))
+                self.state.preview_rectangle = Rectangle.from_two_points(p1, p2, **common_kwargs)
+            elif method == 'corner_size':
+                corner = Point(float(self.view.rect_corner_x_entry.get()), float(self.view.rect_corner_y_entry.get()))
+                width = float(self.view.rect_width_entry.get())
+                height = float(self.view.rect_height_entry.get())
+                self.state.preview_rectangle = Rectangle.from_corner_size(corner, width, height, **common_kwargs)
+            elif method == 'center_size':
+                center = Point(float(self.view.rect_center_x_entry.get()), float(self.view.rect_center_y_entry.get()))
+                width = float(self.view.rect_center_w_entry.get())
+                height = float(self.view.rect_center_h_entry.get())
+                self.state.preview_rectangle = Rectangle.from_center_size(center, width, height, **common_kwargs)
+        except (ValueError, tk.TclError):
+            self.state.preview_rectangle = None
+        self.redraw_all()
+
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
             final_segment = Segment(
@@ -646,14 +798,28 @@ class Callbacks:
             self.state.arcs.append(final_arc)
             self.set_app_state('IDLE')
 
-    def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'PANNING']:
+    def finalize_rectangle(self, event=None):
+        if self.state.preview_rectangle:
+            rect = self.state.preview_rectangle
+            final_rect = Rectangle(
+                rect.min_x, rect.min_y, rect.max_x, rect.max_y,
+                style_name=self.state.current_style_name,
+                color=self.state.current_color,
+                corner_type=rect.corner_type,
+                corner_value=rect.corner_value
+            )
+            self.state.rectangles.append(final_rect)
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs:
+
+    def on_escape_key(self, event=None):
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'PANNING']:
+            self.set_app_state('IDLE')
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles:
             # Если есть выделение - снимаем его
             self.state.selected_segments = []
             self.state.selected_circles = []
             self.state.selected_arcs = []
+            self.state.selected_rectangles = []
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -675,12 +841,19 @@ class Callbacks:
                 if arc in self.state.arcs:
                     self.state.arcs.remove(arc)
             self.state.selected_arcs = []
+        elif self.state.selected_rectangles:
+            for rect in self.state.selected_rectangles:
+                if rect in self.state.rectangles:
+                    self.state.rectangles.remove(rect)
+            self.state.selected_rectangles = []
         elif self.state.segments:
             self.state.segments.pop()
         elif self.state.circles:
             self.state.circles.pop()
         elif self.state.arcs:
             self.state.arcs.pop()
+        elif self.state.rectangles:
+            self.state.rectangles.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -841,6 +1014,78 @@ class Callbacks:
 
         self.update_preview_arc()
 
+    def on_lmb_click_rectangle(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        method = self.state.rectangle_creation_method
+
+        if method == 'two_points':
+            if self.state.points_clicked == 0:
+                self.view.rect_p1_x_entry.delete(0, tk.END); self.view.rect_p1_x_entry.insert(0, f"{wx:.2f}")
+                self.view.rect_p1_y_entry.delete(0, tk.END); self.view.rect_p1_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                self.view.rect_p2_x_entry.delete(0, tk.END); self.view.rect_p2_x_entry.insert(0, f"{wx:.2f}")
+                self.view.rect_p2_y_entry.delete(0, tk.END); self.view.rect_p2_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 2
+        elif method == 'corner_size':
+            if self.state.points_clicked == 0:
+                self.view.rect_corner_x_entry.delete(0, tk.END); self.view.rect_corner_x_entry.insert(0, f"{wx:.2f}")
+                self.view.rect_corner_y_entry.delete(0, tk.END); self.view.rect_corner_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                try:
+                    cx = float(self.view.rect_corner_x_entry.get())
+                    cy = float(self.view.rect_corner_y_entry.get())
+                except ValueError:
+                    cx, cy = wx, wy
+                self.view.rect_width_entry.delete(0, tk.END); self.view.rect_width_entry.insert(0, f"{wx - cx:.2f}")
+                self.view.rect_height_entry.delete(0, tk.END); self.view.rect_height_entry.insert(0, f"{wy - cy:.2f}")
+                self.state.points_clicked = 2
+        elif method == 'center_size':
+            if self.state.points_clicked == 0:
+                self.view.rect_center_x_entry.delete(0, tk.END); self.view.rect_center_x_entry.insert(0, f"{wx:.2f}")
+                self.view.rect_center_y_entry.delete(0, tk.END); self.view.rect_center_y_entry.insert(0, f"{wy:.2f}")
+                self.state.points_clicked = 1
+            elif self.state.points_clicked == 1:
+                try:
+                    cx = float(self.view.rect_center_x_entry.get())
+                    cy = float(self.view.rect_center_y_entry.get())
+                except ValueError:
+                    cx, cy = wx, wy
+                self.view.rect_center_w_entry.delete(0, tk.END); self.view.rect_center_w_entry.insert(0, f"{2*(wx - cx):.2f}")
+                self.view.rect_center_h_entry.delete(0, tk.END); self.view.rect_center_h_entry.insert(0, f"{2*(wy - cy):.2f}")
+                self.state.points_clicked = 2
+
+        self.update_preview_rectangle()
+
+    def on_rmb_click_rectangle(self, event):
+        """ПКМ для удаления точек при создании прямоугольника."""
+        method = self.state.rectangle_creation_method
+
+        if method == 'two_points':
+            if self.view.rect_p2_x_entry.get():
+                self.view.rect_p2_x_entry.delete(0, tk.END); self.view.rect_p2_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.rect_p1_x_entry.get():
+                self.view.rect_p1_x_entry.delete(0, tk.END); self.view.rect_p1_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+        elif method == 'corner_size':
+            if self.view.rect_width_entry.get() or self.view.rect_height_entry.get():
+                self.view.rect_width_entry.delete(0, tk.END); self.view.rect_height_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.rect_corner_x_entry.get():
+                self.view.rect_corner_x_entry.delete(0, tk.END); self.view.rect_corner_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+        elif method == 'center_size':
+            if self.view.rect_center_w_entry.get() or self.view.rect_center_h_entry.get():
+                self.view.rect_center_w_entry.delete(0, tk.END); self.view.rect_center_h_entry.delete(0, tk.END)
+                self.state.points_clicked = 1
+            elif self.view.rect_center_x_entry.get():
+                self.view.rect_center_x_entry.delete(0, tk.END); self.view.rect_center_y_entry.delete(0, tk.END)
+                self.state.points_clicked = 0
+
+        self.update_preview_rectangle()
+
     def on_rmb_click(self, event):
         if self.view.p2_x_entry.get():
             self.view.p2_x_entry.delete(0, tk.END); self.view.p2_y_entry.delete(0, tk.END)
@@ -953,7 +1198,7 @@ class Callbacks:
         self.view.canvas.focus_set()
 
     def on_fit_to_view(self, event=None):
-        all_objects = self.state.segments + self.state.circles + self.state.arcs
+        all_objects = self.state.segments + self.state.circles + self.state.arcs + self.state.rectangles
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
             self.state.zoom = 10.0
@@ -984,6 +1229,11 @@ class Callbacks:
             for ang in angles:
                 xs.append(arc.center.x + arc.radius * math.cos(ang))
                 ys.append(arc.center.y + arc.radius * math.sin(ang))
+
+        # Координаты прямоугольников
+        for rect in self.state.rectangles:
+            xs.extend([rect.min_x, rect.max_x])
+            ys.extend([rect.min_y, rect.max_y])
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -1049,6 +1299,8 @@ class Callbacks:
                 circle.color = c
             for arc in self.state.selected_arcs:
                 arc.color = c
+            for rect in self.state.selected_rectangles:
+                rect.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -1311,6 +1563,99 @@ class Callbacks:
 
             return
 
+        # ПРИОРИТЕТ 1.8: РЕЖИМ СОЗДАНИЯ ПРЯМОУГОЛЬНИКА
+        if self.state.app_mode == 'CREATING_RECTANGLE':
+            rect_preview = self.state.preview_rectangle
+            method = self.state.rectangle_creation_method
+
+            if rect_preview:
+                corners = rect_preview.corners()
+                if len(corners) >= 4:
+                    self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+
+                self.view.length_var.set(f"W: {rect_preview.width:.2f} | H: {rect_preview.height:.2f}")
+                self.view.angle_var.set("Прямоугольник")
+                self.view.p1_coord_var.set(f"Мин({rect_preview.min_x:.2f}, {rect_preview.min_y:.2f})")
+                self.view.p2_coord_var.set(f"Макс({rect_preview.max_x:.2f}, {rect_preview.max_y:.2f})")
+                self.view.p3_coord_var.set(f"Углы: {rect_preview.corner_type} {rect_preview.corner_value:.2f}")
+            else:
+                # Без превью - заполняем по введенным значениям
+                # Показываем/рисуем то, что уже есть в полях, даже если фигура еще не собрана
+                if method == 'two_points':
+                    p1 = p2 = None
+                    try:
+                        p1 = Point(float(self.view.rect_p1_x_entry.get()), float(self.view.rect_p1_y_entry.get()))
+                        self.state.active_p1 = p1
+                        self.view.p1_coord_var.set(f"P1({p1.x:.2f},{p1.y:.2f})")
+                    except (ValueError, tk.TclError):
+                        self.view.p1_coord_var.set("P1: N/A")
+                    try:
+                        p2 = Point(float(self.view.rect_p2_x_entry.get()), float(self.view.rect_p2_y_entry.get()))
+                        self.state.active_p2 = p2
+                        self.view.p2_coord_var.set(f"P2({p2.x:.2f},{p2.y:.2f})")
+                    except (ValueError, tk.TclError):
+                        if p1:
+                            self.view.p2_coord_var.set("P2: ...")
+                        else:
+                            self.view.p2_coord_var.set("P2: N/A")
+                    if p1 and p2:
+                        rect_tmp = Rectangle.from_two_points(p1, p2, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect_tmp.corners()
+                        if len(corners) >= 4:
+                            self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+                elif method == 'corner_size':
+                    corner_pt = None
+                    w = h = None
+                    try:
+                        corner_pt = Point(float(self.view.rect_corner_x_entry.get()), float(self.view.rect_corner_y_entry.get()))
+                        self.state.active_p1 = corner_pt
+                        self.view.p1_coord_var.set(f"Угол({corner_pt.x:.2f},{corner_pt.y:.2f})")
+                    except (ValueError, tk.TclError):
+                        self.view.p1_coord_var.set("Угол: N/A")
+                    try:
+                        w = float(self.view.rect_width_entry.get())
+                        h = float(self.view.rect_height_entry.get())
+                        self.view.p2_coord_var.set(f"W:{w:.2f} H:{h:.2f}")
+                    except (ValueError, tk.TclError):
+                        if corner_pt:
+                            self.view.p2_coord_var.set("Размеры: ...")
+                        else:
+                            self.view.p2_coord_var.set("Размеры: N/A")
+                    if corner_pt is not None and w is not None and h is not None:
+                        rect_tmp = Rectangle.from_corner_size(corner_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect_tmp.corners()
+                        if len(corners) >= 4:
+                            self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+                elif method == 'center_size':
+                    center_pt = None
+                    w = h = None
+                    try:
+                        center_pt = Point(float(self.view.rect_center_x_entry.get()), float(self.view.rect_center_y_entry.get()))
+                        self.state.active_p1 = center_pt
+                        self.view.p1_coord_var.set(f"Центр({center_pt.x:.2f},{center_pt.y:.2f})")
+                    except (ValueError, tk.TclError):
+                        self.view.p1_coord_var.set("Центр: N/A")
+                    try:
+                        w = float(self.view.rect_center_w_entry.get())
+                        h = float(self.view.rect_center_h_entry.get())
+                        self.view.p2_coord_var.set(f"W:{w:.2f} H:{h:.2f}")
+                    except (ValueError, tk.TclError):
+                        if center_pt:
+                            self.view.p2_coord_var.set("Размеры: ...")
+                        else:
+                            self.view.p2_coord_var.set("Размеры: N/A")
+                    if center_pt is not None and w is not None and h is not None:
+                        rect_tmp = Rectangle.from_center_size(center_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect_tmp.corners()
+                        if len(corners) >= 4:
+                            self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+                else:
+                    self.view.p1_coord_var.set("P1: N/A"); self.view.p2_coord_var.set("P2: N/A")
+                self.view.length_var.set("W/H: N/A")
+                self.view.angle_var.set("Прямоугольник")
+
+            return
+
         # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
         # Если мы НЕ строим, но что-то выделено
         if self.state.selected_segments:
@@ -1367,6 +1712,16 @@ class Callbacks:
 
             return
 
+        # ПРИОРИТЕТ 2.7: ВЫДЕЛЕНИЕ ПРЯМОУГОЛЬНИКА
+        if self.state.selected_rectangles:
+            rect = self.state.selected_rectangles[0]
+            self.view.p1_coord_var.set(f"Мин({rect.min_x:.2f}, {rect.min_y:.2f})")
+            self.view.p2_coord_var.set(f"Макс({rect.max_x:.2f}, {rect.max_y:.2f})")
+            self.view.p3_coord_var.set(f"Углы: {rect.corner_type} {rect.corner_value:.2f}")
+            self.view.length_var.set(f"W: {rect.width:.2f} | H: {rect.height:.2f}")
+            self.view.angle_var.set("Прямоугольник")
+            return
+
         # ПРИОРИТЕТ 3: ПУСТОТА
         self.view.length_var.set("Длина: N/A")
         self.view.angle_var.set("Угол: N/A")
@@ -1391,7 +1746,12 @@ class Callbacks:
         deg = math.degrees(self.state.rotation)
         self.view.status_angle.config(text=f"Angle: {deg:.1f}°")
 
-        total_selected = len(self.state.selected_segments) + len(self.state.selected_circles) + len(self.state.selected_arcs)
+        total_selected = (
+            len(self.state.selected_segments)
+            + len(self.state.selected_circles)
+            + len(self.state.selected_arcs)
+            + len(self.state.selected_rectangles)
+        )
         if total_selected > 0:
              mode_text = f"Выбрано объектов: {total_selected}"
         else:
@@ -1400,6 +1760,7 @@ class Callbacks:
                 'CREATING_SEGMENT': "Создание отрезка",
                 'CREATING_CIRCLE': "Создание окружности",
                 'CREATING_ARC': "Создание дуги",
+                'CREATING_RECTANGLE': "Создание прямоугольника",
                 'PANNING': "Панорамирование"
             }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
@@ -1407,13 +1768,15 @@ class Callbacks:
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE']:
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
                 self.on_rmb_click_circle(event)
-            else:
+            elif self.state.app_mode == 'CREATING_ARC':
                 self.on_rmb_click_arc(event)
+            else:
+                self.on_rmb_click_rectangle(event)
         else:
             self.view.context_menu.post(event.x_root, event.y_root)
 
@@ -1455,6 +1818,10 @@ class Callbacks:
             for arc in self.state.selected_arcs:
                 arc.style_name = style_key
             self._sync_ui_with_selection()
+        elif self.state.selected_rectangles:
+            for rect in self.state.selected_rectangles:
+                rect.style_name = style_key
+            self._sync_ui_with_selection()
         else:
             # Если нет выделения -> просто обновляем UI для будущего рисования
             self.view.set_style_selection(style_key)
@@ -1462,4 +1829,5 @@ class Callbacks:
         self.update_preview_segment()
         self.update_preview_circle()
         self.update_preview_arc()
+        self.update_preview_rectangle()
         self.redraw_all()
