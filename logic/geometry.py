@@ -179,13 +179,19 @@ class Circle(GeometryPrimitive):
     @classmethod
     def from_center_radius(cls, center: Point, radius: float, style_name='solid_main', color='black'):
         """Создание окружности по центру и радиусу"""
-        return cls(center, radius, style_name, color)
+        circle = cls(center, radius, style_name, color)
+        circle.creation_method = 'center_radius'
+        circle.creation_data = {'center': Point(center.x, center.y), 'radius': radius}
+        return circle
 
     @classmethod
     def from_center_diameter(cls, center: Point, diameter: float, style_name='solid_main', color='black'):
         """Создание окружности по центру и диаметру"""
         radius = diameter / 2.0
-        return cls(center, radius, style_name, color)
+        circle = cls(center, radius, style_name, color)
+        circle.creation_method = 'center_diameter'
+        circle.creation_data = {'center': Point(center.x, center.y), 'diameter': diameter}
+        return circle
 
     @classmethod
     def from_two_points(cls, p1: Point, p2: Point, style_name='solid_main', color='black'):
@@ -196,7 +202,10 @@ class Circle(GeometryPrimitive):
         center = Point(center_x, center_y)
         # Радиус - половина расстояния между точками
         radius = math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2) / 2.0
-        return cls(center, radius, style_name, color)
+        circle = cls(center, radius, style_name, color)
+        circle.creation_method = 'two_points'
+        circle.creation_data = {'p1': Point(p1.x, p1.y), 'p2': Point(p2.x, p2.y)}
+        return circle
 
     @classmethod
     def from_three_points(cls, p1: Point, p2: Point, p3: Point, style_name='solid_main', color='black'):
@@ -242,12 +251,18 @@ class Circle(GeometryPrimitive):
         center = Point(h, k)
         radius = math.sqrt((p1.x - h)**2 + (p1.y - k)**2)
 
-        return cls(center, radius, style_name, color)
+        circle = cls(center, radius, style_name, color)
+        circle.creation_method = 'three_points'
+        circle.creation_data = {'p1': Point(p1.x, p1.y), 'p2': Point(p2.x, p2.y), 'p3': Point(p3.x, p3.y)}
+        return circle
 
     def __init__(self, center: Point, radius: float, style_name='solid_main', color='black'):
         super().__init__(style_name=style_name, color=color)
         self.center = center
         self.radius = abs(radius)  # Радиус всегда положительный
+        # Атрибуты для хранения метода создания (по умолчанию center_radius)
+        self.creation_method = 'center_radius'
+        self.creation_data = {'center': Point(center.x, center.y), 'radius': radius}
 
     # Свойства окружности
     @property
@@ -325,12 +340,23 @@ class Arc(GeometryPrimitive):
             final_start, final_end = start_ang, end_ang
             final_start, final_end = final_end, final_start
 
-        return cls(circle.center, circle.radius, final_start, final_end, style_name, color)
+        arc = cls(circle.center, circle.radius, final_start, final_end, style_name, color)
+        arc.creation_method = 'three_points'
+        arc.creation_data = {'p1': Point(p1.x, p1.y), 'p2': Point(p2.x, p2.y), 'p3': Point(p3.x, p3.y)}
+        return arc
 
     @classmethod
     def from_center_angles(cls, center: Point, radius: float, start_angle_rad: float, end_angle_rad: float, style_name='solid_main', color='black'):
         """Строит дугу по центру, радиусу и нач/кон углам."""
-        return cls(center, abs(radius), start_angle_rad, end_angle_rad, style_name, color)
+        arc = cls(center, abs(radius), start_angle_rad, end_angle_rad, style_name, color)
+        arc.creation_method = 'center_angles'
+        arc.creation_data = {
+            'center': Point(center.x, center.y), 
+            'radius': abs(radius), 
+            'start_angle': start_angle_rad, 
+            'end_angle': end_angle_rad
+        }
+        return arc
 
     def __init__(self, center: Point, radius: float, start_angle_rad: float, end_angle_rad: float, style_name='solid_main', color='black'):
         super().__init__(style_name=style_name, color=color)
@@ -338,6 +364,14 @@ class Arc(GeometryPrimitive):
         self.radius = abs(radius)
         self.start_angle = self._normalize_angle(start_angle_rad)
         self.end_angle = self._normalize_angle(end_angle_rad)
+        # Атрибуты для хранения метода создания (по умолчанию center_angles)
+        self.creation_method = 'center_angles'
+        self.creation_data = {
+            'center': Point(center.x, center.y),
+            'radius': abs(radius),
+            'start_angle': start_angle_rad,
+            'end_angle': end_angle_rad
+        }
 
     @property
     def sweep_angle(self):
@@ -401,26 +435,41 @@ class Rectangle(GeometryPrimitive):
         self.max_y = max(min_y, max_y)
         self.corner_type = corner_type
         self.corner_value = max(0.0, float(corner_value))
+        # Атрибуты для хранения метода создания (по умолчанию two_points)
+        self.creation_method = 'two_points'
+        self.creation_data = {
+            'p1': Point(self.min_x, self.min_y),
+            'p2': Point(self.max_x, self.max_y)
+        }
 
     # ---- КЛАСС-МЕТОДЫ СОЗДАНИЯ ----
     @classmethod
     def from_two_points(cls, p1: Point, p2: Point, **kwargs):
         """Строит прямоугольник по двум противоположным вершинам."""
-        return cls(p1.x, p1.y, p2.x, p2.y, **kwargs)
+        rect = cls(p1.x, p1.y, p2.x, p2.y, **kwargs)
+        rect.creation_method = 'two_points'
+        rect.creation_data = {'p1': Point(p1.x, p1.y), 'p2': Point(p2.x, p2.y)}
+        return rect
 
     @classmethod
     def from_corner_size(cls, corner: Point, width: float, height: float, **kwargs):
         """Строит прямоугольник от заданной вершины по ширине и высоте."""
         dx = float(width)
         dy = float(height)
-        return cls(corner.x, corner.y, corner.x + dx, corner.y + dy, **kwargs)
+        rect = cls(corner.x, corner.y, corner.x + dx, corner.y + dy, **kwargs)
+        rect.creation_method = 'corner_size'
+        rect.creation_data = {'corner': Point(corner.x, corner.y), 'width': width, 'height': height}
+        return rect
 
     @classmethod
     def from_center_size(cls, center: Point, width: float, height: float, **kwargs):
         """Строит прямоугольник по центру, ширине и высоте."""
         w2 = float(width) / 2.0
         h2 = float(height) / 2.0
-        return cls(center.x - w2, center.y - h2, center.x + w2, center.y + h2, **kwargs)
+        rect = cls(center.x - w2, center.y - h2, center.x + w2, center.y + h2, **kwargs)
+        rect.creation_method = 'center_size'
+        rect.creation_data = {'center': Point(center.x, center.y), 'width': width, 'height': height}
+        return rect
 
     # ---- СВОЙСТВА ----
     @property

@@ -1154,80 +1154,116 @@ class Callbacks:
 
     def finalize_circle(self, event=None):
         if self.state.preview_circle:
+            preview = self.state.preview_circle
             if self.state.editing_object and self.state.editing_object_type == 'circle':
                 # Режим редактирования - обновляем существующий объект
                 circle = self.state.editing_object
-                circle.center = Point(self.state.preview_circle.center.x, self.state.preview_circle.center.y)
-                circle.radius = self.state.preview_circle.radius
+                circle.center = Point(preview.center.x, preview.center.y)
+                circle.radius = preview.radius
                 circle.style_name = self.state.current_style_name
                 circle.color = self.state.current_color
+                # Обновляем метод создания и данные из превью
+                circle.creation_method = getattr(preview, 'creation_method', 'center_radius')
+                circle.creation_data = getattr(preview, 'creation_data', {'center': Point(preview.center.x, preview.center.y), 'radius': preview.radius})
                 # Сбрасываем режим редактирования
                 self.state.editing_object = None
                 self.state.editing_object_type = None
             else:
-                # Режим создания - добавляем новый объект
+                # Режим создания - добавляем новый объект с сохранением метода создания
                 final_circle = Circle(
-                    self.state.preview_circle.center,
-                    self.state.preview_circle.radius,
+                    preview.center,
+                    preview.radius,
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                # Копируем метод создания и данные из превью
+                final_circle.creation_method = getattr(preview, 'creation_method', 'center_radius')
+                final_circle.creation_data = getattr(preview, 'creation_data', {'center': Point(preview.center.x, preview.center.y), 'radius': preview.radius})
                 self.state.circles.append(final_circle)
             self.set_app_state('IDLE')
 
     def finalize_arc(self, event=None):
         if self.state.preview_arc:
+            preview = self.state.preview_arc
             if self.state.editing_object and self.state.editing_object_type == 'arc':
                 # Режим редактирования - обновляем существующий объект
                 arc = self.state.editing_object
-                arc.center = Point(self.state.preview_arc.center.x, self.state.preview_arc.center.y)
-                arc.radius = self.state.preview_arc.radius
-                arc.start_angle = self.state.preview_arc.start_angle
-                arc.end_angle = self.state.preview_arc.end_angle
+                arc.center = Point(preview.center.x, preview.center.y)
+                arc.radius = preview.radius
+                arc.start_angle = preview.start_angle
+                arc.end_angle = preview.end_angle
                 arc.style_name = self.state.current_style_name
                 arc.color = self.state.current_color
+                # Обновляем метод создания и данные из превью
+                arc.creation_method = getattr(preview, 'creation_method', 'center_angles')
+                arc.creation_data = getattr(preview, 'creation_data', {
+                    'center': Point(preview.center.x, preview.center.y),
+                    'radius': preview.radius,
+                    'start_angle': preview.start_angle,
+                    'end_angle': preview.end_angle
+                })
                 # Сбрасываем режим редактирования
                 self.state.editing_object = None
                 self.state.editing_object_type = None
             else:
-                # Режим создания - добавляем новый объект
+                # Режим создания - добавляем новый объект с сохранением метода создания
                 final_arc = Arc(
-                    self.state.preview_arc.center,
-                    self.state.preview_arc.radius,
-                    self.state.preview_arc.start_angle,
-                    self.state.preview_arc.end_angle,
+                    preview.center,
+                    preview.radius,
+                    preview.start_angle,
+                    preview.end_angle,
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                # Копируем метод создания и данные из превью
+                final_arc.creation_method = getattr(preview, 'creation_method', 'center_angles')
+                final_arc.creation_data = getattr(preview, 'creation_data', {
+                    'center': Point(preview.center.x, preview.center.y),
+                    'radius': preview.radius,
+                    'start_angle': preview.start_angle,
+                    'end_angle': preview.end_angle
+                })
                 self.state.arcs.append(final_arc)
             self.set_app_state('IDLE')
 
     def finalize_rectangle(self, event=None):
         if self.state.preview_rectangle:
-            rect = self.state.preview_rectangle
+            preview = self.state.preview_rectangle
             if self.state.editing_object and self.state.editing_object_type == 'rectangle':
                 # Режим редактирования - обновляем существующий объект
                 edit_rect = self.state.editing_object
-                edit_rect.min_x = rect.min_x
-                edit_rect.min_y = rect.min_y
-                edit_rect.max_x = rect.max_x
-                edit_rect.max_y = rect.max_y
+                edit_rect.min_x = preview.min_x
+                edit_rect.min_y = preview.min_y
+                edit_rect.max_x = preview.max_x
+                edit_rect.max_y = preview.max_y
                 edit_rect.style_name = self.state.current_style_name
                 edit_rect.color = self.state.current_color
-                edit_rect.corner_type = rect.corner_type
-                edit_rect.corner_value = rect.corner_value
+                edit_rect.corner_type = preview.corner_type
+                edit_rect.corner_value = preview.corner_value
+                # Обновляем метод создания и данные из превью
+                edit_rect.creation_method = getattr(preview, 'creation_method', 'two_points')
+                edit_rect.creation_data = getattr(preview, 'creation_data', {
+                    'p1': Point(preview.min_x, preview.min_y),
+                    'p2': Point(preview.max_x, preview.max_y)
+                })
                 # Сбрасываем режим редактирования
                 self.state.editing_object = None
                 self.state.editing_object_type = None
             else:
-                # Режим создания - добавляем новый объект
+                # Режим создания - добавляем новый объект с сохранением метода создания
                 final_rect = Rectangle(
-                    rect.min_x, rect.min_y, rect.max_x, rect.max_y,
+                    preview.min_x, preview.min_y, preview.max_x, preview.max_y,
                     style_name=self.state.current_style_name,
                     color=self.state.current_color,
-                    corner_type=rect.corner_type,
-                    corner_value=rect.corner_value
+                    corner_type=preview.corner_type,
+                    corner_value=preview.corner_value
                 )
+                # Копируем метод создания и данные из превью
+                final_rect.creation_method = getattr(preview, 'creation_method', 'two_points')
+                final_rect.creation_data = getattr(preview, 'creation_data', {
+                    'p1': Point(preview.min_x, preview.min_y),
+                    'p2': Point(preview.max_x, preview.max_y)
+                })
                 self.state.rectangles.append(final_rect)
             self.set_app_state('IDLE')
 
@@ -1416,23 +1452,68 @@ class Callbacks:
         self.state.current_style_name = circle.style_name
         self.state.current_color = circle.color
         
-        # Устанавливаем метод center_radius для редактирования
-        self.state.circle_creation_method = 'center_radius'
-        self.view.circle_method.set('center_radius')
+        # Восстанавливаем метод создания из примитива
+        method = getattr(circle, 'creation_method', 'center_radius')
+        data = getattr(circle, 'creation_data', None)
+        
+        self.state.circle_creation_method = method
+        self.view.circle_method.set(method)
         self.view._update_circle_params_ui()
 
         # Входим в режим создания окружности
         self.set_app_state('CREATING_CIRCLE')
         
-        # Заполняем поля текущими значениями
-        self.view.circle_center_x_entry.delete(0, tk.END)
-        self.view.circle_center_x_entry.insert(0, f"{circle.center.x:.2f}")
-        self.view.circle_center_y_entry.delete(0, tk.END)
-        self.view.circle_center_y_entry.insert(0, f"{circle.center.y:.2f}")
-        self.view.circle_param_entry.delete(0, tk.END)
-        self.view.circle_param_entry.insert(0, f"{circle.radius:.2f}")
+        # Заполняем поля в зависимости от метода создания
+        if method == 'center_radius' and data:
+            self.view.circle_center_x_entry.delete(0, tk.END)
+            self.view.circle_center_x_entry.insert(0, f"{data['center'].x:.2f}")
+            self.view.circle_center_y_entry.delete(0, tk.END)
+            self.view.circle_center_y_entry.insert(0, f"{data['center'].y:.2f}")
+            self.view.circle_param_entry.delete(0, tk.END)
+            self.view.circle_param_entry.insert(0, f"{data['radius']:.2f}")
+            self.state.points_clicked = 2
+        elif method == 'center_diameter' and data:
+            self.view.circle_center_x_entry.delete(0, tk.END)
+            self.view.circle_center_x_entry.insert(0, f"{data['center'].x:.2f}")
+            self.view.circle_center_y_entry.delete(0, tk.END)
+            self.view.circle_center_y_entry.insert(0, f"{data['center'].y:.2f}")
+            self.view.circle_param_entry.delete(0, tk.END)
+            self.view.circle_param_entry.insert(0, f"{data['diameter']:.2f}")
+            self.state.points_clicked = 2
+        elif method == 'two_points' and data:
+            self.view.circle_center_x_entry.delete(0, tk.END)
+            self.view.circle_center_x_entry.insert(0, f"{data['p1'].x:.2f}")
+            self.view.circle_center_y_entry.delete(0, tk.END)
+            self.view.circle_center_y_entry.insert(0, f"{data['p1'].y:.2f}")
+            self.view.circle_p2_x_entry.delete(0, tk.END)
+            self.view.circle_p2_x_entry.insert(0, f"{data['p2'].x:.2f}")
+            self.view.circle_p2_y_entry.delete(0, tk.END)
+            self.view.circle_p2_y_entry.insert(0, f"{data['p2'].y:.2f}")
+            self.state.points_clicked = 2
+        elif method == 'three_points' and data:
+            self.view.circle_center_x_entry.delete(0, tk.END)
+            self.view.circle_center_x_entry.insert(0, f"{data['p1'].x:.2f}")
+            self.view.circle_center_y_entry.delete(0, tk.END)
+            self.view.circle_center_y_entry.insert(0, f"{data['p1'].y:.2f}")
+            self.view.circle_p2_x_entry.delete(0, tk.END)
+            self.view.circle_p2_x_entry.insert(0, f"{data['p2'].x:.2f}")
+            self.view.circle_p2_y_entry.delete(0, tk.END)
+            self.view.circle_p2_y_entry.insert(0, f"{data['p2'].y:.2f}")
+            self.view.circle_p3_x_entry.delete(0, tk.END)
+            self.view.circle_p3_x_entry.insert(0, f"{data['p3'].x:.2f}")
+            self.view.circle_p3_y_entry.delete(0, tk.END)
+            self.view.circle_p3_y_entry.insert(0, f"{data['p3'].y:.2f}")
+            self.state.points_clicked = 3
+        else:
+            # Фолбэк на старое поведение
+            self.view.circle_center_x_entry.delete(0, tk.END)
+            self.view.circle_center_x_entry.insert(0, f"{circle.center.x:.2f}")
+            self.view.circle_center_y_entry.delete(0, tk.END)
+            self.view.circle_center_y_entry.insert(0, f"{circle.center.y:.2f}")
+            self.view.circle_param_entry.delete(0, tk.END)
+            self.view.circle_param_entry.insert(0, f"{circle.radius:.2f}")
+            self.state.points_clicked = 2
         
-        self.state.points_clicked = 2
         self.update_preview_circle()
 
     def start_edit_arc(self, arc):
@@ -1444,35 +1525,73 @@ class Callbacks:
         self.state.current_style_name = arc.style_name
         self.state.current_color = arc.color
         
-        # Устанавливаем метод center_angles для редактирования
-        self.state.arc_creation_method = 'center_angles'
-        self.view.arc_method.set('center_angles')
+        # Восстанавливаем метод создания из примитива
+        method = getattr(arc, 'creation_method', 'center_angles')
+        data = getattr(arc, 'creation_data', None)
+        
+        self.state.arc_creation_method = method
+        self.view.arc_method.set(method)
         self.view._update_arc_params_ui()
 
         # Входим в режим создания дуги
         self.set_app_state('CREATING_ARC')
         
-        # Определяем единицы угла
+        # Определяем единицы угла (для center_angles)
         angle_unit = self.view.angle_units.get()
-        start_angle = arc.start_angle
-        end_angle = arc.end_angle
-        if angle_unit == 'degrees':
-            start_angle = math.degrees(start_angle)
-            end_angle = math.degrees(end_angle)
         
-        # Заполняем поля текущими значениями
-        self.view.arc_center_x_entry.delete(0, tk.END)
-        self.view.arc_center_x_entry.insert(0, f"{arc.center.x:.2f}")
-        self.view.arc_center_y_entry.delete(0, tk.END)
-        self.view.arc_center_y_entry.insert(0, f"{arc.center.y:.2f}")
-        self.view.arc_radius_entry.delete(0, tk.END)
-        self.view.arc_radius_entry.insert(0, f"{arc.radius:.2f}")
-        self.view.arc_start_angle_entry.delete(0, tk.END)
-        self.view.arc_start_angle_entry.insert(0, f"{start_angle:.2f}")
-        self.view.arc_end_angle_entry.delete(0, tk.END)
-        self.view.arc_end_angle_entry.insert(0, f"{end_angle:.2f}")
+        # Заполняем поля в зависимости от метода создания
+        if method == 'three_points' and data:
+            self.view.arc_p1_x_entry.delete(0, tk.END)
+            self.view.arc_p1_x_entry.insert(0, f"{data['p1'].x:.2f}")
+            self.view.arc_p1_y_entry.delete(0, tk.END)
+            self.view.arc_p1_y_entry.insert(0, f"{data['p1'].y:.2f}")
+            self.view.arc_p2_x_entry.delete(0, tk.END)
+            self.view.arc_p2_x_entry.insert(0, f"{data['p2'].x:.2f}")
+            self.view.arc_p2_y_entry.delete(0, tk.END)
+            self.view.arc_p2_y_entry.insert(0, f"{data['p2'].y:.2f}")
+            self.view.arc_p3_x_entry.delete(0, tk.END)
+            self.view.arc_p3_x_entry.insert(0, f"{data['p3'].x:.2f}")
+            self.view.arc_p3_y_entry.delete(0, tk.END)
+            self.view.arc_p3_y_entry.insert(0, f"{data['p3'].y:.2f}")
+            self.state.points_clicked = 3
+        elif method == 'center_angles' and data:
+            start_angle = data['start_angle']
+            end_angle = data['end_angle']
+            if angle_unit == 'degrees':
+                start_angle = math.degrees(start_angle)
+                end_angle = math.degrees(end_angle)
+            
+            self.view.arc_center_x_entry.delete(0, tk.END)
+            self.view.arc_center_x_entry.insert(0, f"{data['center'].x:.2f}")
+            self.view.arc_center_y_entry.delete(0, tk.END)
+            self.view.arc_center_y_entry.insert(0, f"{data['center'].y:.2f}")
+            self.view.arc_radius_entry.delete(0, tk.END)
+            self.view.arc_radius_entry.insert(0, f"{data['radius']:.2f}")
+            self.view.arc_start_angle_entry.delete(0, tk.END)
+            self.view.arc_start_angle_entry.insert(0, f"{start_angle:.2f}")
+            self.view.arc_end_angle_entry.delete(0, tk.END)
+            self.view.arc_end_angle_entry.insert(0, f"{end_angle:.2f}")
+            self.state.points_clicked = 3
+        else:
+            # Фолбэк на старое поведение (center_angles по умолчанию)
+            start_angle = arc.start_angle
+            end_angle = arc.end_angle
+            if angle_unit == 'degrees':
+                start_angle = math.degrees(start_angle)
+                end_angle = math.degrees(end_angle)
+            
+            self.view.arc_center_x_entry.delete(0, tk.END)
+            self.view.arc_center_x_entry.insert(0, f"{arc.center.x:.2f}")
+            self.view.arc_center_y_entry.delete(0, tk.END)
+            self.view.arc_center_y_entry.insert(0, f"{arc.center.y:.2f}")
+            self.view.arc_radius_entry.delete(0, tk.END)
+            self.view.arc_radius_entry.insert(0, f"{arc.radius:.2f}")
+            self.view.arc_start_angle_entry.delete(0, tk.END)
+            self.view.arc_start_angle_entry.insert(0, f"{start_angle:.2f}")
+            self.view.arc_end_angle_entry.delete(0, tk.END)
+            self.view.arc_end_angle_entry.insert(0, f"{end_angle:.2f}")
+            self.state.points_clicked = 3
         
-        self.state.points_clicked = 3
         self.update_preview_arc()
 
     def start_edit_rectangle(self, rect):
@@ -1484,23 +1603,59 @@ class Callbacks:
         self.state.current_style_name = rect.style_name
         self.state.current_color = rect.color
         
-        # Устанавливаем метод two_points для редактирования
-        self.state.rectangle_creation_method = 'two_points'
-        self.view.rect_method.set('two_points')
+        # Восстанавливаем метод создания из примитива
+        method = getattr(rect, 'creation_method', 'two_points')
+        data = getattr(rect, 'creation_data', None)
+        
+        self.state.rectangle_creation_method = method
+        self.view.rect_method.set(method)
         self.view._update_rectangle_params_ui()
 
         # Входим в режим создания прямоугольника
         self.set_app_state('CREATING_RECTANGLE')
         
-        # Заполняем поля текущими значениями
-        self.view.rect_p1_x_entry.delete(0, tk.END)
-        self.view.rect_p1_x_entry.insert(0, f"{rect.min_x:.2f}")
-        self.view.rect_p1_y_entry.delete(0, tk.END)
-        self.view.rect_p1_y_entry.insert(0, f"{rect.min_y:.2f}")
-        self.view.rect_p2_x_entry.delete(0, tk.END)
-        self.view.rect_p2_x_entry.insert(0, f"{rect.max_x:.2f}")
-        self.view.rect_p2_y_entry.delete(0, tk.END)
-        self.view.rect_p2_y_entry.insert(0, f"{rect.max_y:.2f}")
+        # Заполняем поля в зависимости от метода создания
+        if method == 'two_points' and data:
+            self.view.rect_p1_x_entry.delete(0, tk.END)
+            self.view.rect_p1_x_entry.insert(0, f"{data['p1'].x:.2f}")
+            self.view.rect_p1_y_entry.delete(0, tk.END)
+            self.view.rect_p1_y_entry.insert(0, f"{data['p1'].y:.2f}")
+            self.view.rect_p2_x_entry.delete(0, tk.END)
+            self.view.rect_p2_x_entry.insert(0, f"{data['p2'].x:.2f}")
+            self.view.rect_p2_y_entry.delete(0, tk.END)
+            self.view.rect_p2_y_entry.insert(0, f"{data['p2'].y:.2f}")
+            self.state.points_clicked = 2
+        elif method == 'corner_size' and data:
+            self.view.rect_corner_x_entry.delete(0, tk.END)
+            self.view.rect_corner_x_entry.insert(0, f"{data['corner'].x:.2f}")
+            self.view.rect_corner_y_entry.delete(0, tk.END)
+            self.view.rect_corner_y_entry.insert(0, f"{data['corner'].y:.2f}")
+            self.view.rect_width_entry.delete(0, tk.END)
+            self.view.rect_width_entry.insert(0, f"{data['width']:.2f}")
+            self.view.rect_height_entry.delete(0, tk.END)
+            self.view.rect_height_entry.insert(0, f"{data['height']:.2f}")
+            self.state.points_clicked = 2
+        elif method == 'center_size' and data:
+            self.view.rect_center_x_entry.delete(0, tk.END)
+            self.view.rect_center_x_entry.insert(0, f"{data['center'].x:.2f}")
+            self.view.rect_center_y_entry.delete(0, tk.END)
+            self.view.rect_center_y_entry.insert(0, f"{data['center'].y:.2f}")
+            self.view.rect_width_entry.delete(0, tk.END)
+            self.view.rect_width_entry.insert(0, f"{data['width']:.2f}")
+            self.view.rect_height_entry.delete(0, tk.END)
+            self.view.rect_height_entry.insert(0, f"{data['height']:.2f}")
+            self.state.points_clicked = 2
+        else:
+            # Фолбэк на старое поведение
+            self.view.rect_p1_x_entry.delete(0, tk.END)
+            self.view.rect_p1_x_entry.insert(0, f"{rect.min_x:.2f}")
+            self.view.rect_p1_y_entry.delete(0, tk.END)
+            self.view.rect_p1_y_entry.insert(0, f"{rect.min_y:.2f}")
+            self.view.rect_p2_x_entry.delete(0, tk.END)
+            self.view.rect_p2_x_entry.insert(0, f"{rect.max_x:.2f}")
+            self.view.rect_p2_y_entry.delete(0, tk.END)
+            self.view.rect_p2_y_entry.insert(0, f"{rect.max_y:.2f}")
+            self.state.points_clicked = 2
         
         # Устанавливаем параметры углов
         self.view.rect_corner_type.set(rect.corner_type)
@@ -1508,7 +1663,6 @@ class Callbacks:
         if rect.corner_value > 0:
             self.view.rect_corner_value_entry.insert(0, f"{rect.corner_value:.2f}")
         
-        self.state.points_clicked = 2
         self.update_preview_rectangle()
 
     def start_edit_ellipse(self, ellipse):
@@ -1821,6 +1975,8 @@ class Callbacks:
 
                 self.view.arc_radius_entry.delete(0, tk.END); self.view.arc_radius_entry.insert(0, f"{radius:.2f}")
                 self.view.arc_start_angle_entry.delete(0, tk.END); self.view.arc_start_angle_entry.insert(0, f"{_to_display_angle(ang):.2f}")
+                # Устанавливаем вторую точку для отображения (начало дуги)
+                self.state.active_p2 = Point(wx, wy)
                 self.state.points_clicked = 2
             elif self.state.points_clicked == 2:
                 cx = float(self.view.arc_center_x_entry.get())
@@ -2564,6 +2720,10 @@ class Callbacks:
                 center = None
                 start_pt = None
                 end_pt = None
+                radius = None
+                start_ang = None
+                end_ang = None
+                
                 try:
                     center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
                     self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
@@ -2576,30 +2736,39 @@ class Callbacks:
                     self.view.p2_coord_var.set("Радиус: N/A")
                 try:
                     start_val = float(self.view.arc_start_angle_entry.get())
-                    end_val = float(self.view.arc_end_angle_entry.get())
-                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: {end_val:.2f}{sym}")
+                    start_ang = math.radians(start_val) if angle_unit == 'degrees' else start_val
                 except (ValueError, tk.TclError):
+                    start_val = None
+                try:
+                    end_val = float(self.view.arc_end_angle_entry.get())
+                    end_ang = math.radians(end_val) if angle_unit == 'degrees' else end_val
+                except (ValueError, tk.TclError):
+                    end_val = None
+                
+                # Обновляем отображение углов
+                if start_val is not None and end_val is not None:
+                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: {end_val:.2f}{sym}")
+                elif start_val is not None:
+                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: ...")
+                else:
                     self.view.p3_coord_var.set("Углы: N/A")
 
-                # Если есть радиус и углы, вычисляем активные точки
-                try:
-                    if center is None:
-                        center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
-                    r = float(self.view.arc_radius_entry.get())
-                    start_ang = float(self.view.arc_start_angle_entry.get())
-                    end_ang = float(self.view.arc_end_angle_entry.get())
-                    if angle_unit == 'degrees':
-                        start_ang = math.radians(start_ang)
-                        end_ang = math.radians(end_ang)
-                    start_pt = Point(center.x + r * math.cos(start_ang), center.y + r * math.sin(start_ang))
-                    end_pt = Point(center.x + r * math.cos(end_ang), center.y + r * math.sin(end_ang))
-                    self.state.active_p1 = center
+                # Устанавливаем активные точки в зависимости от имеющихся данных
+                self.state.active_p1 = center
+                
+                # Если есть центр, радиус и начальный угол - показываем точку начала дуги
+                if center is not None and radius is not None and start_ang is not None:
+                    start_pt = Point(center.x + radius * math.cos(start_ang), center.y + radius * math.sin(start_ang))
                     self.state.active_p2 = start_pt
+                else:
+                    self.state.active_p2 = None
+                
+                # Если есть конечный угол - показываем точку конца дуги
+                if center is not None and radius is not None and end_ang is not None:
+                    end_pt = Point(center.x + radius * math.cos(end_ang), center.y + radius * math.sin(end_ang))
                     self.state.active_p3 = end_pt
-                except (ValueError, tk.TclError):
-                    self.state.active_p1 = center
-                    self.state.active_p2 = start_pt
-                    self.state.active_p3 = end_pt
+                else:
+                    self.state.active_p3 = None
 
             # Если есть превью, оно приоритетно для точек только для метода центр+углы
             arc_preview = self.state.preview_arc
