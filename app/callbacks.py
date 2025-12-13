@@ -665,8 +665,6 @@ class Callbacks:
 
     def _sync_ui_with_selection(self):
         """Обновляет панель свойств в зависимости от выделения."""
-        self.view.kinks_frame.pack_forget()
-
         sel_segments = self.state.selected_segments
         sel_circles = self.state.selected_circles
         sel_arcs = self.state.selected_arcs
@@ -720,47 +718,6 @@ class Callbacks:
 
             self.state.current_style_name = style_name
             self.state.current_color = first_color
-
-            # --- ЛОГИКА ОТОБРАЖЕНИЯ ПАНЕЛИ ИЗЛОМОВ/ВОЛН ---
-            style = self.state.line_styles.get(style_name)
-            base_type = getattr(style, 'base_type', 'solid')
-
-            # Если это ЗИГЗАГ или ВОЛНА и выделен ОДИН объект
-            if base_type in ['zigzag', 'wave'] and len(sel_segments) == 1:
-                seg = sel_segments[0]
-                self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
-
-                # Меняем текст лейбла в зависимости от типа
-                if base_type == 'zigzag':
-                    self.view.lbl_kinks.config(text="Кол-во изломов:")
-                    current_val = seg.kinks_count
-                else:
-                    self.view.lbl_kinks.config(text="Кол-во волн:")
-                    current_val = seg.waves_count
-
-                if current_val:
-                    self.view.kinks_var.set(str(current_val))
-                else:
-                    # РАСЧЕТ ДЕФОЛТА
-                    zoom = self.state.zoom
-                    seg_len_px = seg.length * zoom
-
-                    if base_type == 'zigzag':
-                        # Period(40) + Kink(6) = 46 (при зуме 5.0)
-                        # Реальная длина: (40 + 6) * (zoom / 5.0)
-                        unit_len = 46 * (zoom / 5.0)
-                    else: # wave
-                        # Freq = 0.2 / (zoom/5.0). Period T = 2*pi / freq
-                        # T = 2*pi / (0.2 / scale) = 10*pi * scale
-                        # 10 * 3.14 = 31.4 * scale
-                        unit_len = 31.4159 * (zoom / 5.0)
-
-                    if unit_len > 0.1:
-                        default_count = int(seg_len_px / unit_len)
-                    else:
-                        default_count = 1
-
-                    self.view.kinks_var.set(str(default_count))
         else:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
@@ -857,80 +814,9 @@ class Callbacks:
 
             self.state.current_style_name = style_name
             self.state.current_color = first_color
-
-            style = self.state.line_styles.get(style_name)
-            base_type = getattr(style, 'base_type', 'solid') if style else 'solid'
-
-            if base_type in ['zigzag', 'wave'] and len(sel_splines) == 1:
-                sp = sel_splines[0]
-                self.view.kinks_frame.pack(fill=tk.X, padx=5, pady=5, after=self.view.style_combobox)
-                if base_type == 'zigzag':
-                    self.view.lbl_kinks.config(text="Кол-во изломов:")
-                    current_val = getattr(sp, 'kinks_count', None)
-                else:
-                    self.view.lbl_kinks.config(text="Кол-во волн:")
-                    current_val = getattr(sp, 'waves_count', None)
-                if current_val:
-                    self.view.kinks_var.set(str(current_val))
-                else:
-                    self.view.kinks_var.set('')
         else:
             self.view.set_style_selection("Разные")
             self.view.segment_swatch.config(bg="#cccccc")
-
-    # Изменение количества изломов или волн
-    def on_kinks_changed(self, event=None):
-        target = None
-        if self.state.selected_segments:
-            target = self.state.selected_segments[0]
-        elif self.state.selected_splines:
-            target = self.state.selected_splines[0]
-        else:
-            return
-        
-        # Определяем тип текущей линии
-        style = self.state.line_styles.get(target.style_name)
-        base_type = getattr(style, 'base_type', 'solid')
-        
-        try:
-            val_str = self.view.kinks_var.get()
-            if not val_str: 
-                if base_type == 'zigzag': target.kinks_count = None
-                else: target.waves_count = None
-                self.redraw_all()
-                return
-                
-            val = int(val_str)
-            zoom = self.state.zoom
-            seg_len_px = (target.length if hasattr(target, 'length') else target.approximate_length()) * zoom
-            
-            # Считаем минимально возможную длину элемента (чтобы не зависло)
-            if base_type == 'zigzag':
-                # Минимум - только сам излом (6) без пробелов
-                min_unit = 8 * (zoom / 5.0)
-            else:
-                # Минимум - хотя бы 2 пикселя на волну
-                min_unit = 2
-            
-            # Максимум сколько влезет
-            max_n = int(seg_len_px / min_unit)
-            if max_n < 1: max_n = 1
-            
-            # Ограничиваем
-            if val < 1: val = 1
-            if val > max_n: val = max_n
-            
-            # Сохраняем
-            if base_type == 'zigzag': target.kinks_count = val
-            else: target.waves_count = val
-            
-            if event and (event.keysym == 'Return' or event.type == 'VirtualEvent'): 
-                 self.view.kinks_var.set(str(val))
-            
-            self.redraw_all()
-            
-        except ValueError:
-            pass
 
     def on_style_selected(self, event=None):
         # Получаем индекс выбранного элемента
@@ -1276,11 +1162,6 @@ class Callbacks:
             style_name=self.state.current_style_name,
             color=self.state.current_color
         )
-        # Если выбрана волна/зигзаг и есть сохраненные параметры, переносим
-        if self.state.selected_splines:
-            src = self.state.selected_splines[0]
-            self.state.preview_spline.kinks_count = getattr(src, 'kinks_count', None)
-            self.state.preview_spline.waves_count = getattr(src, 'waves_count', None)
         self.redraw_all()
 
     def finalize_segment(self, event=None):
@@ -1445,24 +1326,18 @@ class Callbacks:
         if len(self.state.spline_control_points) >= 2:
             # Финализируем ровно те точки, что были кликом поставлены
             ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
-            kinks = getattr(self.state.preview_spline, 'kinks_count', None) if self.state.preview_spline else None
-            waves = getattr(self.state.preview_spline, 'waves_count', None) if self.state.preview_spline else None
             if self.state.editing_object and self.state.editing_object_type == 'spline':
                 edit_spline = self.state.editing_object
                 edit_spline.control_points = ctrl_copy
                 edit_spline.style_name = self.state.current_style_name
                 edit_spline.color = self.state.current_color
-                edit_spline.kinks_count = kinks
-                edit_spline.waves_count = waves
                 self.state.editing_object = None
                 self.state.editing_object_type = None
             else:
                 final_spline = Spline(
                     ctrl_copy,
                     style_name=self.state.current_style_name,
-                    color=self.state.current_color,
-                    kinks_count=kinks,
-                    waves_count=waves
+                    color=self.state.current_color
                 )
                 self.state.splines.append(final_spline)
             self.set_app_state('IDLE')

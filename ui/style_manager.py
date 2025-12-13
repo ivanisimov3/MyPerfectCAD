@@ -94,6 +94,26 @@ class StyleManagerWindow(tk.Toplevel):
         self.spin_gap.bind("<<Increment>>", self.delayed_update)
         self.spin_gap.bind("<<Decrement>>", self.delayed_update)
 
+        # === РАМКА ДЛЯ КОЛИЧЕСТВА ИЗЛОМОВ (zigzag) ===
+        self.kinks_frame = ttk.LabelFrame(right_panel, text="Параметры изломов", padding=10)
+        ttk.Label(self.kinks_frame, text="Кол-во изломов:").grid(row=0, column=0, padx=5)
+        self.kinks_val = tk.StringVar()
+        self.spin_kinks = ttk.Spinbox(self.kinks_frame, from_=1, to=100, increment=1, textvariable=self.kinks_val, width=6)
+        self.spin_kinks.grid(row=0, column=1, padx=5)
+        self.spin_kinks.bind("<KeyRelease>", self.update_preview)
+        self.spin_kinks.bind("<<Increment>>", self.delayed_update)
+        self.spin_kinks.bind("<<Decrement>>", self.delayed_update)
+
+        # === РАМКА ДЛЯ АМПЛИТУДЫ ВОЛНЫ (wave) ===
+        self.wave_frame = ttk.LabelFrame(right_panel, text="Параметры волны", padding=10)
+        ttk.Label(self.wave_frame, text="Амплитуда:").grid(row=0, column=0, padx=5)
+        self.wave_amp_val = tk.StringVar()
+        self.spin_wave_amp = ttk.Spinbox(self.wave_frame, from_=0.5, to=50, increment=0.5, textvariable=self.wave_amp_val, width=6)
+        self.spin_wave_amp.grid(row=0, column=1, padx=5)
+        self.spin_wave_amp.bind("<KeyRelease>", self.update_preview)
+        self.spin_wave_amp.bind("<<Increment>>", self.delayed_update)
+        self.spin_wave_amp.bind("<<Decrement>>", self.delayed_update)
+
         # --- НИЗ ---
         btn_frame = ttk.Frame(self, padding="10")
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
@@ -176,6 +196,12 @@ class StyleManagerWindow(tk.Toplevel):
             self.btn_delete.config(state='disabled')
             self.chk_is_main.config(state='disabled')
         
+        # Скрываем все специальные рамки
+        self.dash_frame.pack_forget()
+        self.kinks_frame.pack_forget()
+        self.wave_frame.pack_forget()
+        
+        # Показываем рамку штриховки если есть limits
         if style.limits: 
             self.dash_frame.pack(fill=tk.X, pady=15, side=tk.TOP, before=self.preview_canvas)
             min_d, max_d, min_g, max_g = style.limits
@@ -184,8 +210,27 @@ class StyleManagerWindow(tk.Toplevel):
             if style.dash_pattern:
                 self.dash_val.set(str(style.dash_pattern[0]))
                 self.gap_val.set(str(style.dash_pattern[1]))
-        else:
-            self.dash_frame.pack_forget() 
+        
+        # Показываем рамку изломов для zigzag
+        if style.base_type == 'zigzag':
+            self.kinks_frame.pack(fill=tk.X, pady=15, side=tk.TOP, before=self.preview_canvas)
+            kinks = getattr(style, 'kinks_count', None)
+            if kinks is not None:
+                self.kinks_val.set(str(kinks))
+            else:
+                self.kinks_val.set('2')  # Значение по умолчанию
+            # Для базовых стилей делаем поле редактируемым (можно менять глобальное значение)
+            self.spin_kinks.config(state='normal')
+        
+        # Показываем рамку амплитуды для wave
+        if style.base_type == 'wave':
+            self.wave_frame.pack(fill=tk.X, pady=15, side=tk.TOP, before=self.preview_canvas)
+            amp = getattr(style, 'wave_amplitude', None)
+            if amp is not None:
+                self.wave_amp_val.set(str(amp))
+            else:
+                self.wave_amp_val.set('3.0')  # Значение по умолчанию
+            self.spin_wave_amp.config(state='normal')
         
         self.update_preview()
 
@@ -212,7 +257,7 @@ class StyleManagerWindow(tk.Toplevel):
             pat_idx += 1
         return lines
 
-    def _generate_wave_coords(self, x1, y1, x2, y2):
+    def _generate_wave_coords(self, x1, y1, x2, y2, wave_amplitude=None):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
@@ -222,7 +267,10 @@ class StyleManagerWindow(tk.Toplevel):
         
         points = []
         step = 5 * self.preview_zoom
-        amplitude = 3 * self.preview_zoom
+        
+        # Используем амплитуду из параметра или по умолчанию
+        base_amp = wave_amplitude if wave_amplitude is not None else 3.0
+        amplitude = base_amp * self.preview_zoom
         freq = 0.2 / self.preview_zoom
         
         if step < 0.1: step = 0.1
@@ -235,7 +283,7 @@ class StyleManagerWindow(tk.Toplevel):
         points.extend([x2, y2])
         return points
 
-    def _generate_zigzag_coords(self, x1, y1, x2, y2):
+    def _generate_zigzag_coords(self, x1, y1, x2, y2, kinks_count=None):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
@@ -244,10 +292,44 @@ class StyleManagerWindow(tk.Toplevel):
         nx, ny = -uy, ux
         
         points = [x1, y1]
-        period = 40 * self.preview_zoom
         kink_len = 8 * self.preview_zoom
         amplitude = 5 * self.preview_zoom
         
+        # Если задано фиксированное количество изломов
+        if kinks_count is not None and kinks_count > 0:
+            total_kinks_len = kinks_count * kink_len
+            
+            # Если изломы помещаются в длину линии
+            if total_kinks_len < length:
+                gap = (length - total_kinks_len) / (kinks_count + 1)
+                
+                current_dist = 0
+                for _ in range(kinks_count):
+                    current_dist += gap
+                    bx = x1 + ux * current_dist
+                    by = y1 + uy * current_dist
+                    points.extend([bx, by])
+                    
+                    d1 = current_dist + kink_len * 0.25
+                    d2 = current_dist + kink_len * 0.75
+                    d3 = current_dist + kink_len
+                    
+                    points.extend([
+                        x1 + ux*d1 - nx*amplitude, y1 + uy*d1 - ny*amplitude,
+                        x1 + ux*d2 + nx*amplitude, y1 + uy*d2 + ny*amplitude,
+                        x1 + ux*d3, y1 + uy*d3
+                    ])
+                    current_dist += kink_len
+                
+                points.extend([x2, y2])
+                return points
+            else:
+                # Если не помещается - рисуем максимальное количество
+                max_kinks = max(1, int((length - kink_len) / (kink_len * 1.5)))
+                return self._generate_zigzag_coords(x1, y1, x2, y2, kinks_count=max_kinks)
+        
+        # Автоматический режим (если kinks_count не задан)
+        period = 40 * self.preview_zoom
         current_dist = 0
         while current_dist < length:
             dist_to_next_kink = min(length, current_dist + period)
@@ -305,11 +387,23 @@ class StyleManagerWindow(tk.Toplevel):
 
         draw_complex = False; coords = []; smooth = False
         
-        # ИСПОЛЬЗУЕМ base_type
-        if style.base_type == 'wave': 
-            coords = self._generate_wave_coords(x1, y1, x2, y2); draw_complex = True; smooth = True
-        elif style.base_type == 'zigzag': 
-            coords = self._generate_zigzag_coords(x1, y1, x2, y2); draw_complex = True; smooth = False
+        # ИСПОЛЬЗУЕМ base_type и параметры из UI
+        if style.base_type == 'wave':
+            # Получаем амплитуду из UI
+            try:
+                wave_amp = float(self.wave_amp_val.get().replace(',', '.'))
+            except ValueError:
+                wave_amp = getattr(style, 'wave_amplitude', None) or 3.0
+            coords = self._generate_wave_coords(x1, y1, x2, y2, wave_amplitude=wave_amp)
+            draw_complex = True; smooth = True
+        elif style.base_type == 'zigzag':
+            # Получаем количество изломов из UI
+            try:
+                kinks = int(self.kinks_val.get())
+            except ValueError:
+                kinks = getattr(style, 'kinks_count', None) or 2
+            coords = self._generate_zigzag_coords(x1, y1, x2, y2, kinks_count=kinks)
+            draw_complex = True; smooth = False
         elif dash_pattern:
             segments = self._generate_dashed_coords(x1, y1, x2, y2, dash_pattern, self.px_ratio)
             for seg in segments: self.preview_canvas.create_line(seg[0], seg[1], seg[2], seg[3], width=width, fill='black', capstyle=tk.ROUND)
@@ -339,6 +433,22 @@ class StyleManagerWindow(tk.Toplevel):
                     min_d, max_d, min_g, max_g = style.limits
                     style.dash_pattern = (max(min_d, min(d, max_d)), max(min_g, min(g, max_g)))
                 except ValueError: pass
+            
+            # Сохраняем количество изломов для zigzag
+            if style.base_type == 'zigzag':
+                try:
+                    kinks = int(self.kinks_val.get())
+                    style.kinks_count = max(1, kinks)  # Минимум 1 излом
+                except ValueError: 
+                    pass
+            
+            # Сохраняем амплитуду волны для wave
+            if style.base_type == 'wave':
+                try:
+                    amp = float(self.wave_amp_val.get().replace(',', '.'))
+                    style.wave_amplitude = max(0.5, amp)  # Минимум 0.5
+                except ValueError: 
+                    pass
 
         self.on_update_callback()
         self.destroy()

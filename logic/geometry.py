@@ -48,14 +48,12 @@ class Point:
 
 class Segment(GeometryPrimitive):
     # Инициализация отрезка по умолчанию
-    def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black', kinks_count=None, waves_count=None):
+    def __init__(self, p1: Point, p2: Point, style_name = 'solid_main', color='black'):
         super().__init__(style_name=style_name, color=color)
         self.p1 = p1
         self.p2 = p2
         # Храним только ID стиля (ссылку), а не параметры.
         # Это позволяет менять стиль централизованно в Менеджере.
-        self.kinks_count = kinks_count
-        self.waves_count = waves_count
 
     # @property - декоратор для обращения к методу объекта без ()
     # Метод вычисляет и возвращает длину отрезка
@@ -94,12 +92,9 @@ class Segment(GeometryPrimitive):
 class Spline(GeometryPrimitive):
     """Гладкий сплайн по набору контрольных точек (Catmull-Rom)."""
 
-    def __init__(self, control_points, style_name='solid_main', color='black', kinks_count=None, waves_count=None):
+    def __init__(self, control_points, style_name='solid_main', color='black'):
         super().__init__(style_name=style_name, color=color)
         self.control_points = list(control_points)
-        # Поддержка параметров для зигзага/волны, как у отрезков
-        self.kinks_count = kinks_count
-        self.waves_count = waves_count
 
     def _catmull_rom_point(self, p0, p1, p2, p3, t):
         """Возвращает точку кривой Catmull-Rom для параметра t ∈ [0,1]."""
@@ -487,17 +482,16 @@ class Rectangle(GeometryPrimitive):
             left_start = Point(tl.x, tl.y - d)
             left_end = Point(bl.x, bl.y + d)
 
-            # Стороны
+            # Сегменты в контурном порядке (CCW): сторона → фаска → сторона → фаска...
             segments.extend([
-                Segment(bottom_start, bottom_end, style_name=self.style_name, color=self.color),
-                Segment(right_start, right_end, style_name=self.style_name, color=self.color),
-                Segment(top_start, top_end, style_name=self.style_name, color=self.color),
-                Segment(left_start, left_end, style_name=self.style_name, color=self.color),
-                # Фаски
-                Segment(bottom_end, right_start, style_name=self.style_name, color=self.color),
-                Segment(right_end, top_start, style_name=self.style_name, color=self.color),
-                Segment(top_end, left_start, style_name=self.style_name, color=self.color),
-                Segment(left_end, bottom_start, style_name=self.style_name, color=self.color),
+                Segment(bottom_start, bottom_end, style_name=self.style_name, color=self.color),  # низ
+                Segment(bottom_end, right_start, style_name=self.style_name, color=self.color),   # фаска BR
+                Segment(right_start, right_end, style_name=self.style_name, color=self.color),    # право
+                Segment(right_end, top_start, style_name=self.style_name, color=self.color),      # фаска TR
+                Segment(top_start, top_end, style_name=self.style_name, color=self.color),        # верх
+                Segment(top_end, left_start, style_name=self.style_name, color=self.color),       # фаска TL
+                Segment(left_start, left_end, style_name=self.style_name, color=self.color),      # лево
+                Segment(left_end, bottom_start, style_name=self.style_name, color=self.color),    # фаска BL
             ])
             return segments, arcs
 

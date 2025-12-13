@@ -23,7 +23,13 @@ class LineStyle:
     is_custom: bool = False
     
     # Тип алгоритма отрисовки (solid, dashed, wave, zigzag)
-    base_type: str = 'solid' 
+    base_type: str = 'solid'
+    
+    # Количество изломов для стиля zigzag (None = автоматически)
+    kinks_count: Optional[int] = None
+    
+    # Амплитуда волны для стиля wave в единицах чертежа (None = по умолчанию ~3)
+    wave_amplitude: Optional[float] = None 
 
 # База предустановленных стилей ГОСТ
 GOST_STYLES = {
@@ -46,14 +52,16 @@ GOST_STYLES = {
         display_name='Сплошная волнистая',
         is_main=False,
         dash_pattern=None,
-        base_type='wave'
+        base_type='wave',
+        wave_amplitude=3.0  # Амплитуда волны по умолчанию
     ),
     'solid_zigzag': LineStyle(
         name='solid_zigzag',
         display_name='Сплошная тонкая с изломами',
         is_main=False,
         dash_pattern=None,
-        base_type='zigzag'
+        base_type='zigzag',
+        kinks_count=2  # Количество изломов по умолчанию
     ),
     'dashed': LineStyle(
         name='dashed',

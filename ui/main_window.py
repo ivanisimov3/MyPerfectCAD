@@ -386,23 +386,6 @@ class MainWindow:
 
         # При выборе стиля вызываем callback
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
-
-
-        # === РАЗДЕЛ: КОЛИЧЕСТВО ИЗЛМОВ ИЛИ ВОЛН ===
-        # Скрыто по умолчанию, показывается только для определенных стилей
-        self.kinks_frame = ttk.Frame(style_frame)
-        self.lbl_kinks = ttk.Label(self.kinks_frame, text="Кол-во:")
-        self.lbl_kinks.pack(side=tk.LEFT)
-
-        # Поле для ввода количества
-        self.kinks_var = tk.StringVar()
-        self.spin_kinks = ttk.Spinbox(self.kinks_frame, from_=1, to=100, textvariable=self.kinks_var, width=5, command=callbacks.on_kinks_changed)
-        self.spin_kinks.pack(side=tk.RIGHT)
-
-        # События при изменении значения
-        self.spin_kinks.bind("<Return>", callbacks.on_kinks_changed)
-        self.spin_kinks.bind("<<Increment>>", lambda e: callbacks.on_kinks_changed())
-        self.spin_kinks.bind("<<Decrement>>", lambda e: callbacks.on_kinks_changed())
         
         # Кнопка для открытия менеджера стилей (подробная настройка)
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
