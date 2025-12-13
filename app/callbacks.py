@@ -2561,13 +2561,21 @@ class Callbacks:
         if self.renderer:
             self.renderer.render_scene()
     
+    def _clear_info_panel(self):
+        """Очищает все поля строки состояния."""
+        self.view.length_var.set("")
+        self.view.angle_var.set("")
+        self.view.p1_coord_var.set("")
+        self.view.p2_coord_var.set("")
+        self.view.p3_coord_var.set("")
+
     def update_info_panel(self):
         # Сбрасываем активные точки (по умолчанию ничего не рисуем)
         self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = None, None, None, None
 
-        # ПРИОРИТЕТ 1: РЕЖИМ СОЗДАНИЯ
-        # Если мы строим отрезок или окружность, нам важно видеть именно ЕГО точки и размеры
+        # ========== РЕЖИМ СОЗДАНИЯ ОТРЕЗКА ==========
         if self.state.app_mode == 'CREATING_SEGMENT':
+            self._clear_info_panel()
             try: self.state.active_p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
             except (ValueError, tk.TclError): pass
             try:
@@ -2575,384 +2583,240 @@ class Callbacks:
                 if self.state.active_p1 is None: self.state.active_p1 = p1_for_p2
             except (ValueError, tk.TclError): pass
             
-            # Обновляем текст для создаваемого отрезка
             p1, p2 = self.state.active_p1, self.state.active_p2
-
-            if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
-            else: self.view.p1_coord_var.set("P1: N/A")
-
-            if p2:
-                if self.view.coord_system.get() == 'polar':
-                    dx = p2.x - (p1.x if p1 else 0)
-                    dy = p2.y - (p1.y if p1 else 0)
-                    r = math.sqrt(dx**2 + dy**2)
-                    theta = math.atan2(dy, dx)
-                    unit = self.view.angle_units.get()
-                    sym = "°" if unit == 'degrees' else " rad"
-                    if unit == 'degrees': theta = math.degrees(theta)
-                    self.view.p2_coord_var.set(f"P2(r={r:.2f}, θ={theta:.2f}{sym})")
-                else: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
-            else: self.view.p2_coord_var.set("P2: N/A")
-
+            # Отрезок: Длина, Угол, P1, P2
             if p1 and p2:
                 seg = Segment(p1, p2)
                 self.view.length_var.set(f"Длина: {seg.length:.2f}")
                 angle = seg.angle
                 val = math.degrees(angle) if self.view.angle_units.get() == 'degrees' else angle
-                sym = "°" if self.view.angle_units.get() == 'degrees' else " rad"
+                sym = "°" if self.view.angle_units.get() == 'degrees' else " рад"
                 self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
-            else:
-                self.view.length_var.set("Длина: N/A"); self.view.angle_var.set("Угол: N/A")
+                self.view.p1_coord_var.set(f"P1: ({p1.x:.2f}; {p1.y:.2f})")
+                self.view.p2_coord_var.set(f"P2: ({p2.x:.2f}; {p2.y:.2f})")
+            return
 
-            return # Выходим, чтобы не перетереть данные выделением
-
-        # ПРИОРИТЕТ 1.5: РЕЖИМ СОЗДАНИЯ ОКРУЖНОСТИ
+        # ========== РЕЖИМ СОЗДАНИЯ ОКРУЖНОСТИ ==========
         if self.state.app_mode == 'CREATING_CIRCLE':
+            self._clear_info_panel()
             method = self.state.circle_creation_method
+            center = None
+            radius = None
 
-            # Получаем точки из соответствующих полей в зависимости от метода
+            # Получаем центр
             try:
                 center_x = float(self.view.circle_center_x_entry.get())
                 center_y = float(self.view.circle_center_y_entry.get())
-                self.state.active_p1 = Point(center_x, center_y)
+                center = Point(center_x, center_y)
+                self.state.active_p1 = center
             except (ValueError, tk.TclError):
-                self.state.active_p1 = None
+                pass
 
-            if method in ['two_points', 'three_points']:
+            # Получаем радиус/диаметр в зависимости от метода
+            if method == 'center_radius':
+                try:
+                    radius = float(self.view.circle_param_entry.get())
+                except (ValueError, tk.TclError):
+                    pass
+            elif method == 'center_diameter':
+                try:
+                    diameter = float(self.view.circle_param_entry.get())
+                    radius = diameter / 2.0
+                except (ValueError, tk.TclError):
+                    pass
+            elif method in ['two_points', 'three_points']:
                 try:
                     p2_x = float(self.view.circle_p2_x_entry.get())
                     p2_y = float(self.view.circle_p2_y_entry.get())
                     self.state.active_p2 = Point(p2_x, p2_y)
+                    if center:
+                        radius = math.sqrt((p2_x - center.x)**2 + (p2_y - center.y)**2) / 2.0
+                        center = Point((center.x + p2_x) / 2, (center.y + p2_y) / 2)
                 except (ValueError, tk.TclError):
-                    self.state.active_p2 = None
-
-            if method == 'three_points':
-                try:
-                    p3_x = float(self.view.circle_p3_x_entry.get())
-                    p3_y = float(self.view.circle_p3_y_entry.get())
-                    self.state.active_p3 = Point(p3_x, p3_y)
-                except (ValueError, tk.TclError):
-                    self.state.active_p3 = None
-            else:
-                self.state.active_p3 = None
-
-            # Обновляем текст для создаваемой окружности
-            p1, p2, p3 = self.state.active_p1, self.state.active_p2, self.state.active_p3
-
-            if method == 'center_radius':
-                if p1:
-                    self.view.p1_coord_var.set(f"Центр({p1.x:.2f}, {p1.y:.2f})")
+                    pass
+                if method == 'three_points':
                     try:
-                        radius = float(self.view.circle_param_entry.get())
-                        self.view.p2_coord_var.set(f"Радиус: {radius:.2f}")
-                        self.view.length_var.set(f"Диаметр: {radius*2:.2f}")
+                        p3_x = float(self.view.circle_p3_x_entry.get())
+                        p3_y = float(self.view.circle_p3_y_entry.get())
+                        self.state.active_p3 = Point(p3_x, p3_y)
                     except (ValueError, tk.TclError):
-                        self.view.p2_coord_var.set("Радиус: N/A")
-                        self.view.length_var.set("Диаметр: N/A")
-                else:
-                    self.view.p1_coord_var.set("Центр: N/A")
-                    self.view.p2_coord_var.set("Радиус: N/A")
-                    self.view.length_var.set("Диаметр: N/A")
-                self.view.angle_var.set("Окружность")
-            elif method == 'center_diameter':
-                if p1:
-                    self.view.p1_coord_var.set(f"Центр({p1.x:.2f}, {p1.y:.2f})")
-                    try:
-                        diameter = float(self.view.circle_param_entry.get())
-                        self.view.p2_coord_var.set(f"Диаметр: {diameter:.2f}")
-                        self.view.length_var.set(f"Радиус: {diameter/2:.2f}")
-                    except (ValueError, tk.TclError):
-                        self.view.p2_coord_var.set("Диаметр: N/A")
-                        self.view.length_var.set("Радиус: N/A")
-                else:
-                    self.view.p1_coord_var.set("Центр: N/A")
-                    self.view.p2_coord_var.set("Диаметр: N/A")
-                    self.view.length_var.set("Радиус: N/A")
-                self.view.angle_var.set("Окружность")
-            elif method == 'two_points':
-                if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
-                else: self.view.p1_coord_var.set("P1: N/A")
+                        pass
 
-                if p2: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
-                else: self.view.p2_coord_var.set("P2: N/A")
+            # Окружность: Диаметр, Радиус, Центр
+            if center and radius:
+                self.view.length_var.set(f"Диаметр: {radius * 2:.2f}")
+                self.view.angle_var.set(f"Радиус: {radius:.2f}")
+                self.view.p1_coord_var.set(f"Центр: ({center.x:.2f}; {center.y:.2f})")
+            return
 
-                self.view.length_var.set("Радиус: N/A")
-                self.view.angle_var.set("Окружность")
-            elif method == 'three_points':
-                if p1: self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
-                else: self.view.p1_coord_var.set("P1: N/A")
-
-                if p2: self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
-                else: self.view.p2_coord_var.set("P2: N/A")
-
-                if p3: self.view.p3_coord_var.set(f"P3({p3.x:.2f}, {p3.y:.2f})")
-                else: self.view.p3_coord_var.set("P3: N/A")
-
-                self.view.length_var.set("Радиус: N/A")
-                self.view.angle_var.set("Окружность")
-
-            return # Выходим, чтобы не перетереть данные выделением
-
-        # ПРИОРИТЕТ 1.7: РЕЖИМ СОЗДАНИЯ ДУГИ
+        # ========== РЕЖИМ СОЗДАНИЯ ДУГИ ==========
         if self.state.app_mode == 'CREATING_ARC':
+            self._clear_info_panel()
             method = self.state.arc_creation_method
             angle_unit = self.view.angle_units.get()
-            sym = "°" if angle_unit == 'degrees' else " rad"
+            sym = "°" if angle_unit == 'degrees' else " рад"
+            arc_preview = self.state.preview_arc
+            
+            center = None
+            radius = None
+            sweep = None
 
             if method == 'three_points':
                 p1 = p2 = p3 = None
                 try:
                     p1 = Point(float(self.view.arc_p1_x_entry.get()), float(self.view.arc_p1_y_entry.get()))
-                    self.view.p1_coord_var.set(f"P1({p1.x:.2f}, {p1.y:.2f})")
-                except (ValueError, tk.TclError):
-                    self.view.p1_coord_var.set("P1: N/A")
+                    self.state.active_p1 = p1
+                except (ValueError, tk.TclError): pass
                 try:
                     p2 = Point(float(self.view.arc_p2_x_entry.get()), float(self.view.arc_p2_y_entry.get()))
-                    self.view.p2_coord_var.set(f"P2({p2.x:.2f}, {p2.y:.2f})")
-                except (ValueError, tk.TclError):
-                    self.view.p2_coord_var.set("P2: N/A")
+                    self.state.active_p2 = p2
+                except (ValueError, tk.TclError): pass
                 try:
                     p3 = Point(float(self.view.arc_p3_x_entry.get()), float(self.view.arc_p3_y_entry.get()))
-                    self.view.p3_coord_var.set(f"P3({p3.x:.2f}, {p3.y:.2f})")
-                except (ValueError, tk.TclError):
-                    self.view.p3_coord_var.set("P3: N/A")
-
-                self.state.active_p1 = p1
-                self.state.active_p2 = p2
-                self.state.active_p3 = p3
+                    self.state.active_p3 = p3
+                except (ValueError, tk.TclError): pass
             else:
-                center = None
-                start_pt = None
-                end_pt = None
-                radius = None
-                start_ang = None
-                end_ang = None
-                
                 try:
                     center = Point(float(self.view.arc_center_x_entry.get()), float(self.view.arc_center_y_entry.get()))
-                    self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
-                except (ValueError, tk.TclError):
-                    self.view.p1_coord_var.set("Центр: N/A")
+                    self.state.active_p1 = center
+                except (ValueError, tk.TclError): pass
                 try:
                     radius = float(self.view.arc_radius_entry.get())
-                    self.view.p2_coord_var.set(f"Радиус: {radius:.2f}")
-                except (ValueError, tk.TclError):
-                    self.view.p2_coord_var.set("Радиус: N/A")
+                except (ValueError, tk.TclError): pass
                 try:
                     start_val = float(self.view.arc_start_angle_entry.get())
                     start_ang = math.radians(start_val) if angle_unit == 'degrees' else start_val
-                except (ValueError, tk.TclError):
-                    start_val = None
+                    if center and radius:
+                        self.state.active_p2 = Point(center.x + radius * math.cos(start_ang), center.y + radius * math.sin(start_ang))
+                except (ValueError, tk.TclError): pass
                 try:
                     end_val = float(self.view.arc_end_angle_entry.get())
                     end_ang = math.radians(end_val) if angle_unit == 'degrees' else end_val
-                except (ValueError, tk.TclError):
-                    end_val = None
-                
-                # Обновляем отображение углов
-                if start_val is not None and end_val is not None:
-                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: {end_val:.2f}{sym}")
-                elif start_val is not None:
-                    self.view.p3_coord_var.set(f"θ₁: {start_val:.2f}{sym} | θ₂: ...")
-                else:
-                    self.view.p3_coord_var.set("Углы: N/A")
+                    if center and radius:
+                        self.state.active_p3 = Point(center.x + radius * math.cos(end_ang), center.y + radius * math.sin(end_ang))
+                except (ValueError, tk.TclError): pass
 
-                # Устанавливаем активные точки в зависимости от имеющихся данных
-                self.state.active_p1 = center
-                
-                # Если есть центр, радиус и начальный угол - показываем точку начала дуги
-                if center is not None and radius is not None and start_ang is not None:
-                    start_pt = Point(center.x + radius * math.cos(start_ang), center.y + radius * math.sin(start_ang))
-                    self.state.active_p2 = start_pt
-                else:
-                    self.state.active_p2 = None
-                
-                # Если есть конечный угол - показываем точку конца дуги
-                if center is not None and radius is not None and end_ang is not None:
-                    end_pt = Point(center.x + radius * math.cos(end_ang), center.y + radius * math.sin(end_ang))
-                    self.state.active_p3 = end_pt
-                else:
-                    self.state.active_p3 = None
-
-            # Если есть превью, оно приоритетно для точек только для метода центр+углы
-            arc_preview = self.state.preview_arc
-            if arc_preview and method != 'three_points':
-                center = arc_preview.center
-                start_pt = Point(center.x + arc_preview.radius * math.cos(arc_preview.start_angle),
-                                 center.y + arc_preview.radius * math.sin(arc_preview.start_angle))
-                end_pt = Point(center.x + arc_preview.radius * math.cos(arc_preview.end_angle),
-                               center.y + arc_preview.radius * math.sin(arc_preview.end_angle))
-                self.state.active_p1 = center
-                self.state.active_p2 = start_pt
-                self.state.active_p3 = end_pt
-
+            # Если есть превью дуги - используем его данные
             if arc_preview:
+                center = arc_preview.center
+                radius = arc_preview.radius
                 sweep = arc_preview.sweep_angle
-                sweep_disp = math.degrees(sweep) if angle_unit == 'degrees' else sweep
-                self.view.length_var.set(f"Угол дуги: {sweep_disp:.2f}{sym}")
-                self.view.angle_var.set("Дуга")
-                self.view.p2_coord_var.set(f"Радиус: {arc_preview.radius:.2f}")
-            else:
-                self.view.length_var.set("Угол дуги: N/A")
-                self.view.angle_var.set("Дуга")
+                if method != 'three_points':
+                    self.state.active_p1 = center
+                    self.state.active_p2 = Point(center.x + radius * math.cos(arc_preview.start_angle),
+                                                 center.y + radius * math.sin(arc_preview.start_angle))
+                    self.state.active_p3 = Point(center.x + radius * math.cos(arc_preview.end_angle),
+                                                 center.y + radius * math.sin(arc_preview.end_angle))
 
+            # Дуга: Угол дуги, Радиус, Центр
+            if center and radius:
+                if sweep:
+                    sweep_disp = math.degrees(sweep) if angle_unit == 'degrees' else sweep
+                    self.view.length_var.set(f"Угол дуги: {sweep_disp:.2f}{sym}")
+                self.view.angle_var.set(f"Радиус: {radius:.2f}")
+                self.view.p1_coord_var.set(f"Центр: ({center.x:.2f}; {center.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 1.8: РЕЖИМ СОЗДАНИЯ ПРЯМОУГОЛЬНИКА
+        # ========== РЕЖИМ СОЗДАНИЯ ПРЯМОУГОЛЬНИКА ==========
         if self.state.app_mode == 'CREATING_RECTANGLE':
+            self._clear_info_panel()
             rect_preview = self.state.preview_rectangle
             method = self.state.rectangle_creation_method
 
+            rect = None
             if rect_preview:
+                rect = rect_preview
                 corners = rect_preview.corners()
                 if len(corners) >= 4:
                     self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
-
-                self.view.length_var.set(f"W: {rect_preview.width:.2f} | H: {rect_preview.height:.2f}")
-                self.view.angle_var.set("Прямоугольник")
-                self.view.p1_coord_var.set(f"Мин({rect_preview.min_x:.2f}, {rect_preview.min_y:.2f})")
-                self.view.p2_coord_var.set(f"Макс({rect_preview.max_x:.2f}, {rect_preview.max_y:.2f})")
-                self.view.p3_coord_var.set(f"Углы: {rect_preview.corner_type} {rect_preview.corner_value:.2f}")
             else:
-                # Без превью - заполняем по введенным значениям
-                # Показываем/рисуем то, что уже есть в полях, даже если фигура еще не собрана
+                # Пытаемся создать прямоугольник из полей
                 if method == 'two_points':
-                    p1 = p2 = None
                     try:
                         p1 = Point(float(self.view.rect_p1_x_entry.get()), float(self.view.rect_p1_y_entry.get()))
-                        self.state.active_p1 = p1
-                        self.view.p1_coord_var.set(f"P1({p1.x:.2f},{p1.y:.2f})")
-                    except (ValueError, tk.TclError):
-                        self.view.p1_coord_var.set("P1: N/A")
-                    try:
                         p2 = Point(float(self.view.rect_p2_x_entry.get()), float(self.view.rect_p2_y_entry.get()))
+                        self.state.active_p1 = p1
                         self.state.active_p2 = p2
-                        self.view.p2_coord_var.set(f"P2({p2.x:.2f},{p2.y:.2f})")
-                    except (ValueError, tk.TclError):
-                        if p1:
-                            self.view.p2_coord_var.set("P2: ...")
-                        else:
-                            self.view.p2_coord_var.set("P2: N/A")
-                    if p1 and p2:
-                        rect_tmp = Rectangle.from_two_points(p1, p2, style_name=self.state.current_style_name, color=self.state.current_color)
-                        corners = rect_tmp.corners()
+                        rect = Rectangle.from_two_points(p1, p2, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect.corners()
                         if len(corners) >= 4:
                             self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+                    except (ValueError, tk.TclError): pass
                 elif method == 'corner_size':
-                    corner_pt = None
-                    w = h = None
                     try:
                         corner_pt = Point(float(self.view.rect_corner_x_entry.get()), float(self.view.rect_corner_y_entry.get()))
-                        self.state.active_p1 = corner_pt
-                        self.view.p1_coord_var.set(f"Угол({corner_pt.x:.2f},{corner_pt.y:.2f})")
-                    except (ValueError, tk.TclError):
-                        self.view.p1_coord_var.set("Угол: N/A")
-                    try:
                         w = float(self.view.rect_width_entry.get())
                         h = float(self.view.rect_height_entry.get())
-                        self.view.p2_coord_var.set(f"W:{w:.2f} H:{h:.2f}")
-                    except (ValueError, tk.TclError):
-                        if corner_pt:
-                            self.view.p2_coord_var.set("Размеры: ...")
-                        else:
-                            self.view.p2_coord_var.set("Размеры: N/A")
-                    if corner_pt is not None and w is not None and h is not None:
-                        rect_tmp = Rectangle.from_corner_size(corner_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
-                        corners = rect_tmp.corners()
+                        self.state.active_p1 = corner_pt
+                        rect = Rectangle.from_corner_size(corner_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect.corners()
                         if len(corners) >= 4:
                             self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
+                    except (ValueError, tk.TclError): pass
                 elif method == 'center_size':
-                    center_pt = None
-                    w = h = None
                     try:
                         center_pt = Point(float(self.view.rect_center_x_entry.get()), float(self.view.rect_center_y_entry.get()))
-                        self.state.active_p1 = center_pt
-                        self.view.p1_coord_var.set(f"Центр({center_pt.x:.2f},{center_pt.y:.2f})")
-                    except (ValueError, tk.TclError):
-                        self.view.p1_coord_var.set("Центр: N/A")
-                    try:
                         w = float(self.view.rect_center_w_entry.get())
                         h = float(self.view.rect_center_h_entry.get())
-                        self.view.p2_coord_var.set(f"W:{w:.2f} H:{h:.2f}")
-                    except (ValueError, tk.TclError):
-                        if center_pt:
-                            self.view.p2_coord_var.set("Размеры: ...")
-                        else:
-                            self.view.p2_coord_var.set("Размеры: N/A")
-                    if center_pt is not None and w is not None and h is not None:
-                        rect_tmp = Rectangle.from_center_size(center_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
-                        corners = rect_tmp.corners()
+                        self.state.active_p1 = center_pt
+                        rect = Rectangle.from_center_size(center_pt, w, h, style_name=self.state.current_style_name, color=self.state.current_color)
+                        corners = rect.corners()
                         if len(corners) >= 4:
                             self.state.active_p1, self.state.active_p2, self.state.active_p3, self.state.active_p4 = corners[:4]
-                else:
-                    self.view.p1_coord_var.set("P1: N/A"); self.view.p2_coord_var.set("P2: N/A")
-                self.view.length_var.set("W/H: N/A")
-                self.view.angle_var.set("Прямоугольник")
+                    except (ValueError, tk.TclError): pass
 
+            # Прямоугольник: Длина, Ширина, P1(левый нижний), P2(правый верхний), Углы(тип + значение)
+            if rect:
+                self.view.length_var.set(f"Длина: {rect.width:.2f}")
+                self.view.angle_var.set(f"Ширина: {rect.height:.2f}")
+                self.view.p1_coord_var.set(f"P1: ({rect.min_x:.2f}; {rect.min_y:.2f})")
+                self.view.p2_coord_var.set(f"P2: ({rect.max_x:.2f}; {rect.max_y:.2f})")
+                corner_type_ru = {'none': 'нет', 'chamfer': 'фаска', 'fillet': 'скругление'}.get(rect.corner_type, rect.corner_type)
+                self.view.p3_coord_var.set(f"Углы: {corner_type_ru} {rect.corner_value:.2f}")
             return
 
-        # ПРИОРИТЕТ 1.9: РЕЖИМ СОЗДАНИЯ ЭЛЛИПСА
+        # ========== РЕЖИМ СОЗДАНИЯ ЭЛЛИПСА ==========
         if self.state.app_mode == 'CREATING_ELLIPSE':
+            self._clear_info_panel()
             center = axis_a = axis_b = None
             try:
                 center = Point(float(self.view.ellipse_center_x_entry.get()), float(self.view.ellipse_center_y_entry.get()))
                 self.state.active_p1 = center
-                self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
-            except (ValueError, tk.TclError):
-                self.view.p1_coord_var.set("Центр: N/A")
+            except (ValueError, tk.TclError): pass
             try:
                 axis_a = Point(float(self.view.ellipse_a_x_entry.get()), float(self.view.ellipse_a_y_entry.get()))
                 self.state.active_p2 = axis_a
-                self.view.p2_coord_var.set(f"A({axis_a.x:.2f}, {axis_a.y:.2f})")
-            except (ValueError, tk.TclError):
-                if center:
-                    self.view.p2_coord_var.set("A: ...")
-                else:
-                    self.view.p2_coord_var.set("A: N/A")
+            except (ValueError, tk.TclError): pass
             try:
                 axis_b = Point(float(self.view.ellipse_b_x_entry.get()), float(self.view.ellipse_b_y_entry.get()))
                 self.state.active_p3 = axis_b
-                self.view.p3_coord_var.set(f"B({axis_b.x:.2f}, {axis_b.y:.2f})")
-            except (ValueError, tk.TclError):
-                self.view.p3_coord_var.set("B: N/A")
+            except (ValueError, tk.TclError): pass
 
-            preview = self.state.preview_ellipse
-            if preview:
-                e1x, e1y, a, _, _, b = preview._basis()
-                ang = math.atan2(e1y, e1x)
-                if self.view.angle_units.get() == 'degrees':
-                    ang_disp = math.degrees(ang)
-                    sym = "°"
-                else:
-                    ang_disp = ang
-                    sym = " rad"
-                self.view.length_var.set(f"a: {a:.2f} | b: {b:.2f}")
-                self.view.angle_var.set(f"Ось A: {ang_disp:.2f}{sym}")
-            else:
-                self.view.length_var.set("a/b: N/A")
-                self.view.angle_var.set("Эллипс")
-
+            # Эллипс: Центр, Точка A, Точка B
+            if center:
+                self.view.length_var.set(f"Центр: ({center.x:.2f}; {center.y:.2f})")
+            if axis_a:
+                self.view.angle_var.set(f"Точка A: ({axis_a.x:.2f}; {axis_a.y:.2f})")
+            if axis_b:
+                self.view.p1_coord_var.set(f"Точка B: ({axis_b.x:.2f}; {axis_b.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 1.95: РЕЖИМ СОЗДАНИЯ МНОГОУГОЛЬНИКА
+        # ========== РЕЖИМ СОЗДАНИЯ МНОГОУГОЛЬНИКА ==========
         if self.state.app_mode == 'CREATING_POLYGON':
+            self._clear_info_panel()
             center = None
+            radius = None
             try:
                 center = Point(float(self.view.polygon_center_x_entry.get()), float(self.view.polygon_center_y_entry.get()))
                 self.state.active_p1 = center
-                self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
-            except (ValueError, tk.TclError):
-                self.view.p1_coord_var.set("Центр: N/A")
-
+            except (ValueError, tk.TclError): pass
             try:
                 radius = float(self.view.polygon_radius_entry.get())
-                self.view.p2_coord_var.set(f"R: {radius:.2f}")
-            except (ValueError, tk.TclError):
-                self.view.p2_coord_var.set("R: N/A")
+            except (ValueError, tk.TclError): pass
 
             sides = self.state.polygon_sides
             variant = self.view.polygon_variant.get()
-            self.view.p3_coord_var.set(f"N={sides} | {variant}")
+            variant_ru = 'вписанный' if variant == 'inscribed' else 'описанный'
 
             if self.state.preview_polygon:
                 verts = self.state.preview_polygon.vertices()
@@ -2960,150 +2824,129 @@ class Callbacks:
                     self.state.active_p2 = verts[0]
                 if len(verts) > 1:
                     self.state.active_p3 = verts[1]
-                self.view.length_var.set(f"Сторон: {len(verts)}")
-                self.view.angle_var.set("Многоугольник")
-            else:
-                self.view.length_var.set("Сторон: N/A")
-                self.view.angle_var.set("Многоугольник")
 
+            # Многоугольник: Центр, Количество углов, Тип(вписанный/описанный), Радиус
+            if center:
+                self.view.length_var.set(f"Центр: ({center.x:.2f}; {center.y:.2f})")
+            self.view.angle_var.set(f"Количество углов: {sides}")
+            self.view.p1_coord_var.set(f"Тип: {variant_ru}")
+            if radius:
+                self.view.p2_coord_var.set(f"Радиус: {radius:.2f}")
             return
 
-        # ПРИОРИТЕТ 1.97: РЕЖИМ СОЗДАНИЯ СПЛАЙНА
+        # ========== РЕЖИМ СОЗДАНИЯ СПЛАЙНА ==========
         if self.state.app_mode == 'CREATING_SPLINE':
+            self._clear_info_panel()
             count = len(self.state.spline_control_points)
-            self.view.p1_coord_var.set(f"Точек: {count}")
+            length = 0.0
+            first = last = None
+
             if count:
                 first = self.state.spline_control_points[0]
                 last = self.state.spline_control_points[-1]
-                self.view.p2_coord_var.set(f"Старт({first.x:.2f}, {first.y:.2f})")
-                self.view.p3_coord_var.set(f"Финиш({last.x:.2f}, {last.y:.2f})")
                 self.state.active_p1 = first
                 self.state.active_p2 = last
-            else:
-                self.view.p2_coord_var.set("Старт: N/A")
-                self.view.p3_coord_var.set("Финиш: N/A")
 
             if self.state.preview_spline:
                 length = self.state.preview_spline.approximate_length()
-                self.view.length_var.set(f"Длина≈ {length:.2f}")
-            else:
-                self.view.length_var.set("Длина: N/A")
-            self.view.angle_var.set("Сплайн")
+
+            # Сплайн: Длина, Количество точек, Точка старта, Точка финиша
+            if length > 0:
+                self.view.length_var.set(f"Длина: {length:.2f}")
+            self.view.angle_var.set(f"Количество точек: {count}")
+            if first:
+                self.view.p1_coord_var.set(f"Точка старта: ({first.x:.2f}; {first.y:.2f})")
+            if last:
+                self.view.p2_coord_var.set(f"Точка финиша: ({last.x:.2f}; {last.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 2: ВЫДЕЛЕНИЕ
-        # Если мы НЕ строим, но что-то выделено
+        # ========== ВЫДЕЛЕНИЕ ОТРЕЗКА ==========
         if self.state.selected_segments:
+            self._clear_info_panel()
             seg = self.state.selected_segments[0]
-
-            # ОБНОВЛЕНИЕ ТЕКСТА
-            self.view.p1_coord_var.set(f"P1({seg.p1.x:.2f}, {seg.p1.y:.2f})")
-            self.view.p2_coord_var.set(f"P2({seg.p2.x:.2f}, {seg.p2.y:.2f})")
-            self.view.length_var.set(f"Длина: {seg.length:.2f}")
-
             angle = seg.angle
-            if self.view.angle_units.get() == 'degrees':
-                val = math.degrees(angle)
-                sym = "°"
-            else:
-                val = angle
-                sym = " rad"
+            val = math.degrees(angle) if self.view.angle_units.get() == 'degrees' else angle
+            sym = "°" if self.view.angle_units.get() == 'degrees' else " рад"
+            # Отрезок: Длина, Угол, P1, P2
+            self.view.length_var.set(f"Длина: {seg.length:.2f}")
             self.view.angle_var.set(f"Угол: {val:.2f}{sym}")
-
-            # ВАЖНО: Мы НЕ устанавливаем self.state.active_p1/p2
-            # Поэтому точки на краях выделенного отрезка рисоваться НЕ БУДУТ.
+            self.view.p1_coord_var.set(f"P1: ({seg.p1.x:.2f}; {seg.p1.y:.2f})")
+            self.view.p2_coord_var.set(f"P2: ({seg.p2.x:.2f}; {seg.p2.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 2.5: ВЫДЕЛЕНИЕ ОКРУЖНОСТИ
+        # ========== ВЫДЕЛЕНИЕ ОКРУЖНОСТИ ==========
         if self.state.selected_circles:
+            self._clear_info_panel()
             circle = self.state.selected_circles[0]
-
-            # ОБНОВЛЕНИЕ ТЕКСТА
-            self.view.p1_coord_var.set(f"Центр({circle.center.x:.2f}, {circle.center.y:.2f})")
-            self.view.p2_coord_var.set(f"Радиус: {circle.radius:.2f}")
+            # Окружность: Диаметр, Радиус, Центр
             self.view.length_var.set(f"Диаметр: {circle.diameter:.2f}")
-            self.view.angle_var.set("Окружность")
+            self.view.angle_var.set(f"Радиус: {circle.radius:.2f}")
+            self.view.p1_coord_var.set(f"Центр: ({circle.center.x:.2f}; {circle.center.y:.2f})")
+            return
 
-            return 
-
-        # ПРИОРИТЕТ 2.6: ВЫДЕЛЕНИЕ ДУГИ
+        # ========== ВЫДЕЛЕНИЕ ДУГИ ==========
         if self.state.selected_arcs:
+            self._clear_info_panel()
             arc = self.state.selected_arcs[0]
             angle_unit = self.view.angle_units.get()
-            sym = "°" if angle_unit == 'degrees' else " rad"
+            sym = "°" if angle_unit == 'degrees' else " рад"
             sweep_disp = math.degrees(arc.sweep_angle) if angle_unit == 'degrees' else arc.sweep_angle
-
-            center = arc.center
-            start_pt = Point(center.x + arc.radius * math.cos(arc.start_angle),
-                             center.y + arc.radius * math.sin(arc.start_angle))
-            end_pt = Point(center.x + arc.radius * math.cos(arc.end_angle),
-                           center.y + arc.radius * math.sin(arc.end_angle))
-
-            self.view.p1_coord_var.set(f"Центр({center.x:.2f}, {center.y:.2f})")
-            self.view.p2_coord_var.set(f"Радиус: {arc.radius:.2f}")
-            self.view.p3_coord_var.set(f"Угол: {sweep_disp:.2f}{sym}")
+            # Дуга: Угол дуги, Радиус, Центр
             self.view.length_var.set(f"Угол дуги: {sweep_disp:.2f}{sym}")
-            self.view.angle_var.set("Дуга")
-
+            self.view.angle_var.set(f"Радиус: {arc.radius:.2f}")
+            self.view.p1_coord_var.set(f"Центр: ({arc.center.x:.2f}; {arc.center.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 2.7: ВЫДЕЛЕНИЕ ПРЯМОУГОЛЬНИКА
+        # ========== ВЫДЕЛЕНИЕ ПРЯМОУГОЛЬНИКА ==========
         if self.state.selected_rectangles:
+            self._clear_info_panel()
             rect = self.state.selected_rectangles[0]
-            self.view.p1_coord_var.set(f"Мин({rect.min_x:.2f}, {rect.min_y:.2f})")
-            self.view.p2_coord_var.set(f"Макс({rect.max_x:.2f}, {rect.max_y:.2f})")
-            self.view.p3_coord_var.set(f"Углы: {rect.corner_type} {rect.corner_value:.2f}")
-            self.view.length_var.set(f"W: {rect.width:.2f} | H: {rect.height:.2f}")
-            self.view.angle_var.set("Прямоугольник")
+            corner_type_ru = {'none': 'нет', 'chamfer': 'фаска', 'fillet': 'скругление'}.get(rect.corner_type, rect.corner_type)
+            # Прямоугольник: Длина, Ширина, P1(левый нижний), P2(правый верхний), Углы(тип + значение)
+            self.view.length_var.set(f"Длина: {rect.width:.2f}")
+            self.view.angle_var.set(f"Ширина: {rect.height:.2f}")
+            self.view.p1_coord_var.set(f"P1: ({rect.min_x:.2f}; {rect.min_y:.2f})")
+            self.view.p2_coord_var.set(f"P2: ({rect.max_x:.2f}; {rect.max_y:.2f})")
+            self.view.p3_coord_var.set(f"Углы: {corner_type_ru} {rect.corner_value:.2f}")
             return
 
-        # ПРИОРИТЕТ 2.8: ВЫДЕЛЕНИЕ ЭЛЛИПСА
+        # ========== ВЫДЕЛЕНИЕ ЭЛЛИПСА ==========
         if self.state.selected_ellipses:
+            self._clear_info_panel()
             ell = self.state.selected_ellipses[0]
-            self.view.p1_coord_var.set(f"Центр({ell.center.x:.2f}, {ell.center.y:.2f})")
-            self.view.p2_coord_var.set(f"A({ell.axis_point_a.x:.2f}, {ell.axis_point_a.y:.2f})")
-            self.view.p3_coord_var.set(f"B({ell.axis_point_b.x:.2f}, {ell.axis_point_b.y:.2f})")
-            e1x, e1y, a, _, _, b = ell._basis()
-            ang = math.atan2(e1y, e1x)
-            if self.view.angle_units.get() == 'degrees':
-                ang_disp = math.degrees(ang)
-                sym = "°"
-            else:
-                ang_disp = ang
-                sym = " rad"
-            self.view.length_var.set(f"a: {a:.2f} | b: {b:.2f}")
-            self.view.angle_var.set(f"Ось A: {ang_disp:.2f}{sym}")
+            # Эллипс: Центр, Точка A, Точка B
+            self.view.length_var.set(f"Центр: ({ell.center.x:.2f}; {ell.center.y:.2f})")
+            self.view.angle_var.set(f"Точка A: ({ell.axis_point_a.x:.2f}; {ell.axis_point_a.y:.2f})")
+            self.view.p1_coord_var.set(f"Точка B: ({ell.axis_point_b.x:.2f}; {ell.axis_point_b.y:.2f})")
             return
 
-        # ПРИОРИТЕТ 2.9: ВЫДЕЛЕНИЕ МНОГОУГОЛЬНИКА
+        # ========== ВЫДЕЛЕНИЕ МНОГОУГОЛЬНИКА ==========
         if self.state.selected_polygons:
+            self._clear_info_panel()
             poly = self.state.selected_polygons[0]
-            self.view.p1_coord_var.set(f"Центр({poly.center.x:.2f}, {poly.center.y:.2f})")
-            self.view.p2_coord_var.set(f"R: {poly.base_radius:.2f}")
-            self.view.p3_coord_var.set(f"N={poly.sides} | {poly.variant}")
-            self.view.length_var.set(f"Сторон: {poly.sides}")
-            self.view.angle_var.set("Многоугольник")
+            variant_ru = 'вписанный' if poly.variant == 'inscribed' else 'описанный'
+            # Многоугольник: Центр, Количество углов, Тип(вписанный/описанный), Радиус
+            self.view.length_var.set(f"Центр: ({poly.center.x:.2f}; {poly.center.y:.2f})")
+            self.view.angle_var.set(f"Количество углов: {poly.sides}")
+            self.view.p1_coord_var.set(f"Тип: {variant_ru}")
+            self.view.p2_coord_var.set(f"Радиус: {poly.base_radius:.2f}")
             return
 
+        # ========== ВЫДЕЛЕНИЕ СПЛАЙНА ==========
         if self.state.selected_splines:
+            self._clear_info_panel()
             sp = self.state.selected_splines[0]
             pts = sp.control_points
-            self.view.p1_coord_var.set(f"Точек: {len(pts)}")
+            # Сплайн: Длина, Количество точек, Точка старта, Точка финиша
+            self.view.length_var.set(f"Длина: {sp.approximate_length():.2f}")
+            self.view.angle_var.set(f"Количество точек: {len(pts)}")
             if pts:
-                self.view.p2_coord_var.set(f"Старт({pts[0].x:.2f}, {pts[0].y:.2f})")
-                self.view.p3_coord_var.set(f"Финиш({pts[-1].x:.2f}, {pts[-1].y:.2f})")
-            else:
-                self.view.p2_coord_var.set("Старт: N/A")
-                self.view.p3_coord_var.set("Финиш: N/A")
-            self.view.length_var.set(f"Длина≈ {sp.approximate_length():.2f}")
-            self.view.angle_var.set("Сплайн")
+                self.view.p1_coord_var.set(f"Точка старта: ({pts[0].x:.2f}; {pts[0].y:.2f})")
+                self.view.p2_coord_var.set(f"Точка финиша: ({pts[-1].x:.2f}; {pts[-1].y:.2f})")
             return
 
-        # ПРИОРИТЕТ 3: ПУСТОТА
-        self.view.length_var.set("Длина: N/A")
-        self.view.angle_var.set("Угол: N/A")
-        self.view.p1_coord_var.set("P1: N/A")
-        self.view.p2_coord_var.set("P2: N/A")
+        # ========== НИЧЕГО НЕ ВЫБРАНО - ПУСТАЯ СТРОКА ==========
+        self._clear_info_panel()
 
     def on_reset_view(self, event=None):
         self.state.pan_x = 0
