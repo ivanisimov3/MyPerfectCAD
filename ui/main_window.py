@@ -85,6 +85,7 @@ class MainWindow:
         # События клавиатуры
         self.root.bind("<F11>", callbacks.toggle_fullscreen)
         self.root.bind("<Escape>", callbacks.on_escape_key)
+        self.root.bind("<Delete>", callbacks.on_delete_segment)  # Удаление по клавише Delete
         self.root.bind("<plus>", callbacks.on_zoom_in)
         self.root.bind("<equal>", callbacks.on_zoom_in)
         self.root.bind("<minus>", callbacks.on_zoom_out)
@@ -168,14 +169,14 @@ class MainWindow:
         _add_icon_button("~", callbacks.on_new_spline_mode, [
             ("Точки управления", callbacks.on_new_spline_mode),
         ])
-        ttk.Button(parent, text="Del", width=5, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
+        ttk.Button(parent, text="Удалить", width=8, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
         # === Навигация/вид ===
         ttk.Button(parent, text="Рука", width=6, command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="+", width=3, command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=1)
         ttk.Button(parent, text="-", width=3, command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=1)
-        ttk.Button(parent, text="Fit", width=4, command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
+        ttk.Button(parent, text="Вписать", width=8, command=callbacks.on_fit_to_view).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="↶", width=3, command=callbacks.on_rotate_left).pack(side=tk.LEFT, padx=1)
         ttk.Button(parent, text="↷", width=3, command=callbacks.on_rotate_right).pack(side=tk.LEFT, padx=1)
         ttk.Button(parent, text="0°", width=3, command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)

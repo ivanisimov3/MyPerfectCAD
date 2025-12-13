@@ -503,18 +503,11 @@ class Callbacks:
 
         if found_segment:
             if ctrl_pressed:
-                # Если Ctrl зажат - добавляем или убираем из списка
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_segment in self.state.selected_segments:
                     self.state.selected_segments.remove(found_segment)
                 else:
                     self.state.selected_segments.append(found_segment)
-                # Очищаем выделение окружностей при выборе сегмента
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = [found_segment]
@@ -526,18 +519,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_circle:
             if ctrl_pressed:
-                # Если Ctrl зажат - добавляем или убираем из списка
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_circle in self.state.selected_circles:
                     self.state.selected_circles.remove(found_circle)
                 else:
                     self.state.selected_circles.append(found_circle)
-                # Очищаем выделение сегментов при выборе окружности
-                self.state.selected_segments = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
             else:
                 # Если Ctrl НЕ зажат - выбираем только этот (сброс остальных)
                 self.state.selected_segments = []
@@ -549,16 +535,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_arc:
             if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_arc in self.state.selected_arcs:
                     self.state.selected_arcs.remove(found_arc)
                 else:
                     self.state.selected_arcs.append(found_arc)
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -569,16 +550,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_ellipse:
             if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_ellipse in self.state.selected_ellipses:
                     self.state.selected_ellipses.remove(found_ellipse)
                 else:
                     self.state.selected_ellipses.append(found_ellipse)
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -589,16 +565,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_rectangle:
             if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_rectangle in self.state.selected_rectangles:
                     self.state.selected_rectangles.remove(found_rectangle)
                 else:
                     self.state.selected_rectangles.append(found_rectangle)
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -609,16 +580,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_polygon:
             if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_polygon in self.state.selected_polygons:
                     self.state.selected_polygons.remove(found_polygon)
                 else:
                     self.state.selected_polygons.append(found_polygon)
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_splines = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -629,16 +595,11 @@ class Callbacks:
                 self.state.selected_splines = []
         elif found_spline:
             if ctrl_pressed:
+                # Если Ctrl зажат - добавляем или убираем из списка (не сбрасываем другие типы)
                 if found_spline in self.state.selected_splines:
                     self.state.selected_splines.remove(found_spline)
                 else:
                     self.state.selected_splines.append(found_spline)
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
             else:
                 self.state.selected_segments = []
                 self.state.selected_circles = []
@@ -673,8 +634,14 @@ class Callbacks:
         sel_polygons = self.state.selected_polygons
         sel_splines = self.state.selected_splines
 
+        # Собираем все выделенные объекты
+        all_selected = (
+            list(sel_segments) + list(sel_circles) + list(sel_arcs) +
+            list(sel_rectangles) + list(sel_ellipses) + list(sel_polygons) + list(sel_splines)
+        )
+
         # Если ничего не выделено
-        if not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons and not sel_splines:
+        if not all_selected:
             style_obj = GOST_STYLES.get(self.state.current_style_name)
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
@@ -682,28 +649,32 @@ class Callbacks:
             self._refresh_settings_context_panel()
             return
 
-        # Определяем, что выделено
-        if sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
-            # Выделены только сегменты
-            self._sync_ui_with_segments(sel_segments)
-        elif sel_circles and not sel_segments and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
-            # Выделены только окружности
-            self._sync_ui_with_circles(sel_circles)
-        elif sel_arcs and not sel_segments and not sel_circles and not sel_rectangles and not sel_ellipses and not sel_polygons:
-            # Выделены только дуги
-            self._sync_ui_with_arcs(sel_arcs)
-        elif sel_rectangles and not sel_segments and not sel_circles and not sel_arcs and not sel_ellipses and not sel_polygons:
-            self._sync_ui_with_rectangles(sel_rectangles)
-        elif sel_ellipses and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_polygons:
-            self._sync_ui_with_ellipses(sel_ellipses)
-        elif sel_polygons and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_splines:
-            self._sync_ui_with_polygons(sel_polygons)
-        elif sel_splines and not sel_segments and not sel_circles and not sel_arcs and not sel_rectangles and not sel_ellipses and not sel_polygons:
-            self._sync_ui_with_splines(sel_splines)
+        # Собираем уникальные стили и цвета из всех выделенных объектов
+        unique_styles = set()
+        unique_colors = set()
+        for obj in all_selected:
+            unique_styles.add(obj.style_name)
+            unique_colors.add(obj.color)
+
+        # Обновляем UI на основе выделения
+        if len(unique_styles) == 1:
+            # Все объекты имеют один стиль
+            style_name = list(unique_styles)[0]
+            self.view.set_style_selection(style_name)
+            self.state.current_style_name = style_name
         else:
-            # Смешанное выделение - показываем "Разные"
+            # Разные стили
             self.view.set_style_selection("Разные")
+
+        if len(unique_colors) == 1:
+            # Все объекты имеют один цвет
+            color = list(unique_colors)[0]
+            self.view.segment_swatch.config(bg=color)
+            self.state.current_color = color
+        else:
+            # Разные цвета
             self.view.segment_swatch.config(bg="#cccccc")
+
         self._refresh_settings_context_panel()
 
     def _sync_ui_with_segments(self, sel_segments):
@@ -834,27 +805,21 @@ class Callbacks:
 
         self.state.current_style_name = new_style_name
 
-        if self.state.selected_segments:
-            for seg in self.state.selected_segments:
-                seg.style_name = new_style_name
-        elif self.state.selected_circles:
-            for circle in self.state.selected_circles:
-                circle.style_name = new_style_name
-        elif self.state.selected_arcs:
-            for arc in self.state.selected_arcs:
-                arc.style_name = new_style_name
-        elif self.state.selected_rectangles:
-            for rect in self.state.selected_rectangles:
-                rect.style_name = new_style_name
-        elif self.state.selected_ellipses:
-            for ellipse in self.state.selected_ellipses:
-                ellipse.style_name = new_style_name
-        elif self.state.selected_polygons:
-            for poly in self.state.selected_polygons:
-                poly.style_name = new_style_name
-        elif self.state.selected_splines:
-            for spline in self.state.selected_splines:
-                spline.style_name = new_style_name
+        # Применяем стиль ко всем выделенным объектам (любого типа)
+        for seg in self.state.selected_segments:
+            seg.style_name = new_style_name
+        for circle in self.state.selected_circles:
+            circle.style_name = new_style_name
+        for arc in self.state.selected_arcs:
+            arc.style_name = new_style_name
+        for rect in self.state.selected_rectangles:
+            rect.style_name = new_style_name
+        for ellipse in self.state.selected_ellipses:
+            ellipse.style_name = new_style_name
+        for poly in self.state.selected_polygons:
+            poly.style_name = new_style_name
+        for spline in self.state.selected_splines:
+            spline.style_name = new_style_name
 
         self._sync_ui_with_selection()
 
@@ -1623,55 +1588,70 @@ class Callbacks:
         self.update_preview_spline()
 
     def on_delete_segment(self, event=None):
-        if self.state.selected_segments:
+        """Удаляет все выделенные объекты (любого типа)."""
+        # Подсчитываем общее количество выделенных объектов
+        has_selection = (
+            self.state.selected_segments or
+            self.state.selected_circles or
+            self.state.selected_arcs or
+            self.state.selected_rectangles or
+            self.state.selected_ellipses or
+            self.state.selected_polygons or
+            self.state.selected_splines
+        )
+        
+        if has_selection:
+            # Удаляем все выделенные объекты всех типов
             for seg in self.state.selected_segments:
                 if seg in self.state.segments:
                     self.state.segments.remove(seg)
             self.state.selected_segments = []
-        elif self.state.selected_circles:
+            
             for circle in self.state.selected_circles:
                 if circle in self.state.circles:
                     self.state.circles.remove(circle)
             self.state.selected_circles = []
-        elif self.state.selected_arcs:
+            
             for arc in self.state.selected_arcs:
                 if arc in self.state.arcs:
                     self.state.arcs.remove(arc)
             self.state.selected_arcs = []
-        elif self.state.selected_rectangles:
+            
             for rect in self.state.selected_rectangles:
                 if rect in self.state.rectangles:
                     self.state.rectangles.remove(rect)
             self.state.selected_rectangles = []
-        elif self.state.selected_ellipses:
+            
             for ellipse in self.state.selected_ellipses:
                 if ellipse in self.state.ellipses:
                     self.state.ellipses.remove(ellipse)
             self.state.selected_ellipses = []
-        elif self.state.selected_polygons:
+            
             for poly in self.state.selected_polygons:
                 if poly in self.state.polygons:
                     self.state.polygons.remove(poly)
             self.state.selected_polygons = []
-        elif self.state.selected_splines:
+            
             for spline in self.state.selected_splines:
                 if spline in self.state.splines:
                     self.state.splines.remove(spline)
             self.state.selected_splines = []
-        elif self.state.segments:
-            self.state.segments.pop()
-        elif self.state.circles:
-            self.state.circles.pop()
-        elif self.state.arcs:
-            self.state.arcs.pop()
-        elif self.state.rectangles:
-            self.state.rectangles.pop()
-        elif self.state.ellipses:
-            self.state.ellipses.pop()
-        elif self.state.polygons:
-            self.state.polygons.pop()
-        elif self.state.splines:
-            self.state.splines.pop()
+        else:
+            # Если ничего не выделено - удаляем последний добавленный объект
+            if self.state.segments:
+                self.state.segments.pop()
+            elif self.state.circles:
+                self.state.circles.pop()
+            elif self.state.arcs:
+                self.state.arcs.pop()
+            elif self.state.rectangles:
+                self.state.rectangles.pop()
+            elif self.state.ellipses:
+                self.state.ellipses.pop()
+            elif self.state.polygons:
+                self.state.polygons.pop()
+            elif self.state.splines:
+                self.state.splines.pop()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -3243,10 +3223,12 @@ class Callbacks:
                 pass
     
     def _update_spline_preview_mouse(self, wx, wy):
-        """Обновляет превью сплайна при движении мыши, не добавляя временную точку."""
-        # Превью отражает только уже зафиксированные кликом точки
-        if len(self.state.spline_control_points) >= 2:
+        """Обновляет превью сплайна при движении мыши, добавляя временную точку под курсором."""
+        # Превью включает все зафиксированные точки + временную точку под курсором
+        if len(self.state.spline_control_points) >= 1:
+            # Копируем все зафиксированные точки и добавляем текущую позицию курсора
             ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
+            ctrl_copy.append(Point(wx, wy))  # Временная точка под курсором
             self.state.preview_spline = Spline(
                 ctrl_copy,
                 style_name=self.state.current_style_name,

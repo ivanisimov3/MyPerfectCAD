@@ -249,142 +249,105 @@ class Renderer:
                 break
         return points
 
+    def _circle_polyline(self, circle, num_points=None):
+        """Возвращает экранные точки окружности и накопленные длины (аналогично эллипсу).
+        
+        Точки генерируются в мировых координатах и преобразуются через world_to_screen,
+        что обеспечивает правильное поведение при повороте вида.
+        """
+        radius = circle.radius
+        circumference_px = 2 * math.pi * radius * self.state.zoom
+        if num_points is None:
+            num_points = max(72, int(circumference_px / 4))  # ~4 px между точками
+
+        coords = []
+        cum_lengths = [0.0]
+        prev = None
+
+        for i in range(num_points + 1):
+            ang = (2 * math.pi * i) / num_points
+            # Точка в мировых координатах
+            wx = circle.center.x + radius * math.cos(ang)
+            wy = circle.center.y + radius * math.sin(ang)
+            # Преобразуем в экранные
+            sx, sy = self.converter.world_to_screen(wx, wy)
+            coords.append((sx, sy))
+            if prev is not None:
+                seg_len = math.sqrt((sx - prev[0]) ** 2 + (sy - prev[1]) ** 2)
+                cum_lengths.append(cum_lengths[-1] + seg_len)
+            prev = (sx, sy)
+
+        # Замыкаем окружность
+        if coords and len(coords) > 1:
+            first = coords[0]
+            last = coords[-1]
+            if abs(first[0] - last[0]) > 0.1 or abs(first[1] - last[1]) > 0.1:
+                coords.append(first)
+                seg_len = math.sqrt((first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2)
+                cum_lengths.append(cum_lengths[-1] + seg_len)
+
+        return coords, cum_lengths
+
     def draw_circle(self, circle, override_color=None, override_width=None):
-        # Отрисовывает окружность на холсте
-        # override_color, override_width - используются для выделения или других спецэффектов
-
-        # Выбираем цвет (переопределенный или из окружности)
+        """Отрисовывает окружность на холсте через полилинию (как эллипс).
+        
+        Это обеспечивает правильное поведение при повороте вида.
+        """
         draw_color = override_color if override_color else circle.color
-
-        # Получаем стиль линии из state
         style = self.state.line_styles.get(circle.style_name)
 
-        # Дефолтные значения
         line_width = 1
-
-        # Если стиль найден, обработаем его свойства
-        if style:
-            # Вычисляем толщину линии на основе базовой толщины
-            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
-
-            # Основная линия толще, тонкая - в 2 раза тоньше
-            if style.is_main:
-                line_width = max(1, int(s_px))
-            else:
-                line_width = max(1, int(s_px / 2))
-
-        if override_width:
-            line_width = override_width
-
-        # Конвертируем мировые координаты в экранные
-        cx, cy = self.converter.world_to_screen(circle.center.x, circle.center.y)
-        radius_px = circle.radius * self.state.zoom
-
-        # Проверяем тип стиля
-        base_type = 'solid'
         dash_pattern = None
-        is_complex_style = False
+        base_type = 'solid'
 
         if style:
+            s_px = self.state.base_thickness_mm * self.state.mm_to_px_ratio
+            line_width = max(1, int(s_px)) if style.is_main else max(1, int(s_px / 2))
             base_type = getattr(style, 'base_type', 'solid')
-            is_complex_style = base_type in ['wave', 'zigzag']
-
-            # Обработка штриховых стилей
+            
             if style.dash_pattern:
-                main_dash = style.dash_pattern[0]
-                main_gap = style.dash_pattern[1]
-
-                # Определяем тип штриховки
+                main_dash, main_gap = style.dash_pattern
                 if base_type == 'dash_dot_dot':
-                    # Штрих-пунктир-пунктир (две точки)
                     part = main_gap / 5.0
                     dash_pattern = [main_dash, part, part, part, part, part]
                 elif base_type == 'dash_dot':
-                    # Штрих-пунктир (одна точка)
                     part = main_gap / 3.0
                     dash_pattern = [main_dash, part, part, part]
                 else:
-                    # Просто штриховая
                     dash_pattern = [main_dash, main_gap]
 
-        if dash_pattern:
-            # Для штриховых стилей
-            self._draw_dashed_circle(circle, cx, cy, radius_px, draw_color, line_width, dash_pattern)
-        elif base_type in ['wave', 'zigzag']:
-            # Для сложных стилей создаем эффект через серию дуг или линий
-            self._draw_styled_circle(circle, cx, cy, radius_px, draw_color, line_width, style)
-        else:
-            # Обычная окружность
-            x1 = cx - radius_px
-            y1 = cy - radius_px
-            x2 = cx + radius_px
-            y2 = cy + radius_px
-            self.canvas.create_oval(x1, y1, x2, y2, outline=draw_color, width=line_width, fill='')
+        if override_width:
+            line_width = override_width
+            dash_pattern = None
+            base_type = 'solid'
 
-    def _draw_dashed_circle(self, circle, cx, cy, radius_px, draw_color, line_width, dash_pattern):
-        """Отрисовка штриховой окружности"""
-        # Вычисляем общую длину окружности
-        circumference = 2 * math.pi * radius_px
-
-        # Масштабируем паттерн под длину окружности
-        zoom = self.state.zoom
-        scaled_pattern = [float(val) * zoom for val in dash_pattern]
-
-        # Создаем точки окружности с учетом штриховки
-        current_angle = 0
-        pat_idx = 0
-        is_drawing = True  # Начинаем с рисования
-
-        while current_angle < 2 * math.pi:
-            # Длина текущего сегмента паттерна
-            segment_length = scaled_pattern[pat_idx % len(scaled_pattern)]
-            segment_angle = segment_length / radius_px  # Угол соответствующего сегменту
-
-            # Ограничиваем угол оставшейся частью окружности
-            actual_angle = min(segment_angle, 2 * math.pi - current_angle)
-
-            if is_drawing and actual_angle > 0.01:  # Минимальный угол для отрисовки
-                # Рисуем дугу
-                start_angle = math.degrees(current_angle)
-                extent = math.degrees(actual_angle)
-
-                x1 = cx - radius_px
-                y1 = cy - radius_px
-                x2 = cx + radius_px
-                y2 = cy + radius_px
-
-                self.canvas.create_arc(x1, y1, x2, y2,
-                                     start=start_angle, extent=extent,
-                                     outline=draw_color, width=line_width,
-                                     style=tk.ARC)
-
-            current_angle += actual_angle
-            pat_idx += 1
-            is_drawing = not is_drawing  # Чередуем рисование/пропуск
-
-    def _draw_styled_circle(self, circle, cx, cy, radius_px, draw_color, line_width, style):
-        """Отрисовка окружности со стилевыми эффектами (волна, зигзаг)"""
-        # Для очень маленьких окружностей рисуем обычную линию
-        if radius_px < 4:
-            x1 = cx - radius_px
-            y1 = cy - radius_px
-            x2 = cx + radius_px
-            y2 = cy + radius_px
-            self.canvas.create_oval(x1, y1, x2, y2, outline=draw_color, width=line_width, fill='')
+        # Получаем точки окружности через world_to_screen
+        coords, cum_lengths = self._circle_polyline(circle)
+        if not coords:
             return
 
-        style_type = getattr(style, 'base_type', 'solid')
-        if style_type == 'wave':
-            wave_amp = getattr(style, 'wave_amplitude', None)
-            coords = self._generate_circle_wave_coords(cx, cy, radius_px, wave_amplitude=wave_amp)
-            smooth = True
-        else:  # zigzag
-            kinks = getattr(style, 'kinks_count', None)
-            coords = self._generate_circle_zigzag_coords(cx, cy, radius_px, kinks_count=kinks)
-            smooth = False
-
-        if len(coords) >= 4:
-            self.canvas.create_line(*coords, fill=draw_color, width=line_width, smooth=smooth)
+        if dash_pattern:
+            # Штриховая окружность
+            scaled = [float(v) * self.state.zoom for v in dash_pattern]
+            self._draw_dashed_polyline(coords, scaled, draw_color, line_width)
+        elif base_type in ['wave', 'zigzag']:
+            # Волна или зигзаг
+            if base_type == 'wave':
+                wave_amp = getattr(style, 'wave_amplitude', None)
+                styled = self._generate_ellipse_wave_coords(coords, cum_lengths, wave_amplitude=wave_amp)
+                smooth_flag = True
+            else:
+                kinks = getattr(style, 'kinks_count', None)
+                styled = self._generate_ellipse_zigzag_coords(coords, cum_lengths, kinks_count=kinks)
+                smooth_flag = False
+            if len(styled) >= 4:
+                self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
+        else:
+            # Сплошная окружность
+            flat_coords = []
+            for x, y in coords:
+                flat_coords.extend([x, y])
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
 
     def draw_arc(self, arc, override_color=None, override_width=None):
         """Отрисовывает дугу с учетом стиля."""
@@ -683,11 +646,14 @@ class Renderer:
         """Генерация координат волнистой окружности.
         
         Корректно замыкает волну, подбирая частоту так, чтобы было целое число периодов.
+        Учитывает поворот вида, чтобы паттерн оставался фиксированным после построения.
         
         Args:
             wave_amplitude: Амплитуда волны из стиля (или None для значения по умолчанию).
         """
         zoom = self.state.zoom
+        rotation = self.state.rotation  # Учитываем поворот вида
+        
         # Амплитуда из параметра или по умолчанию
         base_amp = wave_amplitude if wave_amplitude is not None else 3.0
         amplitude = base_amp * (zoom / 5.0)
@@ -709,16 +675,20 @@ class Renderer:
         first_point = None
 
         for i in range(num_points):
-            ang = i * angle_step
-            x = cx + radius_px * math.cos(ang)
-            y = cy + radius_px * math.sin(ang)
+            # Мировой угол (без поворота)
+            world_ang = i * angle_step
+            # Экранный угол с учетом поворота вида
+            screen_ang = world_ang + rotation
+            
+            x = cx + radius_px * math.cos(screen_ang)
+            y = cy + radius_px * math.sin(screen_ang)
 
-            # Длина дуги от начала
-            arc_len = ang * radius_px
+            # Длина дуги от начала (в мировых координатах)
+            arc_len = world_ang * radius_px
 
-            # Радиальная нормаль (совпадает с направлением радиуса)
-            nx = math.cos(ang)
-            ny = math.sin(ang)
+            # Радиальная нормаль в экранных координатах
+            nx = math.cos(screen_ang)
+            ny = math.sin(screen_ang)
 
             offset = amplitude * math.sin(arc_len * freq)
             px, py = x + nx * offset, y + ny * offset
@@ -738,11 +708,13 @@ class Renderer:
         
         Рисует базовую окружность с заданным количеством изломов.
         Между изломами окружность отрисовывается точками вдоль дуги.
+        Учитывает поворот вида, чтобы паттерн оставался фиксированным после построения.
         
         Args:
             kinks_count: Количество изломов из стиля (или None для автоматического режима).
         """
         zoom = self.state.zoom
+        rotation = self.state.rotation  # Учитываем поворот вида
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
         arc_step = 4  # Шаг дискретизации дуги в пикселях
@@ -750,11 +722,13 @@ class Renderer:
         circumference = 2 * math.pi * radius_px
 
         def point_on_circle(arc_len):
-            ang = arc_len / radius_px
-            return cx + radius_px * math.cos(ang), cy + radius_px * math.sin(ang), ang
+            world_ang = arc_len / radius_px
+            # Экранный угол с учетом поворота вида
+            screen_ang = world_ang + rotation
+            return cx + radius_px * math.cos(screen_ang), cy + radius_px * math.sin(screen_ang), screen_ang
         
-        def normal_at_angle(ang):
-            return math.cos(ang), math.sin(ang)
+        def normal_at_angle(screen_ang):
+            return math.cos(screen_ang), math.sin(screen_ang)
 
         def add_arc_points(coords, start_s, end_s):
             """Добавляет промежуточные точки дуги от start_s до end_s."""
