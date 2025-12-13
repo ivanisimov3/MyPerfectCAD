@@ -258,7 +258,9 @@ class Renderer:
         radius = circle.radius
         circumference_px = 2 * math.pi * radius * self.state.zoom
         if num_points is None:
-            num_points = max(72, min(720, int(circumference_px / 4)))  # ~4 px между точками, max 720
+            # Оптимизация: ограничиваем максимум 360 точками для производительности
+            # ~4 px между точками, min 72, max 360
+            num_points = max(72, min(360, int(circumference_px / 4)))
 
         coords = []
         cum_lengths = [0.0]
@@ -344,10 +346,11 @@ class Renderer:
                 self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
         else:
             # Сплошная окружность
+            # smooth=False для производительности - точки уже плавно расположены по кривой
             flat_coords = []
             for x, y in coords:
                 flat_coords.extend([x, y])
-            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
     def draw_arc(self, arc, override_color=None, override_width=None):
         """Отрисовывает дугу с учетом стиля."""
@@ -1112,7 +1115,9 @@ class Renderer:
         basis = ellipse._basis()
         perim_px = ellipse.perimeter_approx() * self.state.zoom
         if num_points is None:
-            num_points = max(160, min(720, int(perim_px / 4)))  # ~4 px между точками, max 720
+            # Оптимизация: ограничиваем максимум 360 точками для производительности
+            # ~4 px между точками, min 120, max 360
+            num_points = max(120, min(360, int(perim_px / 4)))
 
         coords = []
         cum_lengths = [0.0]
@@ -1135,8 +1140,19 @@ class Renderer:
 
         return coords, cum_lengths
 
-    def _spline_polyline(self, spline, samples_per_segment=20):
-        """Дискретизация сплайна в экранных координатах + накопленные длины."""
+    def _spline_polyline(self, spline, samples_per_segment=None):
+        """Дискретизация сплайна в экранных координатах + накопленные длины.
+        
+        samples_per_segment: количество точек на сегмент. Если None - вычисляется адаптивно.
+        """
+        if samples_per_segment is None:
+            # Адаптивное количество точек на основе приблизительной длины сплайна
+            # Оцениваем длину сплайна в пикселях
+            approx_len = spline.approximate_length() * self.state.zoom
+            num_segments = max(1, len(spline.control_points) - 1)
+            # ~4 пикселя между точками, min 8, max 20 на сегмент
+            samples_per_segment = max(8, min(20, int(approx_len / (num_segments * 4))))
+        
         pts = spline.sample_points(samples_per_segment)
         coords = []
         cum_lengths = [0.0]
@@ -1759,7 +1775,8 @@ class Renderer:
             if len(styled) >= 4:
                 self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
         else:
-            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
+            # smooth=False для производительности - точки уже плавно расположены по кривой
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
     def _draw_dashed_polyline(self, coords, pattern, color, width):
         """Рисуем штриховой контур polyline по аналогии с отрезками/окружностями."""
@@ -1854,10 +1871,11 @@ class Renderer:
             if len(styled) >= 4:
                 self.canvas.create_line(*styled, fill=draw_color, width=line_width, smooth=smooth_flag)
         else:
+            # smooth=False для производительности - точки уже плотно расположены вдоль кривой
             flat_coords = []
             for x, y in coords:
                 flat_coords.extend([x, y])
-            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=True)
+            self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
     def render_scene(self):
         # Главный метод отрисовки всей сцены
@@ -1893,31 +1911,47 @@ class Renderer:
         for spline in self.state.selected_splines:
             self.draw_spline(spline, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
-        # 5. Рисуем все остальные сегменты
+        # 5. Рисуем все остальные сегменты (кроме выделенных)
+        selected_segments_set = set(id(s) for s in self.state.selected_segments)
         for segment in self.state.segments:
-            self.draw_segment(segment)
+            if id(segment) not in selected_segments_set:
+                self.draw_segment(segment)
 
-        # 6. Рисуем все остальные окружности
+        # 6. Рисуем все остальные окружности (кроме выделенных)
+        selected_circles_set = set(id(c) for c in self.state.selected_circles)
         for circle in self.state.circles:
-            self.draw_circle(circle)
+            if id(circle) not in selected_circles_set:
+                self.draw_circle(circle)
 
-        # 7. Рисуем все дуги
+        # 7. Рисуем все дуги (кроме выделенных)
+        selected_arcs_set = set(id(a) for a in self.state.selected_arcs)
         for arc in self.state.arcs:
-            self.draw_arc(arc)
+            if id(arc) not in selected_arcs_set:
+                self.draw_arc(arc)
 
-        # 7.1 Рисуем все прямоугольники
+        # 7.1 Рисуем все прямоугольники (кроме выделенных)
+        selected_rects_set = set(id(r) for r in self.state.selected_rectangles)
         for rect in self.state.rectangles:
-            self.draw_rectangle(rect)
+            if id(rect) not in selected_rects_set:
+                self.draw_rectangle(rect)
 
-        # 7.2 Рисуем все эллипсы
+        # 7.2 Рисуем все эллипсы (кроме выделенных)
+        selected_ellipses_set = set(id(e) for e in self.state.selected_ellipses)
         for ellipse in self.state.ellipses:
-            self.draw_ellipse(ellipse)
-        # 7.3 Рисуем все многоугольники
+            if id(ellipse) not in selected_ellipses_set:
+                self.draw_ellipse(ellipse)
+
+        # 7.3 Рисуем все многоугольники (кроме выделенных)
+        selected_polygons_set = set(id(p) for p in self.state.selected_polygons)
         for poly in self.state.polygons:
-            self.draw_polygon(poly)
-        # 7.4 Рисуем все сплайны
+            if id(poly) not in selected_polygons_set:
+                self.draw_polygon(poly)
+
+        # 7.4 Рисуем все сплайны (кроме выделенных)
+        selected_splines_set = set(id(s) for s in self.state.selected_splines)
         for spline in self.state.splines:
-            self.draw_spline(spline)
+            if id(spline) not in selected_splines_set:
+                self.draw_spline(spline)
 
         # 8. Рисуем превью сегмента (синяя пунктирная линия при рисовании нового отрезка)
         if self.state.preview_segment:

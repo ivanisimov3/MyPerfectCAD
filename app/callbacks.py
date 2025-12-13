@@ -33,7 +33,7 @@ class Callbacks:
         """Обновляет контекстную часть правой панели.
 
         Важно: вкладки НЕ переключаем автоматически, кроме случая, когда пользователь
-        только что вошёл в режим построения примитива (auto_switch_tab=True).
+        только что вошёл в режим построения примитива или редактирования (auto_switch_tab=True).
         """
         if not self.view:
             return
@@ -48,44 +48,7 @@ class Callbacks:
                 # На всякий случай не падаем из-за UI
                 return
 
-        total_selected = (
-            len(self.state.selected_segments)
-            + len(self.state.selected_circles)
-            + len(self.state.selected_arcs)
-            + len(self.state.selected_rectangles)
-            + len(self.state.selected_ellipses)
-            + len(self.state.selected_polygons)
-            + len(self.state.selected_splines)
-        )
-
-        # 1) Если выделено ровно 1 объект -> показываем его панель
-        if total_selected == 1:
-            if self.state.selected_segments:
-                self.view.set_context_panel("segment", "Выбрано: Отрезок")
-            elif self.state.selected_circles:
-                self.view.set_context_panel("circle", "Выбрано: Окружность")
-            elif self.state.selected_arcs:
-                self.view.set_context_panel("arc", "Выбрано: Дуга")
-            elif self.state.selected_rectangles:
-                self.view.set_context_panel("rectangle", "Выбрано: Прямоугольник")
-            elif self.state.selected_ellipses:
-                self.view.set_context_panel("ellipse", "Выбрано: Эллипс")
-            elif self.state.selected_polygons:
-                self.view.set_context_panel("polygon", "Выбрано: Многоугольник")
-            elif self.state.selected_splines:
-                self.view.set_context_panel("spline", "Выбрано: Сплайн")
-            else:
-                self.view.set_context_panel(None, "—")
-                return
-            return
-
-        # 2) Если выделено несколько -> только "Общие"
-        if total_selected > 1:
-            self.view.set_context_panel(None, "Выбрано: несколько объектов")
-            return
-
-        # 3) Если выделения нет -> ориентируемся на текущий режим построения
-        # Проверяем режим редактирования
+        # 1) Проверяем режим редактирования - он имеет приоритет над выделением
         is_editing = self.state.editing_object is not None
         
         if is_editing:
@@ -107,7 +70,44 @@ class Callbacks:
             else:
                 self.view.set_context_panel(None, "—")
             return
-        
+
+        total_selected = (
+            len(self.state.selected_segments)
+            + len(self.state.selected_circles)
+            + len(self.state.selected_arcs)
+            + len(self.state.selected_rectangles)
+            + len(self.state.selected_ellipses)
+            + len(self.state.selected_polygons)
+            + len(self.state.selected_splines)
+        )
+
+        # 2) Если выделено ровно 1 объект -> показываем его панель
+        if total_selected == 1:
+            if self.state.selected_segments:
+                self.view.set_context_panel("segment", "Выбрано: Отрезок")
+            elif self.state.selected_circles:
+                self.view.set_context_panel("circle", "Выбрано: Окружность")
+            elif self.state.selected_arcs:
+                self.view.set_context_panel("arc", "Выбрано: Дуга")
+            elif self.state.selected_rectangles:
+                self.view.set_context_panel("rectangle", "Выбрано: Прямоугольник")
+            elif self.state.selected_ellipses:
+                self.view.set_context_panel("ellipse", "Выбрано: Эллипс")
+            elif self.state.selected_polygons:
+                self.view.set_context_panel("polygon", "Выбрано: Многоугольник")
+            elif self.state.selected_splines:
+                self.view.set_context_panel("spline", "Выбрано: Сплайн")
+            else:
+                self.view.set_context_panel(None, "—")
+                return
+            return
+
+        # 3) Если выделено несколько -> только "Общие"
+        if total_selected > 1:
+            self.view.set_context_panel(None, "Выбрано: несколько объектов")
+            return
+
+        # 4) Если выделения нет -> ориентируемся на текущий режим построения
         mode_to_panel = {
             "CREATING_SEGMENT": ("segment", "Создание: Отрезок"),
             "CREATING_CIRCLE": ("circle", "Создание: Окружность"),
@@ -233,8 +233,12 @@ class Callbacks:
             self.state.preview_polygon = None
 
         # Синхронизируем правую панель (контекст)
+        # Переключаем на вкладку "Контекст" если:
+        # 1. Вошли в режим создания (из не-создания)
+        # 2. Вошли в режим редактирования (editing_object установлен)
         entered_creating = (not str(prev_mode).startswith("CREATING_")) and str(mode).startswith("CREATING_")
-        self._refresh_settings_context_panel(auto_switch_tab=entered_creating)
+        is_editing = self.state.editing_object is not None
+        self._refresh_settings_context_panel(auto_switch_tab=(entered_creating or is_editing))
 
         entry_state = 'normal' if is_creating else 'disabled'
         entries = [self.view.p1_x_entry, self.view.p1_y_entry, self.view.p2_x_entry, self.view.p2_y_entry]
