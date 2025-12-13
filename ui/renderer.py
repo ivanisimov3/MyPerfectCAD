@@ -258,7 +258,7 @@ class Renderer:
         radius = circle.radius
         circumference_px = 2 * math.pi * radius * self.state.zoom
         if num_points is None:
-            num_points = max(72, int(circumference_px / 4))  # ~4 px между точками
+            num_points = max(72, min(720, int(circumference_px / 4)))  # ~4 px между точками, max 720
 
         coords = []
         cum_lengths = [0.0]
@@ -501,7 +501,7 @@ class Renderer:
 
         radius_px = arc.radius * zoom
         arc_length_px = radius_px * sweep_limit
-        num_points = max(60, int(arc_length_px / 4))
+        num_points = max(60, min(360, int(arc_length_px / 4)))  # max 360 для дуги
         angle_step = sweep_limit / num_points if num_points else sweep_limit
 
         coords = []
@@ -540,10 +540,13 @@ class Renderer:
         zoom = self.state.zoom
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
-        arc_step = 4  # Шаг дискретизации дуги в пикселях
 
         radius_px = arc.radius * zoom
         arc_length_px = radius_px * sweep_limit
+        
+        # Адаптивный шаг: ограничиваем максимум ~500 точек для дуги
+        MAX_POINTS = 500
+        arc_step = max(4, arc_length_px / MAX_POINTS) if arc_length_px > 0 else 4
         coords = []
 
         def point_at_length(length_px):
@@ -667,8 +670,8 @@ class Renderer:
         num_periods = max(1, round(circumference * base_freq / (2 * math.pi)))
         freq = num_periods * 2 * math.pi / circumference
         
-        # Шаг дискретизации ~ 4px
-        num_points = max(120, int(circumference / 4))
+        # Шаг дискретизации ~ 4px, max 720 точек
+        num_points = max(120, min(720, int(circumference / 4)))
         angle_step = 2 * math.pi / num_points
 
         coords = []
@@ -717,9 +720,12 @@ class Renderer:
         rotation = self.state.rotation  # Учитываем поворот вида
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
-        arc_step = 4  # Шаг дискретизации дуги в пикселях
 
         circumference = 2 * math.pi * radius_px
+        
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        arc_step = max(4, circumference / MAX_POINTS) if circumference > 0 else 4
 
         def point_on_circle(arc_len):
             world_ang = arc_len / radius_px
@@ -1025,7 +1031,7 @@ class Renderer:
         arc_length_px = radius_px * arc.sweep_angle
         
         if num_points is None:
-            num_points = max(8, int(arc_length_px / 4))
+            num_points = max(8, min(180, int(arc_length_px / 4)))  # max 180 для дуги
         
         points = []
         for i in range(num_points + 1):
@@ -1106,7 +1112,7 @@ class Renderer:
         basis = ellipse._basis()
         perim_px = ellipse.perimeter_approx() * self.state.zoom
         if num_points is None:
-            num_points = max(160, int(perim_px / 4))  # ~4 px между опорными точками
+            num_points = max(160, min(720, int(perim_px / 4)))  # ~4 px между точками, max 720
 
         coords = []
         cum_lengths = [0.0]
@@ -1199,11 +1205,14 @@ class Renderer:
         # Амплитуда из параметра или по умолчанию
         base_amp = wave_amplitude if wave_amplitude is not None else 3.0
         amplitude = base_amp * (zoom / 5.0)
-        step = 4
 
         total_len = cum_lengths[-1] if cum_lengths else 0.0
         if total_len <= 0:
             return []
+        
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        step = max(4, total_len / MAX_POINTS)
         
         # Подбираем частоту так, чтобы волна замкнулась (целое число периодов)
         base_freq = 0.2 / (zoom / 5.0)
@@ -1258,7 +1267,9 @@ class Renderer:
         
         freq = base_freq
 
-        step = 4
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        step = max(4, total_len / MAX_POINTS) if total_len > 0 else 4
         out = []
         t = 0.0
         prev_base = None
@@ -1305,7 +1316,9 @@ class Renderer:
         num_periods = max(1, round(total_len * base_freq / (2 * math.pi)))
         freq = num_periods * 2 * math.pi / total_len
 
-        step = 4
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        step = max(4, total_len / MAX_POINTS)
         out = []
         t = 0.0
         first_point = None
@@ -1345,11 +1358,14 @@ class Renderer:
         period = 40 * (zoom / 5.0)
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
-        path_step = 4  # Шаг дискретизации пути в пикселях
 
         total_len = cum_lengths[-1] if cum_lengths else 0.0
         if total_len <= 0:
             return []
+
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        path_step = max(4, total_len / MAX_POINTS)
 
         def normal_at(dist):
             x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, dist)
@@ -1457,11 +1473,14 @@ class Renderer:
         period = 40 * (zoom / 5.0)
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
-        path_step = 4
 
         total_len = cum_lengths[-1] if cum_lengths else 0.0
         if total_len <= 0:
             return []
+
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        path_step = max(4, total_len / MAX_POINTS)
 
         def normal_at(dist):
             x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, dist)
@@ -1578,11 +1597,14 @@ class Renderer:
         zoom = self.state.zoom
         kink_len = 8 * (zoom / 5.0)
         amplitude = 5 * (zoom / 5.0)
-        path_step = 4  # Шаг дискретизации пути в пикселях
 
         total_len = cum_lengths[-1] if cum_lengths else 0.0
         if total_len <= 0:
             return []
+
+        # Адаптивный шаг: ограничиваем максимум ~1000 точек
+        MAX_POINTS = 1000
+        path_step = max(4, total_len / MAX_POINTS)
 
         def normal_at(dist):
             x, y, dx, dy = self._point_on_polyline(coords, cum_lengths, dist)

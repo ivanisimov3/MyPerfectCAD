@@ -1640,10 +1640,10 @@ class Callbacks:
             self.view.rect_center_x_entry.insert(0, f"{data['center'].x:.2f}")
             self.view.rect_center_y_entry.delete(0, tk.END)
             self.view.rect_center_y_entry.insert(0, f"{data['center'].y:.2f}")
-            self.view.rect_width_entry.delete(0, tk.END)
-            self.view.rect_width_entry.insert(0, f"{data['width']:.2f}")
-            self.view.rect_height_entry.delete(0, tk.END)
-            self.view.rect_height_entry.insert(0, f"{data['height']:.2f}")
+            self.view.rect_center_w_entry.delete(0, tk.END)
+            self.view.rect_center_w_entry.insert(0, f"{data['width']:.2f}")
+            self.view.rect_center_h_entry.delete(0, tk.END)
+            self.view.rect_center_h_entry.insert(0, f"{data['height']:.2f}")
             self.state.points_clicked = 2
         else:
             # Фолбэк на старое поведение
