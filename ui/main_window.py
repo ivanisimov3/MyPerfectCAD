@@ -1,77 +1,50 @@
-# ui/main_window.py
-# 
-# Модуль отвечает за создание интерфейса приложения CAD
-# Создает окна, кнопки, поля ввода, меню и холст (Canvas)
-# Отвечает только за расположение элементов (layout), 
-# логика обработки событий делегируется в callbacks
-
 import tkinter as tk
 from tkinter import ttk
 from tkinter import colorchooser 
 import math
 from logic.styles import GOST_STYLES
 
-# Главный класс интерфейса приложения
 class MainWindow:
     def __init__(self, root, callbacks):
-        # root - основное окно Tkinter
-        # callbacks - объект с функциями-обработчиками событий
         self.root = root
         self.callbacks = callbacks 
         
-        # Установка заголовка и минимальных размеров окна
         root.title("MyPerfectCAD")
         root.minsize(950, 600)
         
-        # Настройка сеточной раскладки - левая колонка с весом 1 будет растягиваться
         root.columnconfigure(0, weight=1)
-        # Правая колонка: фиксированная ширина панели настроек (чтобы не "дрыгалось" окно)
         self.sidebar_width = 360
         root.columnconfigure(1, weight=0, minsize=self.sidebar_width)
-        # Средняя строка с весом 1 будет занимать оставшееся пространство
         root.rowconfigure(1, weight=1)
 
-        # Создание меню (Файл, Стили, Вид и т.д.)
         self.setup_main_menu(root, callbacks)
         
-        # === ПАНЕЛЬ ИНСТРУМЕНТОВ (верхняя часть) ===
         toolbar = ttk.Frame(root, padding="5")
         toolbar.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
         self._setup_toolbar_buttons(toolbar, callbacks)
 
-        # === ОСНОВНОЙ ХОЛСТ ДЛЯ РИСОВАНИЯ (слева) ===
         self.canvas = tk.Canvas(root, borderwidth=2, relief="sunken", highlightthickness=0)
         self.canvas.grid(row=1, column=0, sticky=('W', 'E', 'N', 'S'), padx=5, pady=5)
         
-        # === ПАНЕЛЬ НАСТРОЕК (справа) ===
-        # Делаем внешний контейнер фиксированной ширины — так вкладки/контент не смогут менять ширину окна
         self.sidebar_container = tk.Frame(root, width=self.sidebar_width)
         self.sidebar_container.grid(row=1, column=1, sticky=('N', 'S', 'E', 'W'), padx=5, pady=5)
-        # Внутри контейнера используется pack(), поэтому отключаем pack-propagation,
-        # иначе контейнер (и, следом, окно) будет менять ширину от контента.
         self.sidebar_container.pack_propagate(False)
-        # На всякий случай также отключаем grid-propagation (если поменяем layout позже)
         self.sidebar_container.grid_propagate(False)
 
         settings_panel = ttk.LabelFrame(self.sidebar_container, text="Настройки", padding="5")
         settings_panel.pack(fill=tk.BOTH, expand=True)
         self.setup_settings_panel(settings_panel, callbacks)
         
-        # === ИНФОРМАЦИОННАЯ ПАНЕЛЬ (снизу, под холстом) ===
         info_panel = ttk.Frame(root, padding="5")
         info_panel.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
         self.setup_info_panel(info_panel)
         
-        # === СТРОКА СОСТОЯНИЯ (самая нижняя) ===
         status_bar = ttk.Frame(root, relief="sunken", padding="2")
         status_bar.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E))
         self.setup_status_bar(status_bar)
 
-        # Контекстное меню (ПКМ на холст)
         self.create_context_menu(root, callbacks)
         
-        # === ПРИВЯЗКИ СОБЫТИЙ (key bindings) ===
-        # События мыши на холсте
         self.canvas.bind("<Configure>", callbacks.on_canvas_resize)
         self.canvas.bind("<ButtonPress-2>", callbacks.on_mouse_press)
         self.canvas.bind("<B2-Motion>", callbacks.on_mouse_drag)
@@ -80,12 +53,11 @@ class MainWindow:
         self.canvas.bind("<Button-5>", callbacks.on_mouse_wheel)
         self.canvas.bind("<Motion>", callbacks.on_mouse_move_stats)
         self.canvas.bind("<Button-3>", callbacks.show_context_menu)
-        self.canvas.bind("<Double-Button-1>", callbacks.on_double_click)  # Двойной клик для редактирования 
+        self.canvas.bind("<Double-Button-1>", callbacks.on_double_click)
 
-        # События клавиатуры
         self.root.bind("<F11>", callbacks.toggle_fullscreen)
         self.root.bind("<Escape>", callbacks.on_escape_key)
-        self.root.bind("<Delete>", callbacks.on_delete_segment)  # Удаление по клавише Delete
+        self.root.bind("<Delete>", callbacks.on_delete_segment)
         self.root.bind("<plus>", callbacks.on_zoom_in)
         self.root.bind("<equal>", callbacks.on_zoom_in)
         self.root.bind("<minus>", callbacks.on_zoom_out)
@@ -94,7 +66,6 @@ class MainWindow:
         self.root.bind("<Shift-Left>", callbacks.on_rotate_left)
         self.root.bind("<Shift-Right>", callbacks.on_rotate_right)
 
-    # Создание кнопок на верхней панели инструментов
     def _setup_toolbar_buttons(self, parent, callbacks):
         def _popup(menu, event):
             try:
@@ -103,7 +74,7 @@ class MainWindow:
                 menu.grab_release()
 
         def _add_icon_button(symbol, default_cmd, menu_items):
-            """Кнопка-иконка; ЛКМ — текущий метод, ПКМ — меню выбора метода."""
+
             btn = ttk.Button(parent, text=symbol, width=4, command=default_cmd)
             btn.pack(side=tk.LEFT, padx=3)
 
@@ -113,7 +84,6 @@ class MainWindow:
                     menu.add_command(label=label, command=cmd)
                 btn.bind("<Button-3>", lambda e, m=menu: _popup(m, e))
 
-        # Хелперы для смены метода перед запуском
         def _start_circle(method):
             self.circle_method.set(method)
             self._on_circle_method_change(callbacks)
@@ -134,7 +104,6 @@ class MainWindow:
             callbacks.on_polygon_variant_change()
             callbacks.on_new_polygon_mode()
 
-        # === Примитивы (иконки) ===
         _add_icon_button("—", callbacks.on_new_segment_mode, [
             ("Отрезок (2 точки)", callbacks.on_new_segment_mode),
         ])
@@ -172,7 +141,6 @@ class MainWindow:
         ttk.Button(parent, text="Удалить", width=8, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
-        # === Навигация/вид ===
         ttk.Button(parent, text="Рука", width=6, command=callbacks.on_hand_mode).pack(side=tk.LEFT, padx=2)
         ttk.Button(parent, text="+", width=3, command=callbacks.on_zoom_in).pack(side=tk.LEFT, padx=1)
         ttk.Button(parent, text="-", width=3, command=callbacks.on_zoom_out).pack(side=tk.LEFT, padx=1)
@@ -182,7 +150,6 @@ class MainWindow:
         ttk.Button(parent, text="0°", width=3, command=callbacks.on_reset_view).pack(side=tk.LEFT, padx=2)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
-        # === Стили (быстрый выбор) ===
         style_mb = ttk.Menubutton(parent, text="Стиль")
         style_menu = tk.Menu(style_mb, tearoff=0)
         style_menu.add_command(label="Основная", command=lambda: callbacks.on_quick_style_set('solid_main'))
@@ -194,23 +161,19 @@ class MainWindow:
         style_mb["menu"] = style_menu
         style_mb.pack(side=tk.LEFT, padx=2)
 
-    # Создание главного меню приложения
     def setup_main_menu(self, root, callbacks):
 
         menubar = tk.Menu(root)
         root.config(menu=menubar)
         
-        # Меню "Файл"
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Выход", command=root.quit)
         menubar.add_cascade(label="Файл", menu=file_menu)
         
-        # Меню "Стили" - управление стилями линий
         style_menu = tk.Menu(menubar, tearoff=0)
         style_menu.add_command(label="Менеджер стилей...", command=callbacks.on_open_style_manager)
         menubar.add_cascade(label="Стили", menu=style_menu)
         
-        # Меню "Вид" - навигация и масштабирование
         view_menu = tk.Menu(menubar, tearoff=0)
         view_menu.add_command(label="Рука (Панорама)", command=callbacks.on_hand_mode)
         view_menu.add_separator()
@@ -224,27 +187,21 @@ class MainWindow:
         view_menu.add_command(label="Сбросить вид", command=callbacks.on_reset_view)
         menubar.add_cascade(label="Вид", menu=view_menu)
 
-    # Строка состояния внизу окна - показывает текущие координаты, масштаб и угол поворота
     def setup_status_bar(self, parent):
-        # Координаты курсора (X, Y)
         self.status_coords = ttk.Label(parent, text="X: 0.00  Y: 0.00", width=20)
         self.status_coords.pack(side=tk.LEFT, padx=5)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=2)
 
-        # Текущий масштаб
         self.status_zoom = ttk.Label(parent, text="Zoom: 100%", width=15)
         self.status_zoom.pack(side=tk.LEFT, padx=5)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=2)
 
-        # Угол поворота вида (в градусах)
         self.status_angle = ttk.Label(parent, text="Angle: 0.0°", width=15)
         self.status_angle.pack(side=tk.LEFT, padx=5)
 
-        # Текущий режим работы (рисование, панорама, ожидание и т.д.)
         self.status_mode = ttk.Label(parent, text="Режим: Ожидание", anchor=tk.E)
         self.status_mode.pack(side=tk.RIGHT, padx=5, fill=tk.X, expand=True)
 
-    # Контекстное меню, которое появляется при ПКМ на холсте
     def create_context_menu(self, root, callbacks):
 
         self.context_menu = tk.Menu(root, tearoff=0)
@@ -257,25 +214,18 @@ class MainWindow:
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Отмена", command=lambda: None)
 
-    # Панель справа с настройками (стили, координаты, сетка, цвета и т.д.)
     def setup_settings_panel(self, parent, callbacks):
 
-        # Инициализируем переменные, используемые в разных вкладках
         self.coord_system = tk.StringVar(value="cartesian")
         self.angle_units = tk.StringVar(value="degrees")
 
-        # Две вкладки:
-        # - "Общие" (всегда доступна)
-        # - "Контекст" (текущий инструмент построения / один выбранный объект)
         self.settings_notebook = ttk.Notebook(parent)
         self.settings_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # --- Общие ---
         self.general_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(self.general_tab, text="Общие")
         self._setup_general_tab(self.general_tab, callbacks)
 
-        # --- Контекст ---
         self.context_tab = ttk.Frame(self.settings_notebook)
         self.settings_notebook.add(self.context_tab, text="Контекст")
 
@@ -291,7 +241,6 @@ class MainWindow:
         self.context_pages_container = ttk.Frame(self.context_tab)
         self.context_pages_container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
-        # Создаем "страницы" контекста (по одной на примитив) и скрываем их до необходимости
         self._context_pages = {}
 
         segment_page = ttk.Frame(self.context_pages_container)
@@ -328,8 +277,7 @@ class MainWindow:
         self._active_context_key = None
 
     def set_context_panel(self, key, title=None):
-        """Показывает контекстную панель примитива (или скрывает, если key=None)."""
-        # Прячем текущую
+
         if getattr(self, "_active_context_key", None) in getattr(self, "_context_pages", {}):
             self._context_pages[self._active_context_key].pack_forget()
         self._active_context_key = None
@@ -351,32 +299,24 @@ class MainWindow:
         self._active_context_key = key
 
     def _setup_general_tab(self, parent, callbacks):
-        # === РАЗДЕЛ: СТИЛЬ ЛИНИИ ===
         style_frame = ttk.LabelFrame(parent, text="Стиль линии")
         style_frame.pack(padx=5, pady=5, fill=tk.X)
         
-        # Превью выбранного стиля линии (визуальное представление)
-        # Размер фиксирован - 200x40 пикселей
         self.prop_preview_canvas = tk.Canvas(style_frame, width=200, height=40, bg="white", relief="sunken", borderwidth=1)
         self.prop_preview_canvas.pack(padx=5, pady=(5, 0))
 
-        # При перерисовке холста обновляем превью текущего стиля
         self.prop_preview_canvas.bind("<Configure>", lambda e: self.update_style_preview(self.callbacks.state.current_style_name))
         
-        # Выпадающий список стилей - отсортирован (встроенные стили вверху)
         self.style_ids = []
         style_names = []
 
-        # Сортируем стили: сначала встроенные, потом пользовательские
         sorted_items = sorted(GOST_STYLES.items(), key=lambda x: (x[1].is_custom, x[1].display_name))
         for key, style in sorted_items:
             style_names.append(style.display_name)
             self.style_ids.append(key)
 
-        # Комбобокс для выбора стиля (только для чтения - список)
         self.style_combobox = ttk.Combobox(style_frame, values=style_names, state="readonly")
         
-        # Установка начального значения (текущий выбранный стиль)
         current = callbacks.state.current_style_name
         if current in self.style_ids:
             idx = self.style_ids.index(current)
@@ -385,17 +325,13 @@ class MainWindow:
             self.style_combobox.current(0)
         self.style_combobox.pack(fill=tk.X, padx=5, pady=5)
 
-        # При выборе стиля вызываем callback
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
         
-        # Кнопка для открытия менеджера стилей (подробная настройка)
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        # === РАЗДЕЛ: ПРИВЯЗКИ (OSNAP) ===
-        snap_frame = ttk.LabelFrame(parent, text="Привязки (OSNAP)")
+        snap_frame = ttk.LabelFrame(parent, text="Привязки")
         snap_frame.pack(padx=5, pady=5, fill=tk.X)
         
-        # Глобальное включение/выключение привязок
         self.snap_enabled_var = tk.BooleanVar(value=True)
         snap_enable_row = ttk.Frame(snap_frame)
         snap_enable_row.pack(fill=tk.X, padx=5, pady=2)
@@ -406,10 +342,8 @@ class MainWindow:
             command=callbacks.on_snap_toggle
         ).pack(side=tk.LEFT)
         
-        # Кнопка для открытия окна настроек привязок
         ttk.Button(snap_enable_row, text="⚙", width=3, command=callbacks.on_open_snap_settings).pack(side=tk.RIGHT)
         
-        # Обязательные привязки (отображаются сразу)
         mandatory_frame = ttk.Frame(snap_frame)
         mandatory_frame.pack(fill=tk.X, padx=5, pady=2)
         
@@ -434,7 +368,6 @@ class MainWindow:
             command=callbacks.on_snap_setting_changed
         ).pack(side=tk.LEFT)
         
-        # Дополнительные привязки
         additional_frame = ttk.Frame(snap_frame)
         additional_frame.pack(fill=tk.X, padx=5, pady=2)
         
@@ -445,7 +378,6 @@ class MainWindow:
             command=callbacks.on_snap_setting_changed
         ).pack(side=tk.LEFT)
         
-        # Привязки, требующие from_point
         special_frame = ttk.Frame(snap_frame)
         special_frame.pack(fill=tk.X, padx=5, pady=2)
         
@@ -463,7 +395,6 @@ class MainWindow:
             command=callbacks.on_snap_setting_changed
         ).pack(side=tk.LEFT)
         
-        # Привязка к сетке
         grid_snap_frame = ttk.Frame(snap_frame)
         grid_snap_frame.pack(fill=tk.X, padx=5, pady=(2, 5))
         
@@ -474,64 +405,49 @@ class MainWindow:
             command=callbacks.on_snap_setting_changed
         ).pack(side=tk.LEFT)
 
-        # === РАЗДЕЛ: СЕТКА ===
         grid_frame = ttk.LabelFrame(parent, text="Сетка")
         grid_frame.pack(padx=5, pady=5, fill=tk.X)
 
-        # Шаг сетки в единицах рисунка
         self.grid_step_var = tk.StringVar(value="10")
         ttk.Label(grid_frame, text="Шаг:").pack(side=tk.LEFT, padx=(0,5))
         ttk.Entry(grid_frame, textvariable=self.grid_step_var, width=5).pack(side=tk.LEFT, padx=5)
         ttk.Button(grid_frame, text="Применить", command=callbacks.on_apply_settings).pack(side=tk.LEFT, padx=5)
         
-
-        # === РАЗДЕЛ: ЦВЕТА ===
         color_frame = ttk.LabelFrame(parent, text="Цвета")
         color_frame.pack(padx=5, pady=5, fill=tk.X)
 
-        # Выбор цвета фона холста
         self.bg_swatch = self._create_color_chooser(color_frame, "Фон:", callbacks.on_choose_bg_color)
 
-        # Выбор цвета сетки
         self.grid_swatch = self._create_color_chooser(color_frame, "Сетка:", callbacks.on_choose_grid_color)
 
-        # Выбор цвета линий
         self.segment_swatch = self._create_color_chooser(color_frame, "Линии:", callbacks.on_choose_segment_color)
 
     def _setup_segment_tab(self, parent, callbacks):
-        # === РАЗДЕЛ: КООРДИНАТЫ ОТРЕЗКОВ ===
 
-        # ТОЧКА 1 (P1) - начало отрезка
         p1_frame = ttk.LabelFrame(parent, text="Точка 1 (P1)")
         p1_frame.pack(padx=5, pady=5, fill=tk.X)
         self.p1_label1, self.p1_x_entry = self._create_coord_entry(p1_frame, "X₁:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
         self.p1_label2, self.p1_y_entry = self._create_coord_entry(p1_frame, "Y₁:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
 
-        # ТОЧКА 2 (P2) - конец отрезка
         p2_frame = ttk.LabelFrame(parent, text="Точка 2 (P2)")
         p2_frame.pack(padx=5, pady=5, fill=tk.X)
         self.p2_label1, self.p2_x_entry = self._create_coord_entry(p2_frame, "X₂:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
         self.p2_label2, self.p2_y_entry = self._create_coord_entry(p2_frame, "Y₂:", lambda e: (callbacks.update_preview_segment(), callbacks.update_preview_circle()))
 
-        # Радиокнопки для выбора системы координат второй точки
         ttk.Radiobutton(parent, text="P2: Декартова (X₂,Y₂)", variable=self.coord_system, value="cartesian", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5, pady=(5,0))
         ttk.Radiobutton(parent, text="P2: Полярная (R₂,θ₂)", variable=self.coord_system, value="polar", command=callbacks.on_coord_system_change).pack(anchor=tk.W, padx=5)
 
-        # === РАЗДЕЛ: ЕДИНИЦЫ УГЛА ===
         angle_frame = ttk.LabelFrame(parent, text="Единицы угла")
         angle_frame.pack(padx=5, pady=5, fill=tk.X)
         ttk.Radiobutton(angle_frame, text="Градусы", variable=self.angle_units, value="degrees", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle(), callbacks.update_preview_arc())).pack(anchor=tk.W)
         ttk.Radiobutton(angle_frame, text="Радианы", variable=self.angle_units, value="radians", command=lambda: (callbacks.update_preview_segment(), callbacks.update_preview_circle(), callbacks.update_preview_arc())).pack(anchor=tk.W)
 
     def _setup_circle_tab(self, parent, callbacks):
-        # === РАЗДЕЛ: МЕТОД СОЗДАНИЯ ОКРУЖНОСТИ ===
         circle_frame = ttk.LabelFrame(parent, text="Метод создания окружности")
         circle_frame.pack(padx=5, pady=5, fill=tk.X)
 
-        # Переменная для выбора метода создания окружности
         self.circle_method = tk.StringVar(value="center_radius")
 
-        # Радиокнопки для выбора метода
         ttk.Radiobutton(circle_frame, text="Центр и радиус", variable=self.circle_method, value="center_radius",
                        command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
         ttk.Radiobutton(circle_frame, text="Центр и диаметр", variable=self.circle_method, value="center_diameter",
@@ -541,43 +457,35 @@ class MainWindow:
         ttk.Radiobutton(circle_frame, text="3 точки на окружности", variable=self.circle_method, value="three_points",
                        command=lambda: self._on_circle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
 
-        # === РАЗДЕЛ: ПОЛЯ ВВОДА ДЛЯ ОКРУЖНОСТЕЙ ===
         self.circle_input_frame = ttk.LabelFrame(parent, text="Координаты")
         self.circle_input_frame.pack(padx=5, pady=5, fill=tk.X)
 
-        # Поля для центра (X₁, Y₁) - используются для всех методов
         center_frame = ttk.LabelFrame(self.circle_input_frame, text="Центр")
         center_frame.pack(padx=5, pady=5, fill=tk.X)
         self.circle_center_label1, self.circle_center_x_entry = self._create_coord_entry(center_frame, "X₁:", callbacks.update_preview_circle)
         self.circle_center_label2, self.circle_center_y_entry = self._create_coord_entry(center_frame, "Y₁:", callbacks.update_preview_circle)
 
-        # Поле для радиуса/диаметра
         self.circle_param_frame = ttk.Frame(self.circle_input_frame)
         self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
         self.circle_param_label, self.circle_param_entry = self._create_coord_entry(self.circle_param_frame, "R:", callbacks.update_preview_circle)
 
-        # Поля для второй точки (X₂, Y₂) - для методов two_points и three_points
         self.circle_p2_frame = ttk.LabelFrame(self.circle_input_frame, text="Точка 2")
         self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
         self.circle_p2_label1, self.circle_p2_x_entry = self._create_coord_entry(self.circle_p2_frame, "X₂:", callbacks.update_preview_circle)
         self.circle_p2_label2, self.circle_p2_y_entry = self._create_coord_entry(self.circle_p2_frame, "Y₂:", callbacks.update_preview_circle)
 
-        # Поля для третьей точки (X₃, Y₃) - только для three_points
         self.circle_p3_frame = ttk.LabelFrame(self.circle_input_frame, text="Точка 3")
         self.circle_p3_frame.pack(padx=5, pady=5, fill=tk.X)
         self.circle_p3_label1, self.circle_p3_x_entry = self._create_coord_entry(self.circle_p3_frame, "X₃:", callbacks.update_preview_circle)
         self.circle_p3_label2, self.circle_p3_y_entry = self._create_coord_entry(self.circle_p3_frame, "Y₃:", callbacks.update_preview_circle)
 
-        # По умолчанию показываем только центр
         self.circle_param_frame.pack_forget()
         self.circle_p2_frame.pack_forget()
         self.circle_p3_frame.pack_forget()
 
-        # Обновляем интерфейс для текущего метода
         self._update_circle_params_ui()
 
     def _setup_arc_tab(self, parent, callbacks):
-        # Переменная метода построения
         self.arc_method = tk.StringVar(value="three_points")
 
         method_frame = ttk.LabelFrame(parent, text="Метод создания дуги")
@@ -588,7 +496,6 @@ class MainWindow:
         ttk.Radiobutton(method_frame, text="Центр, углы", variable=self.arc_method, value="center_angles",
                         command=lambda: self._on_arc_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
 
-        # Блок ввода для метода три точки
         self.arc_three_points_frame = ttk.LabelFrame(parent, text="Точки дуги")
         self.arc_three_points_frame.pack(padx=5, pady=5, fill=tk.X)
         self.arc_p1_label1, self.arc_p1_x_entry = self._create_coord_entry(self.arc_three_points_frame, "X₁:", callbacks.update_preview_arc)
@@ -598,7 +505,6 @@ class MainWindow:
         self.arc_p3_label1, self.arc_p3_x_entry = self._create_coord_entry(self.arc_three_points_frame, "X₃:", callbacks.update_preview_arc)
         self.arc_p3_label2, self.arc_p3_y_entry = self._create_coord_entry(self.arc_three_points_frame, "Y₃:", callbacks.update_preview_arc)
 
-        # Блок ввода для метода центр+углы
         self.arc_center_frame = ttk.LabelFrame(parent, text="Центр")
         self.arc_center_x_label, self.arc_center_x_entry = self._create_coord_entry(self.arc_center_frame, "Xc:", callbacks.update_preview_arc)
         self.arc_center_y_label, self.arc_center_y_entry = self._create_coord_entry(self.arc_center_frame, "Yc:", callbacks.update_preview_arc)
@@ -610,11 +516,9 @@ class MainWindow:
         self.arc_start_label, self.arc_start_angle_entry = self._create_coord_entry(self.arc_angles_frame, "θ₁:", callbacks.update_preview_arc)
         self.arc_end_label, self.arc_end_angle_entry = self._create_coord_entry(self.arc_angles_frame, "θ₂:", callbacks.update_preview_arc)
 
-        # Изначально показываем три точки
         self._update_arc_params_ui()
 
     def _setup_rectangle_tab(self, parent, callbacks):
-        # Переменная метода построения
         self.rect_method = tk.StringVar(value="two_points")
 
         method_frame = ttk.LabelFrame(parent, text="Метод создания")
@@ -627,28 +531,24 @@ class MainWindow:
         ttk.Radiobutton(method_frame, text="Центр, ширина/высота", variable=self.rect_method, value="center_size",
                         command=lambda: self._on_rectangle_method_change(callbacks)).pack(anchor=tk.W, padx=5, pady=2)
 
-        # Блок для метода "две точки"
         self.rect_two_points_frame = ttk.LabelFrame(parent, text="Точки")
         self.rect_p1_label1, self.rect_p1_x_entry = self._create_coord_entry(self.rect_two_points_frame, "X₁:", callbacks.update_preview_rectangle)
         self.rect_p1_label2, self.rect_p1_y_entry = self._create_coord_entry(self.rect_two_points_frame, "Y₁:", callbacks.update_preview_rectangle)
         self.rect_p2_label1, self.rect_p2_x_entry = self._create_coord_entry(self.rect_two_points_frame, "X₂:", callbacks.update_preview_rectangle)
         self.rect_p2_label2, self.rect_p2_y_entry = self._create_coord_entry(self.rect_two_points_frame, "Y₂:", callbacks.update_preview_rectangle)
 
-        # Блок для метода "угол + размеры"
         self.rect_corner_frame = ttk.LabelFrame(parent, text="Вершина + размеры")
         self.rect_corner_label1, self.rect_corner_x_entry = self._create_coord_entry(self.rect_corner_frame, "X:", callbacks.update_preview_rectangle)
         self.rect_corner_label2, self.rect_corner_y_entry = self._create_coord_entry(self.rect_corner_frame, "Y:", callbacks.update_preview_rectangle)
         self.rect_width_label, self.rect_width_entry = self._create_coord_entry(self.rect_corner_frame, "W:", callbacks.update_preview_rectangle)
         self.rect_height_label, self.rect_height_entry = self._create_coord_entry(self.rect_corner_frame, "H:", callbacks.update_preview_rectangle)
 
-        # Блок для метода "центр + размеры"
         self.rect_center_frame = ttk.LabelFrame(parent, text="Центр + размеры")
         self.rect_center_label1, self.rect_center_x_entry = self._create_coord_entry(self.rect_center_frame, "Xc:", callbacks.update_preview_rectangle)
         self.rect_center_label2, self.rect_center_y_entry = self._create_coord_entry(self.rect_center_frame, "Yc:", callbacks.update_preview_rectangle)
         self.rect_center_w_label, self.rect_center_w_entry = self._create_coord_entry(self.rect_center_frame, "W:", callbacks.update_preview_rectangle)
         self.rect_center_h_label, self.rect_center_h_entry = self._create_coord_entry(self.rect_center_frame, "H:", callbacks.update_preview_rectangle)
 
-        # Блок настроек углов
         corner_frame = ttk.LabelFrame(parent, text="Углы")
         corner_frame.pack(padx=5, pady=5, fill=tk.X)
         self.rect_corner_type = tk.StringVar(value="none")
@@ -666,11 +566,9 @@ class MainWindow:
         self.rect_corner_value_entry.pack(side=tk.LEFT, padx=5)
         self.rect_corner_value_entry.bind("<KeyRelease>", callbacks.update_preview_rectangle)
 
-        # Изначально показываем "две точки"
         self._update_rectangle_params_ui()
 
     def _setup_ellipse_tab(self, parent, callbacks):
-        # Пока поддерживается один метод: центр и две оси
         self.ellipse_method = tk.StringVar(value="center_axes")
 
         ttk.Label(parent, text="Способ: центр + концы осей").pack(anchor=tk.W, padx=8, pady=(4, 0))
@@ -694,7 +592,6 @@ class MainWindow:
         self.ellipse_b_label2, self.ellipse_b_y_entry = self._create_coord_entry(axis_b_frame, "Yb:", callbacks.update_preview_ellipse)
 
     def _setup_polygon_tab(self, parent, callbacks):
-        # Способ: центр и радиус описанной/вписанной окружности
         self.polygon_method = tk.StringVar(value="center_radius")
         self.polygon_variant = tk.StringVar(value="inscribed")
         self.polygon_sides_var = tk.StringVar(value="5")
@@ -737,7 +634,6 @@ class MainWindow:
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.spline_points_listbox = tk.Listbox(list_frame, height=8, exportselection=False)
         self.spline_points_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        # Привязка к выбору точки в списке
         self.spline_points_listbox.bind('<<ListboxSelect>>', callbacks.on_spline_point_selected)
 
         manual_frame = ttk.LabelFrame(parent, text="Координаты точки")
@@ -751,19 +647,16 @@ class MainWindow:
         self.spline_point_y_entry = ttk.Entry(row, width=10)
         self.spline_point_y_entry.pack(side=tk.LEFT, padx=5)
         
-        # Кнопки добавления/редактирования
         add_btns_frame = ttk.Frame(manual_frame)
         add_btns_frame.pack(fill=tk.X, padx=5, pady=(2, 2))
         ttk.Button(add_btns_frame, text="В конец", command=callbacks.on_add_spline_point_manual).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         ttk.Button(add_btns_frame, text="Перед выбранной", command=callbacks.on_insert_spline_point_before).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
-        # Кнопка обновления координат выбранной точки
         ttk.Button(manual_frame, text="Обновить выбранную", command=callbacks.on_update_selected_spline_point).pack(fill=tk.X, padx=5, pady=(2, 5))
 
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Кнопки удаления
         del_btns_frame = ttk.Frame(btn_frame)
         del_btns_frame.pack(fill=tk.X, pady=2)
         ttk.Button(del_btns_frame, text="Удалить выбранную", command=callbacks.on_remove_selected_spline_point).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
@@ -773,37 +666,26 @@ class MainWindow:
 
         ttk.Label(parent, text="Выберите точку для редактирования\nЛКМ на холсте - добавить в конец\nПКМ - удалить последнюю").pack(anchor=tk.W, padx=8, pady=4)
 
-    # Информационная панель - показывает параметры текущего отрезка в реальном времени
     def setup_info_panel(self, parent):
 
-        # Длина отрезка
         self.length_var = tk.StringVar(value="Длина: N/A")
 
-        # Угол отрезка (в градусах или радианах, в зависимости от выбора)
         self.angle_var = tk.StringVar(value="Угол: N/A")
 
-        # Координаты первой точки
         self.p1_coord_var = tk.StringVar(value="P1: N/A")
 
-        # Координаты второй точки
         self.p2_coord_var = tk.StringVar(value="P2: N/A")
 
-        # Координаты третьей точки
         self.p3_coord_var = tk.StringVar(value="P3: N/A")
 
-        # Создание меток с этими переменными
         for var in [self.length_var, self.angle_var, self.p1_coord_var, self.p2_coord_var, self.p3_coord_var]:
             ttk.Label(parent, textvariable=var).pack(side=tk.LEFT, padx=10, pady=2)
 
-
-         # === ГОРЯЧИЕ КЛАВИШИ ===
         self.hotkey_frame = ttk.Frame(parent)
 
-        # Enter - подтвердить ввод
         self.lbl_enter = ttk.Label(self.hotkey_frame, text="⏎ Enter - Ввод")
         self.lbl_enter.pack(side=tk.LEFT, padx=5)
         
-        # Escape - отмена
         self.lbl_esc = ttk.Label(self.hotkey_frame, text="⎋ Esc - Отмена")
         self.lbl_esc.pack(side=tk.LEFT, padx=5)
     
@@ -827,11 +709,10 @@ class MainWindow:
         return swatch
 
     def _on_circle_method_change(self, callbacks):
-        """Обработчик изменения метода создания окружности."""
+
         method = self.circle_method.get()
         callbacks.state.circle_creation_method = method
 
-        # Очищаем поля при смене метода
         self.circle_param_entry.delete(0, tk.END)
         self.circle_p2_x_entry.delete(0, tk.END)
         self.circle_p2_y_entry.delete(0, tk.END)
@@ -842,38 +723,33 @@ class MainWindow:
         callbacks.update_preview_circle()
 
     def _update_circle_params_ui(self):
-        """Обновляет интерфейс параметров окружности в зависимости от метода."""
+
         method = self.circle_method.get()
 
         if method == 'center_radius':
-            # Показываем центр и радиус
             self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
             self.circle_param_label.config(text="R:")
             self.circle_p2_frame.pack_forget()
             self.circle_p3_frame.pack_forget()
         elif method == 'center_diameter':
-            # Показываем центр и диаметр
             self.circle_param_frame.pack(fill=tk.X, padx=5, pady=2)
             self.circle_param_label.config(text="D:")
             self.circle_p2_frame.pack_forget()
             self.circle_p3_frame.pack_forget()
         elif method == 'two_points':
-            # Показываем центр и вторую точку
             self.circle_param_frame.pack_forget()
             self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
             self.circle_p3_frame.pack_forget()
         elif method == 'three_points':
-            # Показываем центр, вторую и третью точки
             self.circle_param_frame.pack_forget()
             self.circle_p2_frame.pack(padx=5, pady=5, fill=tk.X)
             self.circle_p3_frame.pack(padx=5, pady=5, fill=tk.X)
 
     def _on_arc_method_change(self, callbacks):
-        """Обработчик смены метода построения дуги."""
+
         method = self.arc_method.get()
         callbacks.state.arc_creation_method = method
 
-        # Очищаем поля
         for entry in [
             self.arc_p1_x_entry, self.arc_p1_y_entry,
             self.arc_p2_x_entry, self.arc_p2_y_entry,
@@ -887,7 +763,7 @@ class MainWindow:
         callbacks.update_preview_arc()
 
     def _update_arc_params_ui(self):
-        """Показывает нужные поля в зависимости от метода построения дуги."""
+
         method = self.arc_method.get()
 
         if method == 'three_points':
@@ -904,7 +780,6 @@ class MainWindow:
     def _on_rectangle_method_change(self, callbacks):
         self.callbacks.state.rectangle_creation_method = self.rect_method.get()
         callbacks.state.points_clicked = 0
-        # Очищаем все поля
         for entry in [
             self.rect_p1_x_entry, self.rect_p1_y_entry,
             self.rect_p2_x_entry, self.rect_p2_y_entry,
@@ -930,11 +805,8 @@ class MainWindow:
         elif method == 'center_size':
             self.rect_center_frame.pack(padx=5, pady=5, fill=tk.X)
 
-
-    # --- ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---
-
     def refresh_style_combobox_values(self, styles_dict):
-        """Обновляет список стилей в выпадающем меню."""
+
         sorted_items = sorted(styles_dict.items(), key=lambda x: (x[1].is_custom, x[1].display_name))
         
         style_names = []
@@ -946,10 +818,8 @@ class MainWindow:
         
         self.style_combobox['values'] = style_names
         
-        # Восстанавливаем выбор (или сбрасываем)
         current_text = self.style_combobox.get()
         
-        # Пробуем найти текущий стиль по тексту или по ID
         current_id = self.callbacks.state.current_style_name
         if current_id in self.style_ids:
              idx = self.style_ids.index(current_id)
@@ -958,25 +828,21 @@ class MainWindow:
              self.style_combobox.current(0)
 
     def set_style_selection(self, style_name_or_text):
-        """Устанавливает текст в выпадающем списке и обновляет превью."""
-        # Если передан ID стиля
+
         if style_name_or_text in self.callbacks.state.line_styles:
             if style_name_or_text in self.style_ids:
                 idx = self.style_ids.index(style_name_or_text)
                 self.style_combobox.current(idx)
             self.update_style_preview(style_name_or_text)
         else:
-            # Если передано "Разные"
             self.style_combobox.set(style_name_or_text)
             self.prop_preview_canvas.delete("all")
 
-    # --- ГЕНЕРАТОРЫ (Те же, что и везде) ---
     def _generate_dashed_coords(self, x1, y1, x2, y2, pattern, px_ratio):
         dx, dy = x2 - x1, y2 - y1
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return []
         
-        # ТЕПЕРЬ ЭТО ОТДЕЛЬНЫЕ СТРОКИ
         ux, uy = dx/length, dy/length
         scaled_pattern = [float(val) * px_ratio for val in pattern]
         
@@ -1001,7 +867,6 @@ class MainWindow:
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
         
-        # ТЕПЕРЬ ЭТО ОТДЕЛЬНЫЕ СТРОКИ
         ux, uy = dx/length, dy/length
         nx, ny = -uy, ux
         
@@ -1023,7 +888,6 @@ class MainWindow:
         length = math.sqrt(dx*dx + dy*dy)
         if length == 0: return [x1, y1, x2, y2]
         
-        # ТЕПЕРЬ ЭТО ОТДЕЛЬНЫЕ СТРОКИ
         ux, uy = dx/length, dy/length
         nx, ny = -uy, ux
         
@@ -1070,13 +934,10 @@ class MainWindow:
         dash_pattern = None
         if style.dash_pattern:
             d, g = style.dash_pattern
-            # Дублирующая проверка (для надежности)
-            # Сначала проверяем base_type (новое)
             if getattr(style, 'base_type', 'solid') == 'dash_dot_dot':
                 part = g/5.0; dash_pattern = [d, part, part, part, part, part]
             elif getattr(style, 'base_type', 'solid') == 'dash_dot':
                 part = g/3.0; dash_pattern = [d, part, part, part]
-            # Если base_type не помог, проверяем имя (старое)
             elif style.name == 'dash_dot_dot':
                 part = g/5.0; dash_pattern = [d, part, part, part, part, part]
             elif style.name.startswith('dash_dot_'): 
