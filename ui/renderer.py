@@ -425,6 +425,7 @@ class Renderer:
 
         return sx, sy, tx_s, ty_s
 
+
     def _generate_arc_wave_coords(self, arc, sweep_limit, wave_amplitude=None):
 
         zoom = self.state.zoom
@@ -718,6 +719,7 @@ class Renderer:
 
         coords.extend([first_point[0], first_point[1]])
         return coords
+
 
     def draw_segment(self, segment, override_color=None, override_width=None):
         
@@ -1033,6 +1035,7 @@ class Renderer:
                 dy = y1 - y0
                 return x, y, dx, dy
         return coords[-1][0], coords[-1][1], 0.0, 0.0
+
 
     def _generate_ellipse_wave_coords(self, coords, cum_lengths, wave_amplitude=None):
 
@@ -1467,6 +1470,7 @@ class Renderer:
 
         out.extend([first_point[0], first_point[1]])
         return out
+
 
     def draw_ellipse(self, ellipse, override_color=None, override_width=None):
         draw_color = override_color if override_color else ellipse.color

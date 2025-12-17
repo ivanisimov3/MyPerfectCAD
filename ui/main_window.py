@@ -298,6 +298,7 @@ class MainWindow:
         page.pack(fill=tk.BOTH, expand=True)
         self._active_context_key = key
 
+
     def _setup_general_tab(self, parent, callbacks):
         style_frame = ttk.LabelFrame(parent, text="Стиль линии")
         style_frame.pack(padx=5, pady=5, fill=tk.X)
@@ -666,6 +667,7 @@ class MainWindow:
 
         ttk.Label(parent, text="Выберите точку для редактирования\nЛКМ на холсте - добавить в конец\nПКМ - удалить последнюю").pack(anchor=tk.W, padx=8, pady=4)
 
+
     def setup_info_panel(self, parent):
 
         self.length_var = tk.StringVar(value="Длина: N/A")
@@ -707,6 +709,7 @@ class MainWindow:
         swatch.pack(side=tk.RIGHT, padx=5)
         swatch.bind("<Button-1>", lambda e: command())
         return swatch
+
 
     def _on_circle_method_change(self, callbacks):
 
@@ -804,6 +807,7 @@ class MainWindow:
             self.rect_corner_frame.pack(padx=5, pady=5, fill=tk.X)
         elif method == 'center_size':
             self.rect_center_frame.pack(padx=5, pady=5, fill=tk.X)
+
 
     def refresh_style_combobox_values(self, styles_dict):
 

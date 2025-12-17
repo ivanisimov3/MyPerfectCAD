@@ -5,17 +5,16 @@ from app.callbacks import Callbacks
 
 class Application:
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = tk.Tk() # Инициализация Tkinter
         
-        self.state = AppState()
+        self.state = AppState() # Инициализация состояния приложения
         
-        self.callbacks = Callbacks(self.root, self.state, None)
+        self.callbacks = Callbacks(self.root, self.state, None) # Создание обработчиков событий
         
-        self.view = MainWindow(self.root, self.callbacks)
+        self.view = MainWindow(self.root, self.callbacks)   # Создание главного окна интерфейса
         
-        self.callbacks.view = self.view
-
+        self.callbacks.view = self.view # Связывание обработчиков событий и UI
         self.callbacks.initialize_view()
 
-    def run(self):
+    def run(self):  # Запуска главного цикла
         self.root.mainloop()

@@ -59,7 +59,9 @@ class AppState:
         self.rectangle_creation_method = 'two_points'
         self.rectangle_corner_type = 'none'
         self.rectangle_corner_value = 0.0
+
         self.ellipse_creation_method = 'center_axes'
+        
         self.polygon_creation_method = 'center_radius'
         self.polygon_variant = 'inscribed'
         self.polygon_sides = 5

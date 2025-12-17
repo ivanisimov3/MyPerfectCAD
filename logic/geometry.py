@@ -8,7 +8,7 @@ class GeometryPrimitive(ABC):
         self.color = color
 
     @abstractmethod
-    def distance_to_point(self, mx, my):
+    def distance_to_point(self, mx, my):    # Для выделения объектов
 
         raise NotImplementedError
 
@@ -73,7 +73,7 @@ class Spline(GeometryPrimitive):
         super().__init__(style_name=style_name, color=color)
         self.control_points = list(control_points)
 
-    def _catmull_rom_point(self, p0, p1, p2, p3, t):
+    def _catmull_rom_point(self, p0, p1, p2, p3, t):    # Алгоритм Катмулла-Рома для плавной кривой
 
         t2 = t * t
         t3 = t2 * t
@@ -442,7 +442,7 @@ class Rectangle(GeometryPrimitive):
                 segments.append(Segment(p1, p2, style_name=self.style_name, color=self.color))
             return segments, arcs
 
-        if self.corner_type == 'chamfer':
+        if self.corner_type == 'chamfer':   # Фаски
             d = cv
             bl, br, tr, tl = corners
 
@@ -467,7 +467,7 @@ class Rectangle(GeometryPrimitive):
             ])
             return segments, arcs
 
-        if self.corner_type == 'fillet':
+        if self.corner_type == 'fillet':    # Скругления
             r = cv
             bl, br, tr, tl = corners
             segments.extend([
@@ -635,7 +635,7 @@ class Ellipse(GeometryPrimitive):
             self.center.y + dy,
         )
 
-    def perimeter_approx(self):
+    def perimeter_approx(self): # Формула Рамануджана для периметра
 
         _, _, a, _, _, b = self._basis()
         h = ((a - b) ** 2) / ((a + b) ** 2 + 1e-12)
