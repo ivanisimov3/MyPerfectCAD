@@ -33,7 +33,7 @@ class Callbacks:
             return
         try:
             exporter = DxfExporter()
-            exporter.export(self.state, filepath)
+            exporter.export(self.state, filepath, self.view.root)
             messagebox.showinfo("Экспорт DXF", f"Файл успешно сохранён:\n{filepath}")
         except Exception as e:
             messagebox.showerror("Ошибка экспорта", f"Не удалось сохранить DXF:\n{e}")
