@@ -210,6 +210,7 @@ class SnapManager:
         all_objects.extend([(seg, 'segment') for seg in self.state.segments])
         all_objects.extend([(circle, 'circle') for circle in self.state.circles])
         all_objects.extend([(arc, 'arc') for arc in self.state.arcs])
+        all_objects.extend([(ellipse, 'ellipse') for ellipse in self.state.ellipses])
         
         for rect in self.state.rectangles:
             edges, _ = rect.build_edges()
@@ -249,6 +250,20 @@ class SnapManager:
             return self._intersect_circle_arc(obj2, obj1)
         elif type1 == 'arc' and type2 == 'arc':
             return self._intersect_arc_arc(obj1, obj2)
+        elif type1 == 'segment' and type2 == 'ellipse':
+            return self._intersect_segment_ellipse(obj1, obj2)
+        elif type1 == 'ellipse' and type2 == 'segment':
+            return self._intersect_segment_ellipse(obj2, obj1)
+        elif type1 == 'circle' and type2 == 'ellipse':
+            return self._intersect_circle_ellipse(obj1, obj2)
+        elif type1 == 'ellipse' and type2 == 'circle':
+            return self._intersect_circle_ellipse(obj2, obj1)
+        elif type1 == 'arc' and type2 == 'ellipse':
+            return self._intersect_arc_ellipse(obj1, obj2)
+        elif type1 == 'ellipse' and type2 == 'arc':
+            return self._intersect_arc_ellipse(obj2, obj1)
+        elif type1 == 'ellipse' and type2 == 'ellipse':
+            return self._intersect_ellipse_ellipse(obj1, obj2)
         return []
     
     def _intersect_segment_segment(self, seg1: Segment, seg2: Segment) -> List[Tuple[float, float]]:
@@ -366,6 +381,130 @@ class SnapManager:
         
         return result
     
+    def _intersect_segment_ellipse(self, seg: Segment, ellipse: Ellipse) -> List[Tuple[float, float]]:
+        """Аналитическое пересечение отрезка и эллипса через аффинное преобразование к единичной окружности."""
+        e1x, e1y, a, e2x, e2y, b = ellipse._basis()
+        if a < 1e-12 or b < 1e-12:
+            return []
+
+        # Переводим концы отрезка в локальную систему эллипса
+        def to_local(px, py):
+            rx = px - ellipse.center.x
+            ry = py - ellipse.center.y
+            lx = (rx * e1x + ry * e1y) / a
+            ly = (rx * e2x + ry * e2y) / b
+            return lx, ly
+
+        lx1, ly1 = to_local(seg.p1.x, seg.p1.y)
+        lx2, ly2 = to_local(seg.p2.x, seg.p2.y)
+
+        # В локальных координатах эллипс — единичная окружность
+        dx = lx2 - lx1
+        dy = ly2 - ly1
+        a_coef = dx * dx + dy * dy
+        b_coef = 2 * (lx1 * dx + ly1 * dy)
+        c_coef = lx1 * lx1 + ly1 * ly1 - 1.0
+
+        if a_coef < 1e-15:
+            return []
+
+        discriminant = b_coef * b_coef - 4 * a_coef * c_coef
+        if discriminant < 0:
+            return []
+
+        points = []
+        sqrt_disc = math.sqrt(discriminant)
+        for sign in [-1, 1]:
+            t = (-b_coef + sign * sqrt_disc) / (2 * a_coef)
+            if 0 <= t <= 1:
+                ix = seg.p1.x + t * (seg.p2.x - seg.p1.x)
+                iy = seg.p1.y + t * (seg.p2.y - seg.p1.y)
+                points.append((ix, iy))
+        return points
+
+    def _intersect_circle_ellipse(self, circle: Circle, ellipse: Ellipse) -> List[Tuple[float, float]]:
+        """Пересечение окружности и эллипса через семплирование контура эллипса."""
+        pts = ellipse.sample_points(360)
+        results = []
+        r = circle.radius
+        cx, cy = circle.center.x, circle.center.y
+        for i in range(len(pts) - 1):
+            ax, ay = pts[i].x, pts[i].y
+            bx, by = pts[i + 1].x, pts[i + 1].y
+            # Проверяем пересечение отрезка (a, b) с окружностью
+            dx = bx - ax
+            dy = by - ay
+            fx = ax - cx
+            fy = ay - cy
+            a_c = dx * dx + dy * dy
+            b_c = 2 * (fx * dx + fy * dy)
+            c_c = fx * fx + fy * fy - r * r
+            if a_c < 1e-15:
+                continue
+            disc = b_c * b_c - 4 * a_c * c_c
+            if disc < 0:
+                continue
+            sqrt_d = math.sqrt(disc)
+            for sign in [-1, 1]:
+                t = (-b_c + sign * sqrt_d) / (2 * a_c)
+                if 0 <= t <= 1:
+                    ix = ax + t * dx
+                    iy = ay + t * dy
+                    # Исключаем дубликаты
+                    dup = False
+                    for ex, ey in results:
+                        if (ix - ex) ** 2 + (iy - ey) ** 2 < 1e-6:
+                            dup = True
+                            break
+                    if not dup:
+                        results.append((ix, iy))
+        return results
+
+    def _intersect_arc_ellipse(self, arc: Arc, ellipse: Ellipse) -> List[Tuple[float, float]]:
+        """Пересечение дуги и эллипса: через circle-ellipse + фильтр по дуге."""
+        circle = Circle(arc.center, arc.radius)
+        intersections = self._intersect_circle_ellipse(circle, ellipse)
+        result = []
+        for ix, iy in intersections:
+            angle = math.atan2(iy - arc.center.y, ix - arc.center.x)
+            if self._angle_on_arc(angle, arc):
+                result.append((ix, iy))
+        return result
+
+    def _intersect_ellipse_ellipse(self, e1: Ellipse, e2: Ellipse) -> List[Tuple[float, float]]:
+        """Пересечение двух эллипсов через семплирование обоих контуров."""
+        pts1 = e1.sample_points(360)
+        pts2 = e2.sample_points(360)
+        results = []
+
+        for i in range(len(pts1) - 1):
+            ax1, ay1 = pts1[i].x, pts1[i].y
+            bx1, by1 = pts1[i + 1].x, pts1[i + 1].y
+            for j in range(len(pts2) - 1):
+                ax2, ay2 = pts2[j].x, pts2[j].y
+                bx2, by2 = pts2[j + 1].x, pts2[j + 1].y
+                # Пересечение двух отрезков
+                d1x = bx1 - ax1
+                d1y = by1 - ay1
+                d2x = bx2 - ax2
+                d2y = by2 - ay2
+                denom = d1x * d2y - d1y * d2x
+                if abs(denom) < 1e-12:
+                    continue
+                t = ((ax2 - ax1) * d2y - (ay2 - ay1) * d2x) / denom
+                u = ((ax2 - ax1) * d1y - (ay2 - ay1) * d1x) / denom
+                if 0 <= t <= 1 and 0 <= u <= 1:
+                    ix = ax1 + t * d1x
+                    iy = ay1 + t * d1y
+                    dup = False
+                    for ex, ey in results:
+                        if (ix - ex) ** 2 + (iy - ey) ** 2 < 1e-6:
+                            dup = True
+                            break
+                    if not dup:
+                        results.append((ix, iy))
+        return results
+
     def _find_perpendiculars(self, cx: float, cy: float, radius: float, from_point: Point) -> List[SnapPoint]:
 
         points = []
@@ -393,6 +532,18 @@ class SnapManager:
             perp = self._perpendicular_to_circle(from_point, circle)
             if perp and self._in_range(perp[0], perp[1], cx, cy, radius):
                 points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, circle, priority))
+        
+        for arc in self.state.arcs:
+            perp = self._perpendicular_to_circle(from_point, Circle(arc.center, arc.radius))
+            if perp:
+                angle = math.atan2(perp[1] - arc.center.y, perp[0] - arc.center.x)
+                if self._angle_on_arc(angle, arc) and self._in_range(perp[0], perp[1], cx, cy, radius):
+                    points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, arc, priority))
+
+        for ellipse in self.state.ellipses:
+            perp = self._perpendicular_to_ellipse(from_point, ellipse)
+            if perp and self._in_range(perp[0], perp[1], cx, cy, radius):
+                points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, ellipse, priority))
         
         return points
     
@@ -445,6 +596,12 @@ class SnapManager:
                 if self._in_range(tx, ty, cx, cy, radius):
                     points.append(SnapPoint(tx, ty, SnapType.TANGENT, arc, priority))
         
+        for ellipse in self.state.ellipses:
+            tangent_points = self._tangent_to_ellipse(from_point, ellipse)
+            for tx, ty in tangent_points:
+                if self._in_range(tx, ty, cx, cy, radius):
+                    points.append(SnapPoint(tx, ty, SnapType.TANGENT, ellipse, priority))
+        
         return points
     
     def _tangent_to_circle(self, point: Point, circle: Circle) -> List[Tuple[float, float]]:
@@ -482,6 +639,94 @@ class SnapManager:
         
         return result
     
+    def _perpendicular_to_ellipse(self, point: Point, ellipse: Ellipse) -> Optional[Tuple[float, float]]:
+        """Ближайшая точка на эллипсе (перпендикулярная проекция) — итерационный метод."""
+        e1x, e1y, a, e2x, e2y, b = ellipse._basis()
+        if a < 1e-12 or b < 1e-12:
+            return None
+
+        # Переводим точку в локальную систему эллипса
+        rx = point.x - ellipse.center.x
+        ry = point.y - ellipse.center.y
+        local_x = rx * e1x + ry * e1y
+        local_y = rx * e2x + ry * e2y
+
+        # Начальное приближение угла
+        theta = math.atan2(local_y / b if abs(b) > 1e-12 else 0,
+                           local_x / a if abs(a) > 1e-12 else 0)
+
+        # Итерационное уточнение (метод Ньютона для минимизации расстояния)
+        for _ in range(50):
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
+            ex = a * cos_t
+            ey = b * sin_t
+            # Производная расстояния^2 по theta
+            dx = local_x - ex
+            dy = local_y - ey
+            # d(dist^2)/dtheta = 2 * (dx * a * sin_t - dy * b * cos_t)
+            deriv = dx * a * sin_t - dy * b * cos_t
+            # d2(dist^2)/dtheta^2
+            deriv2 = (dx * a * cos_t + dy * b * sin_t +
+                      a * a * sin_t * sin_t + b * b * cos_t * cos_t)
+            if abs(deriv2) < 1e-15:
+                break
+            delta = deriv / deriv2
+            theta -= delta
+            if abs(delta) < 1e-12:
+                break
+
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
+        # Обратная трансформация в мировые координаты
+        wx = ellipse.center.x + a * cos_t * e1x + b * sin_t * e2x
+        wy = ellipse.center.y + a * cos_t * e1y + b * sin_t * e2y
+        return (wx, wy)
+
+    def _tangent_to_ellipse(self, point: Point, ellipse: Ellipse) -> List[Tuple[float, float]]:
+        """Точки касания из внешней точки к эллипсу (аналитическое решение)."""
+        e1x, e1y, a, e2x, e2y, b = ellipse._basis()
+        if a < 1e-12 or b < 1e-12:
+            return []
+
+        # Переводим точку в локальную систему эллипса
+        rx = point.x - ellipse.center.x
+        ry = point.y - ellipse.center.y
+        px = rx * e1x + ry * e1y
+        py = rx * e2x + ry * e2y
+
+        # Проверяем, находится ли точка внутри эллипса
+        if (px / a) ** 2 + (py / b) ** 2 <= 1.0 + 1e-6:
+            return []
+
+        # Касательная к эллипсу в точке E(t) = (a cos t, b sin t):
+        #   x·cos(t)/a + y·sin(t)/b = 1
+        # Точка (px, py) лежит на этой касательной, если:
+        #   (px/a)·cos(t) + (py/b)·sin(t) = 1
+        # Это уравнение вида A·cos(t) + B·sin(t) = 1,
+        # решение: t = φ ± arccos(1/R), где R = √(A²+B²), φ = atan2(B, A)
+
+        A = px / a
+        B = py / b
+        R = math.sqrt(A * A + B * B)
+
+        if R < 1.0 + 1e-9:
+            return []
+
+        phi = math.atan2(B, A)
+        delta = math.acos(max(-1.0, min(1.0, 1.0 / R)))
+
+        results = []
+        for sign in [-1, 1]:
+            t = phi + sign * delta
+            ct = math.cos(t)
+            st = math.sin(t)
+            # Обратная трансформация в мировые координаты
+            wx = ellipse.center.x + a * ct * e1x + b * st * e2x
+            wy = ellipse.center.y + a * ct * e1y + b * st * e2y
+            results.append((wx, wy))
+        return results
+
     def _find_grid_snap(self, cx: float, cy: float, radius: float) -> Optional[SnapPoint]:
 
         step = self.state.grid_step
