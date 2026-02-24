@@ -236,5 +236,9 @@ class DxfExporter:
             fit_pts = [(p.x, p.y) for p in spline.control_points]
             msp.add_spline(fit_pts, dxfattribs=self._get_attribs(spline.layer, spline, root, state))
 
+        # ── Точки ──
+        for pt in state.points:
+            msp.add_point((pt.x, pt.y), dxfattribs=self._get_attribs(pt.layer, pt, root, state))
+
         doc.saveas(filepath)
 

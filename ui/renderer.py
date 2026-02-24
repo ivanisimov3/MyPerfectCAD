@@ -1570,6 +1570,21 @@ class Renderer:
         x, y = self.converter.world_to_screen(point.x, point.y)
         self.canvas.create_oval(x - size, y - size, x + size, y + size, fill=color, outline=color)
 
+    def draw_geometry_point(self, point, override_color=None, override_width=None):
+        """Рисует примитив Point как крошечный крестик."""
+        draw_color = override_color if override_color else point.color
+        line_width = override_width if override_width else 1
+        
+        # Получаем координаты на экране
+        x, y = self.converter.world_to_screen(point.x, point.y)
+        
+        # Размер крестика (в пикселях)
+        size = 3
+        
+        # Рисуем две пересекающиеся линии (крестик X)
+        self.canvas.create_line(x - size, y - size, x + size, y + size, fill=draw_color, width=line_width)
+        self.canvas.create_line(x - size, y + size, x + size, y - size, fill=draw_color, width=line_width)
+
     def draw_spline(self, spline, override_color=None, override_width=None):
 
         draw_color = override_color if override_color else spline.color
@@ -1652,6 +1667,11 @@ class Renderer:
         for spline in self.state.selected_splines:
             if self.state.is_layer_visible(spline.layer):
                 self.draw_spline(spline, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        for pt in self.state.selected_points:
+            if self.state.is_layer_visible(pt.layer):
+                # Для точки можно использовать ту же функцию draw_point (хотя она рисует крестик)
+                # но draw_point рассчитана на объекты типа Point
+                self.draw_geometry_point(pt, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         selected_segments_set = set(id(s) for s in self.state.selected_segments)
         for segment in self.state.segments:
@@ -1687,6 +1707,11 @@ class Renderer:
         for spline in self.state.splines:
             if id(spline) not in selected_splines_set and self.state.is_layer_visible(spline.layer):
                 self.draw_spline(spline)
+
+        selected_points_set = set(id(p) for p in self.state.selected_points)
+        for pt in self.state.points:
+            if id(pt) not in selected_points_set and self.state.is_layer_visible(pt.layer):
+                self.draw_geometry_point(pt)
 
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')

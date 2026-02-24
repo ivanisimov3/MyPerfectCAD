@@ -18,10 +18,15 @@ class GeometryPrimitive(ABC):
 
         return self.__class__.__name__.lower()
 
-class Point:
-    def __init__(self, x=0.0, y=0.0):
+class Point(GeometryPrimitive):
+    def __init__(self, x=0.0, y=0.0, style_name='solid_main', color='black'):
+        super().__init__(style_name, color)
         self.x = float(x)
         self.y = float(y)
+
+    def distance_to_point(self, mx, my):
+        # Расстояние от заданной точки координат до этой точки
+        return math.hypot(mx - self.x, my - self.y)
 
     def get_polar_coords(self):
         r = math.sqrt(self.x**2 + self.y**2)

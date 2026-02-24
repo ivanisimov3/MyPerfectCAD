@@ -25,6 +25,7 @@ class AppState:
         self.ellipses = []
         self.polygons = []
         self.splines = []
+        self.points = []
 
         self.selected_segments = []
         self.selected_circles = []
@@ -33,6 +34,7 @@ class AppState:
         self.selected_ellipses = []
         self.selected_polygons = []
         self.selected_splines = []
+        self.selected_points = []
 
         self.preview_segment = None
         self.preview_circle = None
