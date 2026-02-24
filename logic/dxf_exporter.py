@@ -92,4 +92,11 @@ class DxfExporter:
                 ratio=ratio,
             )
 
+        # ── Сплайны ──
+        for spline in state.splines:
+            if len(spline.control_points) < 2:
+                continue
+            fit_pts = [(p.x, p.y) for p in spline.control_points]
+            msp.add_spline(fit_pts)
+
         doc.saveas(filepath)
