@@ -200,6 +200,10 @@ class MainWindow:
 
         self.status_angle = ttk.Label(parent, text="Angle: 0.0°", width=15)
         self.status_angle.pack(side=tk.LEFT, padx=5)
+        ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=2)
+
+        self.status_layer = ttk.Label(parent, text="Слой: 0", width=15)
+        self.status_layer.pack(side=tk.LEFT, padx=5)
 
         self.status_mode = ttk.Label(parent, text="Режим: Ожидание", anchor=tk.E)
         self.status_mode.pack(side=tk.RIGHT, padx=5, fill=tk.X, expand=True)
@@ -277,6 +281,11 @@ class MainWindow:
             page.pack_forget()
 
         self._active_context_key = None
+
+        # ── Вкладка «Слои» ──
+        self.layers_tab = ttk.Frame(self.settings_notebook)
+        self.settings_notebook.add(self.layers_tab, text="Слои")
+        self._setup_layers_tab(self.layers_tab, callbacks)
 
     def set_context_panel(self, key, title=None):
 
@@ -669,6 +678,53 @@ class MainWindow:
 
         ttk.Label(parent, text="Выберите точку для редактирования\nЛКМ на холсте - добавить в конец\nПКМ - удалить последнюю").pack(anchor=tk.W, padx=8, pady=4)
 
+
+    def _setup_layers_tab(self, parent, callbacks):
+
+        # Listbox со слоями
+        list_frame = ttk.LabelFrame(parent, text="Слои чертежа")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.layers_listbox = tk.Listbox(list_frame, height=8, exportselection=False)
+        self.layers_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.layers_listbox.bind('<<ListboxSelect>>', callbacks.on_layer_selected)
+        self.layers_listbox.bind('<Double-Button-1>', callbacks.on_layer_double_click)
+
+        # Кнопки
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X, padx=5, pady=2)
+
+        ttk.Button(btn_frame, text="Добавить", command=callbacks.on_add_layer).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(btn_frame, text="Удалить", command=callbacks.on_delete_layer).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+
+        ttk.Button(parent, text="Видимость вкл/выкл", command=callbacks.on_toggle_layer_visibility).pack(
+            fill=tk.X, padx=5, pady=2)
+
+        ttk.Button(parent, text="Переместить выделенное →", command=callbacks.on_move_to_layer).pack(
+            fill=tk.X, padx=5, pady=2)
+
+        # Индикатор активного слоя
+        self.active_layer_var = tk.StringVar(value="Активный слой: 0")
+        ttk.Label(parent, textvariable=self.active_layer_var).pack(anchor=tk.W, padx=8, pady=(4, 2))
+
+        ttk.Label(parent, text="Двойной клик — сделать активным\nВыбор + «Видимость» — скрыть/показать\nВыбор + «Переместить» — перенести выделенное").pack(
+            anchor=tk.W, padx=8, pady=(0, 6))
+
+    def refresh_layers_list(self, state):
+        """Обновить Listbox слоёв из state."""
+        lb = self.layers_listbox
+        sel_idx = lb.curselection()
+        lb.delete(0, tk.END)
+
+        for layer in state.layers:
+            eye = "👁" if layer.visible else "⊘"
+            marker = " ► " if layer.name == state.active_layer else "   "
+            lb.insert(tk.END, f"{eye}{marker}{layer.name}")
+
+        if sel_idx and sel_idx[0] < lb.size():
+            lb.selection_set(sel_idx[0])
 
     def setup_info_panel(self, parent):
 

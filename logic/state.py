@@ -1,8 +1,22 @@
 from logic.styles import GOST_STYLES
 
+
+class Layer:
+    """Слой чертежа."""
+
+    def __init__(self, name, visible=True, color=7):
+        self.name = name
+        self.visible = visible
+        self.color = color          # ACI-цвет (для DXF-экспорта)
+
+
 class AppState:
     def __init__(self):
         self.app_mode = 'IDLE'
+
+        # ── Слои ──
+        self.layers = [Layer("0")]
+        self.active_layer = "0"
         
         self.segments = []
         self.circles = []
@@ -83,3 +97,43 @@ class AppState:
         self.snap_grid = False
         
         self.current_snap_point = None
+
+    # ── Вспомогательные методы для слоёв ──
+
+    def get_layer(self, name):
+        """Найти слой по имени (или None)."""
+        for layer in self.layers:
+            if layer.name == name:
+                return layer
+        return None
+
+    def is_layer_visible(self, name):
+        """Виден ли слой с данным именем?"""
+        layer = self.get_layer(name)
+        return layer.visible if layer else True
+
+    def add_layer(self, name):
+        """Добавить новый слой. Возвращает True если добавлен."""
+        if self.get_layer(name):
+            return False
+        self.layers.append(Layer(name))
+        return True
+
+    def delete_layer(self, name):
+        """Удалить слой (кроме '0'). Возвращает True если удалён."""
+        if name == "0":
+            return False
+        layer = self.get_layer(name)
+        if not layer:
+            return False
+        # Перенести объекты со слоя на "0"
+        for collection in (self.segments, self.circles, self.arcs,
+                          self.rectangles, self.ellipses, self.polygons,
+                          self.splines):
+            for obj in collection:
+                if obj.layer == name:
+                    obj.layer = "0"
+        self.layers.remove(layer)
+        if self.active_layer == name:
+            self.active_layer = "0"
+        return True

@@ -1630,55 +1630,62 @@ class Renderer:
         self.draw_grid_and_axes()
         
         for seg in self.state.selected_segments:
-            self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(seg.layer):
+                self.draw_segment(seg, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         for circle in self.state.selected_circles:
-            self.draw_circle(circle, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(circle.layer):
+                self.draw_circle(circle, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         for arc in self.state.selected_arcs:
-            self.draw_arc(arc, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(arc.layer):
+                self.draw_arc(arc, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
         for rect in self.state.selected_rectangles:
-            self.draw_rectangle(rect, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(rect.layer):
+                self.draw_rectangle(rect, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
         for ellipse in self.state.selected_ellipses:
-            self.draw_ellipse(ellipse, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(ellipse.layer):
+                self.draw_ellipse(ellipse, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
         for poly in self.state.selected_polygons:
-            self.draw_polygon(poly, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(poly.layer):
+                self.draw_polygon(poly, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
         for spline in self.state.selected_splines:
-            self.draw_spline(spline, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+            if self.state.is_layer_visible(spline.layer):
+                self.draw_spline(spline, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
 
         selected_segments_set = set(id(s) for s in self.state.selected_segments)
         for segment in self.state.segments:
-            if id(segment) not in selected_segments_set:
+            if id(segment) not in selected_segments_set and self.state.is_layer_visible(segment.layer):
                 self.draw_segment(segment)
 
         selected_circles_set = set(id(c) for c in self.state.selected_circles)
         for circle in self.state.circles:
-            if id(circle) not in selected_circles_set:
+            if id(circle) not in selected_circles_set and self.state.is_layer_visible(circle.layer):
                 self.draw_circle(circle)
 
         selected_arcs_set = set(id(a) for a in self.state.selected_arcs)
         for arc in self.state.arcs:
-            if id(arc) not in selected_arcs_set:
+            if id(arc) not in selected_arcs_set and self.state.is_layer_visible(arc.layer):
                 self.draw_arc(arc)
 
         selected_rects_set = set(id(r) for r in self.state.selected_rectangles)
         for rect in self.state.rectangles:
-            if id(rect) not in selected_rects_set:
+            if id(rect) not in selected_rects_set and self.state.is_layer_visible(rect.layer):
                 self.draw_rectangle(rect)
 
         selected_ellipses_set = set(id(e) for e in self.state.selected_ellipses)
         for ellipse in self.state.ellipses:
-            if id(ellipse) not in selected_ellipses_set:
+            if id(ellipse) not in selected_ellipses_set and self.state.is_layer_visible(ellipse.layer):
                 self.draw_ellipse(ellipse)
 
         selected_polygons_set = set(id(p) for p in self.state.selected_polygons)
         for poly in self.state.polygons:
-            if id(poly) not in selected_polygons_set:
+            if id(poly) not in selected_polygons_set and self.state.is_layer_visible(poly.layer):
                 self.draw_polygon(poly)
 
         selected_splines_set = set(id(s) for s in self.state.selected_splines)
         for spline in self.state.splines:
-            if id(spline) not in selected_splines_set:
+            if id(spline) not in selected_splines_set and self.state.is_layer_visible(spline.layer):
                 self.draw_spline(spline)
 
         if self.state.preview_segment:

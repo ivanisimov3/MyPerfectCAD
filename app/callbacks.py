@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, colorchooser, filedialog, ttk
+from tkinter import messagebox, colorchooser, filedialog, simpledialog, ttk
 import math
 from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
 from logic.converter import CoordinateConverter
@@ -150,6 +150,8 @@ class Callbacks:
         self.view.polygon_method.set(self.state.polygon_creation_method)
         self.view.polygon_variant.set(self.state.polygon_variant)
         self.view.polygon_sides_var.set(str(self.state.polygon_sides))
+
+        self.view.refresh_layers_list(self.state)
 
         self.set_app_state(self.state.app_mode)
 
@@ -420,6 +422,7 @@ class Callbacks:
         found_spline = None
 
         for segment in self.state.segments:
+            if not self.state.is_layer_visible(segment.layer): continue
             dist = segment.distance_to_point(wx, wy)
             if dist < hit_threshold_world:
                 found_segment = segment
@@ -427,6 +430,7 @@ class Callbacks:
 
         if not found_segment:
             for circle in self.state.circles:
+                if not self.state.is_layer_visible(circle.layer): continue
                 dist = circle.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_circle = circle
@@ -434,6 +438,7 @@ class Callbacks:
 
         if not found_segment and not found_circle:
             for arc in self.state.arcs:
+                if not self.state.is_layer_visible(arc.layer): continue
                 dist = arc.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_arc = arc
@@ -441,6 +446,7 @@ class Callbacks:
 
         if not found_segment and not found_circle and not found_arc:
             for rect in self.state.rectangles:
+                if not self.state.is_layer_visible(rect.layer): continue
                 dist = rect.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_rectangle = rect
@@ -448,18 +454,21 @@ class Callbacks:
 
         if not found_segment and not found_circle and not found_arc and not found_rectangle:
             for ellipse in self.state.ellipses:
+                if not self.state.is_layer_visible(ellipse.layer): continue
                 dist = ellipse.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_ellipse = ellipse
                     break
         if not found_segment and not found_circle and not found_arc and not found_rectangle and not found_ellipse:
             for poly in self.state.polygons:
+                if not self.state.is_layer_visible(poly.layer): continue
                 dist = poly.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_polygon = poly
                     break
         if not found_segment and not found_circle and not found_arc and not found_rectangle and not found_ellipse and not found_polygon:
             for spline in self.state.splines:
+                if not self.state.is_layer_visible(spline.layer): continue
                 dist = spline.distance_to_point(wx, wy)
                 if dist < hit_threshold_world:
                     found_spline = spline
@@ -1080,6 +1089,7 @@ class Callbacks:
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                final_segment.layer = self.state.active_layer
                 self.state.segments.append(final_segment)
             self.set_app_state('IDLE')
 
@@ -1105,6 +1115,7 @@ class Callbacks:
                 )
                 final_circle.creation_method = getattr(preview, 'creation_method', 'center_radius')
                 final_circle.creation_data = getattr(preview, 'creation_data', {'center': Point(preview.center.x, preview.center.y), 'radius': preview.radius})
+                final_circle.layer = self.state.active_layer
                 self.state.circles.append(final_circle)
             self.set_app_state('IDLE')
 
@@ -1144,6 +1155,7 @@ class Callbacks:
                     'start_angle': preview.start_angle,
                     'end_angle': preview.end_angle
                 })
+                final_arc.layer = self.state.active_layer
                 self.state.arcs.append(final_arc)
             self.set_app_state('IDLE')
 
@@ -1180,6 +1192,7 @@ class Callbacks:
                     'p1': Point(preview.min_x, preview.min_y),
                     'p2': Point(preview.max_x, preview.max_y)
                 })
+                final_rect.layer = self.state.active_layer
                 self.state.rectangles.append(final_rect)
             self.set_app_state('IDLE')
 
@@ -1203,6 +1216,7 @@ class Callbacks:
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                final_ellipse.layer = self.state.active_layer
                 self.state.ellipses.append(final_ellipse)
             self.set_app_state('IDLE')
 
@@ -1230,6 +1244,7 @@ class Callbacks:
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                final_poly.layer = self.state.active_layer
                 self.state.polygons.append(final_poly)
             self.set_app_state('IDLE')
 
@@ -1249,6 +1264,7 @@ class Callbacks:
                     style_name=self.state.current_style_name,
                     color=self.state.current_color
                 )
+                final_spline.layer = self.state.active_layer
                 self.state.splines.append(final_spline)
             self.set_app_state('IDLE')
 
@@ -1279,30 +1295,37 @@ class Callbacks:
         hit_threshold_world = hit_threshold_pixels / self.state.zoom
 
         for segment in self.state.segments:
+            if not self.state.is_layer_visible(segment.layer): continue
             if segment.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_segment(segment)
                 return
         for circle in self.state.circles:
+            if not self.state.is_layer_visible(circle.layer): continue
             if circle.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_circle(circle)
                 return
         for arc in self.state.arcs:
+            if not self.state.is_layer_visible(arc.layer): continue
             if arc.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_arc(arc)
                 return
         for rect in self.state.rectangles:
+            if not self.state.is_layer_visible(rect.layer): continue
             if rect.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_rectangle(rect)
                 return
         for ellipse in self.state.ellipses:
+            if not self.state.is_layer_visible(ellipse.layer): continue
             if ellipse.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_ellipse(ellipse)
                 return
         for poly in self.state.polygons:
+            if not self.state.is_layer_visible(poly.layer): continue
             if poly.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_polygon(poly)
                 return
         for spline in self.state.splines:
+            if not self.state.is_layer_visible(spline.layer): continue
             if spline.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_spline(spline)
                 return
@@ -3084,6 +3107,25 @@ class Callbacks:
 
         self.view.status_mode.config(text=f"Режим: {mode_text}")
 
+        # Слой выделенных объектов
+        all_selected = (
+            list(self.state.selected_segments) +
+            list(self.state.selected_circles) +
+            list(self.state.selected_arcs) +
+            list(self.state.selected_rectangles) +
+            list(self.state.selected_ellipses) +
+            list(self.state.selected_polygons) +
+            list(self.state.selected_splines)
+        )
+        if not all_selected:
+            self.view.status_layer.config(text="")
+        else:
+            layers = set(getattr(obj, 'layer', '0') for obj in all_selected)
+            if len(layers) == 1:
+                self.view.status_layer.config(text=f"Слой: {layers.pop()}")
+            else:
+                self.view.status_layer.config(text="Разные слои")
+
     def show_context_menu(self, event):
         if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE']:
             if self.state.app_mode == 'CREATING_SEGMENT':
@@ -3285,3 +3327,90 @@ class Callbacks:
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(fill=tk.X, pady=10, padx=10)
         ttk.Button(btn_frame, text="Закрыть", command=lambda: (canvas.unbind_all("<MouseWheel>"), dialog.destroy())).pack()
+
+    # ── Callbacks для слоёв ──
+
+    def _get_selected_layer_name(self):
+        """Получить имя слоя по выбранному индексу в Listbox."""
+        sel = self.view.layers_listbox.curselection()
+        if not sel:
+            return None
+        idx = sel[0]
+        if 0 <= idx < len(self.state.layers):
+            return self.state.layers[idx].name
+        return None
+
+    def on_layer_selected(self, event=None):
+        pass  # Выбор отрабатывает в toggle/double_click
+
+    def on_layer_double_click(self, event=None):
+        """Двойной клик → сделать слой активным."""
+        name = self._get_selected_layer_name()
+        if name:
+            self.state.active_layer = name
+            self.view.active_layer_var.set(f"Активный слой: {name}")
+            self.view.refresh_layers_list(self.state)
+
+    def on_add_layer(self, event=None):
+        """Добавить новый слой через диалог."""
+        name = simpledialog.askstring("Новый слой", "Имя слоя:", parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        if not self.state.add_layer(name):
+            messagebox.showwarning("Слой", f"Слой «{name}» уже существует.")
+            return
+        self.view.refresh_layers_list(self.state)
+
+    def on_delete_layer(self, event=None):
+        """Удалить выбранный слой."""
+        name = self._get_selected_layer_name()
+        if not name:
+            messagebox.showinfo("Слой", "Выберите слой для удаления.")
+            return
+        if name == "0":
+            messagebox.showwarning("Слой", "Слой «0» нельзя удалить.")
+            return
+        if not messagebox.askyesno("Удалить слой", f"Удалить слой «{name}»?\nОбъекты будут перенесены на слой «0»."):
+            return
+        self.state.delete_layer(name)
+        self.view.active_layer_var.set(f"Активный слой: {self.state.active_layer}")
+        self.view.refresh_layers_list(self.state)
+        self.renderer.render_scene()
+
+    def on_toggle_layer_visibility(self, event=None):
+        """Переключить видимость выбранного слоя."""
+        name = self._get_selected_layer_name()
+        if not name:
+            return
+        layer = self.state.get_layer(name)
+        if layer:
+            layer.visible = not layer.visible
+            self.view.refresh_layers_list(self.state)
+            self.renderer.render_scene()
+
+    def on_move_to_layer(self, event=None):
+        """Переместить выделенные примитивы на выбранный слой."""
+        name = self._get_selected_layer_name()
+        if not name:
+            messagebox.showinfo("Слой", "Выберите целевой слой в списке.")
+            return
+
+        all_selected = (
+            self.state.selected_segments +
+            self.state.selected_circles +
+            self.state.selected_arcs +
+            self.state.selected_rectangles +
+            self.state.selected_ellipses +
+            self.state.selected_polygons +
+            self.state.selected_splines
+        )
+        if not all_selected:
+            messagebox.showinfo("Слой", "Сначала выделите объекты для переноса.")
+            return
+
+        for obj in all_selected:
+            obj.layer = name
+
+        self.view.refresh_layers_list(self.state)
+        self.renderer.render_scene()

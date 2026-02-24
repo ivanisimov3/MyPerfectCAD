@@ -6,6 +6,7 @@ class GeometryPrimitive(ABC):
     def __init__(self, style_name='solid_main', color='black'):
         self.style_name = style_name
         self.color = color
+        self.layer = "0"
 
     @abstractmethod
     def distance_to_point(self, mx, my):    # Для выделения объектов

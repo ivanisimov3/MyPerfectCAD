@@ -22,11 +22,19 @@ class DxfExporter:
         doc = ezdxf.new('R2000')
         msp = doc.modelspace()
 
+        # ── Создание слоёв ──
+        for layer in state.layers:
+            if layer.name != "0":  # Слой "0" уже есть по умолчанию
+                doc.layers.new(name=layer.name, dxfattribs={'color': layer.color})
+            else:
+                doc.layers.get("0").color = layer.color
+
         # ── Отрезки ──
         for seg in state.segments:
             msp.add_line(
                 (seg.p1.x, seg.p1.y),
                 (seg.p2.x, seg.p2.y),
+                dxfattribs={'layer': seg.layer},
             )
 
         # ── Окружности ──
@@ -34,6 +42,7 @@ class DxfExporter:
             msp.add_circle(
                 (circle.center.x, circle.center.y),
                 circle.radius,
+                dxfattribs={'layer': circle.layer},
             )
 
         # ── Дуги ──
@@ -45,6 +54,7 @@ class DxfExporter:
                 arc.radius,
                 start_deg,
                 end_deg,
+                dxfattribs={'layer': arc.layer},
             )
 
         # ── Прямоугольники ──
@@ -54,6 +64,7 @@ class DxfExporter:
                 msp.add_line(
                     (seg.p1.x, seg.p1.y),
                     (seg.p2.x, seg.p2.y),
+                    dxfattribs={'layer': rect.layer},
                 )
             for arc in arcs:
                 s_deg = math.degrees(arc.start_angle)
@@ -63,6 +74,7 @@ class DxfExporter:
                     arc.radius,
                     s_deg,
                     e_deg,
+                    dxfattribs={'layer': rect.layer},
                 )
 
         # ── Многоугольники ──
@@ -72,7 +84,10 @@ class DxfExporter:
             for i in range(n):
                 p1 = verts[i]
                 p2 = verts[(i + 1) % n]
-                msp.add_line((p1.x, p1.y), (p2.x, p2.y))
+                msp.add_line(
+                    (p1.x, p1.y), (p2.x, p2.y),
+                    dxfattribs={'layer': poly.layer},
+                )
 
         # ── Эллипсы ──
         for ell in state.ellipses:
@@ -90,6 +105,7 @@ class DxfExporter:
                 center=(ell.center.x, ell.center.y),
                 major_axis=major_axis,
                 ratio=ratio,
+                dxfattribs={'layer': ell.layer},
             )
 
         # ── Сплайны ──
@@ -97,6 +113,7 @@ class DxfExporter:
             if len(spline.control_points) < 2:
                 continue
             fit_pts = [(p.x, p.y) for p in spline.control_points]
-            msp.add_spline(fit_pts)
+            msp.add_spline(fit_pts, dxfattribs={'layer': spline.layer})
 
         doc.saveas(filepath)
+
