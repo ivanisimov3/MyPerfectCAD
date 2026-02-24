@@ -125,6 +125,33 @@ class DxfExporter:
         self._pair(50, f"{start_deg:.6f}")
         self._pair(51, f"{end_deg:.6f}")
 
+    def _write_rectangle(self, rect):
+        """Rectangle → набор DXF LINE (+ARC для скруглений).
+
+        Используем build_edges(), который уже учитывает фаски и скругления.
+        """
+        segments, arcs = rect.build_edges()
+        for seg in segments:
+            self._write_line(seg)
+        for arc in arcs:
+            self._write_arc(arc)
+
+    def _write_polygon(self, polygon):
+        """RegularPolygon → набор DXF LINE (рёбра между вершинами)."""
+        verts = polygon.vertices()
+        n = len(verts)
+        for i in range(n):
+            p1 = verts[i]
+            p2 = verts[(i + 1) % n]
+            self._pair(0, "LINE")
+            self._pair(8, "0")
+            self._pair(10, f"{p1.x:.6f}")
+            self._pair(20, f"{p1.y:.6f}")
+            self._pair(30, 0.0)
+            self._pair(11, f"{p2.x:.6f}")
+            self._pair(21, f"{p2.y:.6f}")
+            self._pair(31, 0.0)
+
     # ─── секция ENTITIES ──────────────────────────────────────────
 
     def _write_entities(self, state):
@@ -138,6 +165,12 @@ class DxfExporter:
 
         for arc in state.arcs:
             self._write_arc(arc)
+
+        for rect in state.rectangles:
+            self._write_rectangle(rect)
+
+        for poly in state.polygons:
+            self._write_polygon(poly)
 
         self._section_end()
 
