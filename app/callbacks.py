@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, colorchooser, ttk
+from tkinter import messagebox, colorchooser, filedialog, ttk
 import math
 from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
 from logic.converter import CoordinateConverter
@@ -7,6 +7,7 @@ from logic.snap import SnapManager, SnapType
 from ui.renderer import Renderer
 from logic.styles import GOST_STYLES
 from ui.style_manager import StyleManagerWindow
+from logic.dxf_exporter import DxfExporter
 
 class Callbacks:
     def __init__(self, root, state, view):
@@ -20,6 +21,22 @@ class Callbacks:
         
         self._drag_start_x = 0
         self._drag_start_y = 0
+
+    def on_export_dxf(self):
+        """Экспорт чертежа в файл DXF."""
+        filepath = filedialog.asksaveasfilename(
+            title="Экспорт в DXF",
+            defaultextension=".dxf",
+            filetypes=[("DXF файлы", "*.dxf"), ("Все файлы", "*.*")]
+        )
+        if not filepath:
+            return
+        try:
+            exporter = DxfExporter()
+            exporter.export(self.state, filepath)
+            messagebox.showinfo("Экспорт DXF", f"Файл успешно сохранён:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("Ошибка экспорта", f"Не удалось сохранить DXF:\n{e}")
 
     def _refresh_settings_context_panel(self, *, auto_switch_tab=False):
 

@@ -167,6 +167,8 @@ class MainWindow:
         root.config(menu=menubar)
         
         file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Экспорт в DXF...", command=callbacks.on_export_dxf)
+        file_menu.add_separator()
         file_menu.add_command(label="Выход", command=root.quit)
         menubar.add_cascade(label="Файл", menu=file_menu)
         
