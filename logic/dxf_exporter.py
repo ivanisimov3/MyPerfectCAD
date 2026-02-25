@@ -3,39 +3,41 @@
 # Использует библиотеку ezdxf для генерации корректных DXF-файлов,
 # совместимых с T-FLEX CAD, AutoCAD, nanoCAD и другими системами.
 #
-# Версия: AC1018 (AutoCAD 2004) для поддержки TrueColor.
+# Версия: AC1018 | AutoCAD R2004
 
 import math
 import ezdxf
 from logic.styles import GOST_STYLES
 
-# Названия типов линий, которые точно распознает T-FLEX (из specline.def)
+# Названия из tcad.lin, specline.def, папки LinePattern и https://tflexcad.ru/help/cad/15/index.html?graghics_parameters.htm
 STYLE_TO_DXF = {
     'solid_main': 'CONTINUOUS',     # Основная
     'solid_thin': 'THIN',           # Тонкая
     'solid_wave': 'WAVES',          # Волнистая
-    'solid_zigzag': 'ZIGZAG',   # Зигзаг
-    'dashed': 'HIDDEN',             # Невидимая/Штриховая
-    'dash_dot_main': 'CENTER2',      # Осевая
-    'dash_dot_thin': 'CENTER',
-    'dash_dot_dot': 'PHANTOM'       # Фантомная (с двумя точками)
+    'solid_zigzag': 'ZIGZAG',       # Зигзаг
+    'dashed': 'HIDDEN',             # Штриховая
+    'dash_dot_main': 'CENTER2',     # Штрихпунктирная короткая
+    'dash_dot_thin': 'CENTER',      # Штрихпунктирная
+    'dash_dot_dot': 'PHANTOM'       # Штрихпунктирная с двумя точками
 }
 
 class DxfExporter:
     """Экспортирует внутренние примитивы приложения в файл DXF (AC1018)."""
 
     def _tk_color_to_rgb(self, tk_color, root):
-        """Конвертирует Tkinter цвет (напр. 'red', '#FF5500') в RGB кортеж."""
         try:
+            # Tkinter возвращает 16-битные значения цвета (от 0 до 65535)
             r, g, b = root.winfo_rgb(tk_color)
+            # Делим на 256, чтобы получить привычные 8-битные значения (от 0 до 255)
             return (r // 256, g // 256, b // 256)
         except Exception:
-            return (0, 0, 0)  # Черный по умолчанию
+            return (0, 0, 0)    # Черный по умолчанию
 
     def _setup_linetypes(self, doc):
         """Создает стандартные типы линий в DXF документе на основе текущих GOST_STYLES."""
         
-        # Базовые сплошные типы
+        # https://ezdxf.mozman.at/docs/tutorials/linetypes.html#tut-linetypes
+        # elements = [total_pattern_length, elem1, elem2, ...]
         patterns = {
             'THIN': [0.0],
             'WAVES': [0.0],
@@ -80,22 +82,26 @@ class DxfExporter:
                 })
 
     def _get_attribs(self, doc_layer, primitive, root, state):
-        """Формирует dxfattribs с слоем, типом линии, TrueColor и толщиной."""
+
+        # Вытаскиваем свойства объекта, иначе ставим дефолтные
         layer = getattr(primitive, 'layer', '0')
         style = getattr(primitive, 'style_name', 'solid_main')
         color = getattr(primitive, 'color', 'black')
         
+        # Получаем цвет линии в формате true_color
         rgb = self._tk_color_to_rgb(color, root)
         true_color = ezdxf.colors.rgb2int(rgb)
         
+        # Соотносим тип линии
         dxf_linetype = STYLE_TO_DXF.get(style, 'CONTINUOUS')
         
-        # Получаем объект стиля, чтобы узнать, основная ли это линия
+
+        # Определяем толщину линии в зависимости от типа линии
         gost_style = GOST_STYLES.get(style)
         is_main = gost_style.is_main if gost_style else False
         
-        # DXF lineweight задается в сотых долях миллиметра (целое число)
-        # Стандартные веса: 0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211
+        # https://ezdxf.mozman.at/docs/concepts/lineweights.html#lineweights
+        # Список стандартных толщин
         valid_weights = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211]
         
         # Основная = base_thickness, тонкая = base_thickness / 2
@@ -105,8 +111,8 @@ class DxfExporter:
         # Находим ближайший стандартный lineweight DXF
         closest_weight = min(valid_weights, key=lambda x: abs(x - target_weight))
         
+
         # Расчет масштаба штрихов (ltscale)
-        # Для сплошных линий масштаб роли не играет, для штриховых = базовая толщина * 10
         base_type = gost_style.base_type if gost_style else 'solid'
         ltscale = 1.0
 
@@ -129,29 +135,43 @@ class DxfExporter:
             filepath: путь для сохранения (.dxf).
             root: главное окно Tkinter для конвертации цветов.
         """
+
+        # The support for true color was added to the DXF file format in revision R2004. 
+        # https://ezdxf.mozman.at/docs/concepts/true_color.html
         doc = ezdxf.new('R2004')
         
-        # Заставляем CAD понимать, что чертеж в миллиметрах!
-        # T-FLEX мог считывать 80 (0.8 мм) как 0.0008 метров, если единицы по умолчанию метры
-        doc.header['$INSUNITS'] = 4    # 4 = Millimeters
-        doc.header['$MEASUREMENT'] = 1 # 1 = Metric
-        doc.header['$LUNITS'] = 2      # 2 = Decimal
-        doc.header['$LWDISPLAY'] = 1   # Включить отображение толщины линий в CAD
+        # https://ezdxf.mozman.at/docs/concepts/units.html#module-ezdxf.units
+        # https://ezdxf.mozman.at/docs/concepts/lineweights.html
+        doc.header['$INSUNITS'] = 4     # Millimeters
+        doc.header['$MEASUREMENT'] = 1  # Metric
+        doc.header['$LUNITS'] = 2       # Decimal (default)
+        doc.header['$LWDISPLAY'] = 1    # Setting the HEADER variable $LWDISPLAY to 1, activates support for displaying lineweights on screen
 
+        # https://ezdxf.mozman.at/docs/concepts/modelspace.html
+        # The modelspace contains the “real” world representation of the drawing subjects in real world units 
+        # and is displayed in the tab called “Model” in CAD applications.
         msp = doc.modelspace()
         
         self._setup_linetypes(doc)
 
-        # ── Создание слоёв ──
+        # Проходим через все слои
         for layer in state.layers:
+            # Каждый слой должен иметь цвет в соответствии со спецификацией Autodesk 
             rgb = self._tk_color_to_rgb(layer.color, root)
+            # 2. ezdxf хранит пользовательские (True Color) цвета как одно целое число.
+            # rgb2int склеивает (255, 0, 0) в число 16711680.
             true_color = ezdxf.colors.rgb2int(rgb)
-            if layer.name != "0":  # Слой "0" уже есть по умолчанию
+            if layer.name != "0":
                 doc.layers.new(name=layer.name, dxfattribs={'true_color': true_color})
             else:
                 doc.layers.get("0").true_color = true_color
 
-        # ── Отрезки ──
+
+        # Дальше идем по спискам примитивов и добавляем их в modelspace
+
+        # Line, Circle, Arc, Ellipse, Point
+        # https://ezdxf.mozman.at/docs/tutorials/dxf_primitives.html#tut-dxf-primitives
+
         for seg in state.segments:
             msp.add_line(
                 (seg.p1.x, seg.p1.y),
@@ -159,7 +179,6 @@ class DxfExporter:
                 dxfattribs=self._get_attribs(seg.layer, seg, root, state),
             )
 
-        # ── Окружности ──
         for circle in state.circles:
             msp.add_circle(
                 (circle.center.x, circle.center.y),
@@ -167,8 +186,8 @@ class DxfExporter:
                 dxfattribs=self._get_attribs(circle.layer, circle, root, state),
             )
 
-        # ── Дуги ──
         for arc in state.arcs:
+            # Углы строго в градусах, переводим их радиан
             start_deg = math.degrees(arc.start_angle)
             end_deg = math.degrees(arc.end_angle)
             msp.add_arc(
@@ -179,7 +198,28 @@ class DxfExporter:
                 dxfattribs=self._get_attribs(arc.layer, arc, root, state),
             )
 
-        # ── Прямоугольники ──
+        for ell in state.ellipses:
+            e1x, e1y, a, e2x, e2y, b = ell._basis()
+            # Большая полуось (major) должна быть реально больше или равна малой (minor).
+            # Если мы нарисовали наоборот - меняем оси местами
+            if b > a:
+                major_axis = (e2x * b, e2y * b, 0.0)    # Вектор направления большой оси
+                ratio = a / b if b > 1e-9 else 1.0  # Коэффициент сжатия (малой оси) с защитой от деления на 0
+            else:
+                major_axis = (e1x * a, e1y * a, 0.0)
+                ratio = b / a if a > 1e-9 else 1.0
+
+            msp.add_ellipse(
+                center=(ell.center.x, ell.center.y),
+                major_axis=major_axis,
+                ratio=ratio,
+                dxfattribs=self._get_attribs(ell.layer, ell, root, state),
+            )
+
+        for pt in state.points:
+            msp.add_point((pt.x, pt.y), dxfattribs=self._get_attribs(pt.layer, pt, root, state))
+
+        # Прямоугольник это совокупность отрезков и возможно дуг
         for rect in state.rectangles:
             segments, arcs = rect.build_edges()
             for seg in segments:
@@ -199,7 +239,7 @@ class DxfExporter:
                     dxfattribs=self._get_attribs(rect.layer, rect, root, state),
                 )
 
-        # ── Многоугольники ──
+        # Полилиния тоже совокупность отрезков
         for poly in state.polygons:
             verts = poly.vertices()
             n = len(verts)
@@ -211,35 +251,13 @@ class DxfExporter:
                     dxfattribs=self._get_attribs(poly.layer, poly, root, state),
                 )
 
-        # ── Эллипсы ──
-        for ell in state.ellipses:
-            e1x, e1y, a, e2x, e2y, b = ell._basis()
+        # Spline
+        # https://ezdxf.mozman.at/docs/tutorials/spline.html#tut-spline
 
-            # DXF требует: major >= minor
-            if b > a:
-                major_axis = (e2x * b, e2y * b, 0.0)
-                ratio = a / b if b > 1e-9 else 1.0
-            else:
-                major_axis = (e1x * a, e1y * a, 0.0)
-                ratio = b / a if a > 1e-9 else 1.0
-
-            msp.add_ellipse(
-                center=(ell.center.x, ell.center.y),
-                major_axis=major_axis,
-                ratio=ratio,
-                dxfattribs=self._get_attribs(ell.layer, ell, root, state),
-            )
-
-        # ── Сплайны ──
         for spline in state.splines:
-            if len(spline.control_points) < 2:
+            if len(spline.control_points) < 2:  # Минимум две контрольные точки
                 continue
             fit_pts = [(p.x, p.y) for p in spline.control_points]
             msp.add_spline(fit_pts, dxfattribs=self._get_attribs(spline.layer, spline, root, state))
 
-        # ── Точки ──
-        for pt in state.points:
-            msp.add_point((pt.x, pt.y), dxfattribs=self._get_attribs(pt.layer, pt, root, state))
-
         doc.saveas(filepath)
-

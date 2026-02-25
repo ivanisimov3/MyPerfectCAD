@@ -124,7 +124,6 @@ class Callbacks:
         else:
             self.view.set_context_panel(None, "—")
 
-
     def initialize_view(self):
         self.converter = CoordinateConverter(self.state, self.view.canvas)
         self.renderer = Renderer(self.view.canvas, self.state, self.converter)
@@ -784,7 +783,6 @@ class Callbacks:
         self.update_preview_spline()
         self.redraw_all()
 
-
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
 
@@ -889,7 +887,6 @@ class Callbacks:
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
         self.view.canvas.focus_set()
-
 
     def update_preview_segment(self, event=None):
         try:
@@ -1070,7 +1067,6 @@ class Callbacks:
             color=self.state.current_color
         )
         self.redraw_all()
-
 
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
@@ -1268,7 +1264,6 @@ class Callbacks:
                 self.state.splines.append(final_spline)
             self.set_app_state('IDLE')
 
-
     def on_escape_key(self, event=None):
         if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING']:
             self.state.editing_object = None
@@ -1286,7 +1281,6 @@ class Callbacks:
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
             self.root.destroy()
-
 
     def on_double_click(self, event):
 
@@ -1641,7 +1635,6 @@ class Callbacks:
         
         self.update_preview_spline()
 
-
     def on_delete_segment(self, event=None):
 
         has_selection = (
@@ -1708,7 +1701,6 @@ class Callbacks:
         self._sync_ui_with_selection()
         self.redraw_all()
 
-
     def on_apply_settings(self):
         try:
             new_step = int(self.view.grid_step_var.get())
@@ -1751,7 +1743,6 @@ class Callbacks:
         except ValueError:
             return
         self.update_preview_polygon()
-
 
     def on_lmb_click(self, event):
         wx, wy = self._get_snapped_coordinates(event.x, event.y)
@@ -1959,7 +1950,6 @@ class Callbacks:
             self.state.points_clicked = 2
         self.update_preview_polygon()
 
-
     def _update_spline_points_listbox(self):
         lb = self.view.spline_points_listbox
         current_selection = lb.curselection()
@@ -2082,7 +2072,6 @@ class Callbacks:
                 self.view.spline_points_listbox.see(new_idx)
             
             self.update_preview_spline()
-
 
     def on_rmb_click_rectangle(self, event):
 
@@ -2216,7 +2205,6 @@ class Callbacks:
 
         self.update_preview_arc()
 
-
     def on_mouse_press(self, event):
         self._drag_start_x, self._drag_start_y = event.x, event.y
 
@@ -2343,7 +2331,6 @@ class Callbacks:
     def on_rotate_right(self, event=None): self.rotate_view(-1, event)
     def on_canvas_resize(self, event): self.redraw_all()
     
-
     def toggle_fullscreen(self, event=None):
         self.state.is_fullscreen = not self.state.is_fullscreen
         self.root.attributes("-fullscreen", self.state.is_fullscreen)
@@ -2380,7 +2367,6 @@ class Callbacks:
             if self.state.preview_spline:
                 self.state.preview_spline.color = c
             self.redraw_all()
-
 
     def _create_points_from_entries(self):
         p1 = Point(float(self.view.p1_x_entry.get()), float(self.view.p1_y_entry.get()))
@@ -2817,7 +2803,6 @@ class Callbacks:
         
         self._last_snap_point = snap_point
     
-
     def _update_preview_on_mouse_move(self, wx, wy):
 
         mode = self.state.app_mode
@@ -3050,7 +3035,6 @@ class Callbacks:
         else:
             self.state.preview_spline = None
     
-
     def _get_snapped_coordinates(self, event_x, event_y):
 
         wx, wy = self.converter.screen_to_world(event_x, event_y)
@@ -3214,7 +3198,6 @@ class Callbacks:
         self.update_preview_polygon()
         self.update_preview_spline()
         self.redraw_all()
-
 
     def on_snap_toggle(self):
 
