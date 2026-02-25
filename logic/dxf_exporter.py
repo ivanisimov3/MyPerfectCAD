@@ -109,8 +109,9 @@ class DxfExporter:
         # Для сплошных линий масштаб роли не играет, для штриховых = базовая толщина * 10
         base_type = gost_style.base_type if gost_style else 'solid'
         ltscale = 1.0
-        if base_type != 'solid':
-            ltscale = state.base_thickness_mm * 10.0
+
+        # if base_type != 'solid':
+        #     ltscale = state.base_thickness_mm * 10.0
         
         return {
             'layer': layer,

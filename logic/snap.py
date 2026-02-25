@@ -444,10 +444,17 @@ class SnapManager:
 
     def _intersect_circle_ellipse(self, circle: Circle, ellipse: Ellipse) -> List[Tuple[float, float]]:
         """Пересечение окружности и эллипса через семплирование контура эллипса."""
-        pts = ellipse.sample_points(360)
-        results = []
         r = circle.radius
         cx, cy = circle.center.x, circle.center.y
+        bbox_e = ellipse.bounding_box()
+        
+        # Глобальная проверка AABB окружности и эллипса
+        if (cx + r < bbox_e[0] or cx - r > bbox_e[1] or 
+            cy + r < bbox_e[2] or cy - r > bbox_e[3]):
+            return []
+
+        pts = ellipse.sample_points(360)
+        results = []
         for i in range(len(pts) - 1):
             ax, ay = pts[i].x, pts[i].y
             bx, by = pts[i + 1].x, pts[i + 1].y
@@ -492,20 +499,41 @@ class SnapManager:
         return result
 
     def _intersect_ellipse_ellipse(self, e1: Ellipse, e2: Ellipse) -> List[Tuple[float, float]]:
-        """Пересечение двух эллипсов через семплирование обоих контуров."""
+        """Пересечение двух эллипсов через семплирование обоих контуров с учетом AABB."""
+        # Глобальная проверка AABB эллипсов
+        bbox1 = e1.bounding_box()
+        bbox2 = e2.bounding_box()
+        
+        if (bbox1[1] < bbox2[0] or bbox1[0] > bbox2[1] or 
+            bbox1[3] < bbox2[2] or bbox1[2] > bbox2[3]):
+            return []
+
         pts1 = e1.sample_points(360)
         pts2 = e2.sample_points(360)
         results = []
 
+        # Предварительное вычисление AABB для отрезков второго эллипса
+        segs2 = []
+        for j in range(len(pts2) - 1):
+            ax2, ay2 = pts2[j].x, pts2[j].y
+            bx2, by2 = pts2[j + 1].x, pts2[j + 1].y
+            segs2.append((ax2, ay2, bx2, by2, min(ax2, bx2), max(ax2, bx2), min(ay2, by2), max(ay2, by2)))
+
         for i in range(len(pts1) - 1):
             ax1, ay1 = pts1[i].x, pts1[i].y
             bx1, by1 = pts1[i + 1].x, pts1[i + 1].y
-            for j in range(len(pts2) - 1):
-                ax2, ay2 = pts2[j].x, pts2[j].y
-                bx2, by2 = pts2[j + 1].x, pts2[j + 1].y
+            min_x1, max_x1 = min(ax1, bx1), max(ax1, bx1)
+            min_y1, max_y1 = min(ay1, by1), max(ay1, by1)
+            d1x = bx1 - ax1
+            d1y = by1 - ay1
+
+            for ax2, ay2, bx2, by2, min_x2, max_x2, min_y2, max_y2 in segs2:
+                # Локальная проверка AABB отрезков
+                if (max_x1 < min_x2 or min_x1 > max_x2 or 
+                    max_y1 < min_y2 or min_y1 > max_y2):
+                    continue
+
                 # Пересечение двух отрезков
-                d1x = bx1 - ax1
-                d1y = by1 - ay1
                 d2x = bx2 - ax2
                 d2y = by2 - ay2
                 denom = d1x * d2y - d1y * d2x
