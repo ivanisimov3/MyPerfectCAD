@@ -44,6 +44,8 @@ class AppState:
         self.preview_polygon = None
         self.preview_spline = None
         self.spline_control_points = []
+        self.selected_spline_point_index = None
+        self.dragging_spline_point_index = None
         self.points_clicked = 0
         self.active_p1 = None
         self.active_p2 = None

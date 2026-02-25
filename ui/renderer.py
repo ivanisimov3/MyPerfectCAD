@@ -1732,6 +1732,24 @@ class Renderer:
         if self.state.preview_spline:
             self.draw_spline(self.state.preview_spline, override_color='blue')
 
+        # Маркеры контрольных точек сплайна (при создании/редактировании)
+        if self.state.app_mode == 'CREATING_SPLINE' and self.state.spline_control_points:
+            sel_idx = self.state.selected_spline_point_index
+            for i, pt in enumerate(self.state.spline_control_points):
+                sx, sy = self.converter.world_to_screen(pt.x, pt.y)
+                if i == sel_idx:
+                    size = 8
+                    self.canvas.create_rectangle(
+                        sx - size, sy - size, sx + size, sy + size,
+                        outline='#FF0000', fill='#FF4444', width=2
+                    )
+                else:
+                    size = 6
+                    self.canvas.create_rectangle(
+                        sx - size, sy - size, sx + size, sy + size,
+                        outline='#555555', fill='#AAAAAA', width=1
+                    )
+
         if self.state.active_p1:
             self.draw_point(self.state.active_p1)
         if self.state.active_p2:

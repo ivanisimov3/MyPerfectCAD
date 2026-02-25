@@ -393,7 +393,9 @@ class Callbacks:
             self.state.spline_control_points = []
             self._update_spline_points_listbox()
             self.root.bind("<Return>", self.finalize_spline)
-            self.view.canvas.bind("<Button-1>", self.on_lmb_click_spline)
+            self.view.canvas.bind("<Button-1>", self._on_spline_mouse_down)
+            self.view.canvas.bind("<B1-Motion>", self._on_spline_mouse_drag)
+            self.view.canvas.bind("<ButtonRelease-1>", self._on_spline_mouse_up)
             self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
@@ -877,6 +879,8 @@ class Callbacks:
         self.set_app_state('CREATING_SPLINE')
         self.state.spline_control_points = []
         self.state.preview_spline = None
+        self.state.selected_spline_point_index = None
+        self.state.dragging_spline_point_index = None
         self.view.spline_point_x_entry.delete(0, tk.END)
         self.view.spline_point_y_entry.delete(0, tk.END)
         self._update_spline_points_listbox()
@@ -1970,6 +1974,11 @@ class Callbacks:
                 self.view.spline_point_x_entry.insert(0, f"{pt.x:.2f}")
                 self.view.spline_point_y_entry.delete(0, tk.END)
                 self.view.spline_point_y_entry.insert(0, f"{pt.y:.2f}")
+                self.state.selected_spline_point_index = idx
+                self.redraw_all()
+                return
+        self.state.selected_spline_point_index = None
+        self.redraw_all()
 
     def on_update_selected_spline_point(self, event=None):
 
@@ -2026,6 +2035,59 @@ class Callbacks:
         self.view.spline_point_y_entry.delete(0, tk.END); self.view.spline_point_y_entry.insert(0, f"{wy:.2f}")
         self._update_spline_points_listbox()
         self.update_preview_spline()
+
+    def _on_spline_mouse_down(self, event):
+        """ЛКМ нажата: проверить попадание в существующую контрольную точку или добавить новую."""
+        if not self.state.spline_control_points:
+            self.on_lmb_click_spline(event)
+            return
+
+        hit_radius_px = 14
+        for i, pt in enumerate(self.state.spline_control_points):
+            sx, sy = self.converter.world_to_screen(pt.x, pt.y)
+            if abs(event.x - sx) <= hit_radius_px and abs(event.y - sy) <= hit_radius_px:
+                self.state.dragging_spline_point_index = i
+                self.state.selected_spline_point_index = i
+                # Синхронизация listbox и полей ввода
+                self.view.spline_points_listbox.selection_clear(0, tk.END)
+                self.view.spline_points_listbox.selection_set(i)
+                self.view.spline_points_listbox.see(i)
+                self.view.spline_point_x_entry.delete(0, tk.END)
+                self.view.spline_point_x_entry.insert(0, f"{pt.x:.2f}")
+                self.view.spline_point_y_entry.delete(0, tk.END)
+                self.view.spline_point_y_entry.insert(0, f"{pt.y:.2f}")
+                self.redraw_all()
+                return
+
+        # Не попали ни в одну точку — добавляем новую
+        self.on_lmb_click_spline(event)
+
+    def _on_spline_mouse_drag(self, event):
+        """Перетаскивание контрольной точки сплайна."""
+        idx = self.state.dragging_spline_point_index
+        if idx is None or idx >= len(self.state.spline_control_points):
+            return
+
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
+        self.state.spline_control_points[idx] = Point(wx, wy)
+        self.state.selected_spline_point_index = idx
+
+        # Обновить поля ввода
+        self.view.spline_point_x_entry.delete(0, tk.END)
+        self.view.spline_point_x_entry.insert(0, f"{wx:.2f}")
+        self.view.spline_point_y_entry.delete(0, tk.END)
+        self.view.spline_point_y_entry.insert(0, f"{wy:.2f}")
+
+        # Обновить listbox
+        self._update_spline_points_listbox()
+        self.view.spline_points_listbox.selection_clear(0, tk.END)
+        self.view.spline_points_listbox.selection_set(idx)
+
+        self.update_preview_spline()
+
+    def _on_spline_mouse_up(self, event):
+        """Отпускание ЛКМ — завершение перетаскивания."""
+        self.state.dragging_spline_point_index = None
 
     def on_insert_spline_point_before(self, event=None):
 
@@ -3023,6 +3085,10 @@ class Callbacks:
                 pass
     
     def _update_spline_preview_mouse(self, wx, wy):
+
+        # При перетаскивании — не добавлять фантомную точку
+        if self.state.dragging_spline_point_index is not None:
+            return
 
         if len(self.state.spline_control_points) >= 1:
             ctrl_copy = [Point(p.x, p.y) for p in self.state.spline_control_points]
