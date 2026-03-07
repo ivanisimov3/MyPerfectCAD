@@ -6,6 +6,12 @@ class DxfImporter:
     def _rgb_to_hex(self, rgb):
         return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
+    def _decode_autocad_text(self, text):
+        if not isinstance(text, str):
+            return text
+        import re
+        return re.sub(r'\\U\+([0-9A-Fa-f]{4})', lambda m: chr(int(m.group(1), 16)), text)
+
     def _get_entity_style(self, entity, doc):
         from logic.styles import GOST_STYLES
         DXF_TO_STYLE = {
@@ -20,7 +26,8 @@ class DxfImporter:
         }
         
         # 1. Слой
-        layer_name = entity.dxf.layer if entity.dxf.hasattr('layer') else '0'
+        raw_layer_name = entity.dxf.layer if entity.dxf.hasattr('layer') else '0'
+        layer_name = self._decode_autocad_text(raw_layer_name)
         # T-FLEX экспортирует нулевой слой как Defpoints
         if layer_name.lower() == 'defpoints':
             layer_name = '0'
@@ -31,7 +38,7 @@ class DxfImporter:
         if dxf_linetype.upper() == 'BYLAYER':
             try:
                 # Если у слоя стояло ByLayer, пытаемся достать его реальный тип из таблицы
-                layer_obj = doc.layers.get(layer_name) # ИСПРАВЛЕНИЕ: здесь был entity.dxf.layer, нужно layer_name
+                layer_obj = doc.layers.get(raw_layer_name)
                 dxf_linetype = layer_obj.dxf.linetype
             except Exception:
                 dxf_linetype = 'CONTINUOUS'
@@ -50,7 +57,7 @@ class DxfImporter:
             
             if lineweight == -1: # ByLayer
                 try:
-                    layer_obj = doc.layers.get(layer_name)
+                    layer_obj = doc.layers.get(raw_layer_name)
                     lineweight = layer_obj.dxf.lineweight if layer_obj.dxf.hasattr('lineweight') else -3 # DEFAULT
                 except Exception:
                     lineweight = -3
@@ -68,7 +75,7 @@ class DxfImporter:
             rgb = ezdxf.colors.int2rgb(entity.dxf.true_color)
         elif color_index == 256: # ByLayer
             try:
-                layer_obj = doc.layers.get(layer_name)
+                layer_obj = doc.layers.get(raw_layer_name)
                 if layer_obj.dxf.hasattr('true_color'):
                     rgb = ezdxf.colors.int2rgb(layer_obj.dxf.true_color)
                 else:
@@ -102,7 +109,7 @@ class DxfImporter:
             # Считываем слои (Phase 5)
             from logic.state import Layer
             for layer in doc.layers:
-                name = layer.dxf.name
+                name = self._decode_autocad_text(layer.dxf.name)
                 if name.lower() == 'defpoints':
                     name = '0'
                     
