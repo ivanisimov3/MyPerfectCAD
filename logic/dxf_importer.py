@@ -3,6 +3,86 @@ import ezdxf
 class DxfImporter:
     """Импортирует данные из DXF файла во внутренние примитивы приложения."""
 
+    def _rgb_to_hex(self, rgb):
+        return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+
+    def _get_entity_style(self, entity, doc):
+        from logic.styles import GOST_STYLES
+        DXF_TO_STYLE = {
+            'CONTINUOUS': 'solid_main',
+            'THIN': 'solid_thin',
+            'WAVES': 'solid_wave',
+            'ZIGZAG': 'solid_zigzag',
+            'HIDDEN': 'dashed',
+            'CENTER2': 'dash_dot_main',
+            'CENTER': 'dash_dot_thin',
+            'PHANTOM': 'dash_dot_dot'
+        }
+        
+        # 1. Слой
+        layer_name = entity.dxf.layer if entity.dxf.hasattr('layer') else '0'
+        # T-FLEX экспортирует нулевой слой как Defpoints
+        if layer_name.lower() == 'defpoints':
+            layer_name = '0'
+        
+        # 2. Тип линии
+        dxf_linetype = entity.dxf.linetype if entity.dxf.hasattr('linetype') else 'ByLayer'
+        
+        if dxf_linetype.upper() == 'BYLAYER':
+            try:
+                # Если у слоя стояло ByLayer, пытаемся достать его реальный тип из таблицы
+                layer_obj = doc.layers.get(layer_name) # ИСПРАВЛЕНИЕ: здесь был entity.dxf.layer, нужно layer_name
+                dxf_linetype = layer_obj.dxf.linetype
+            except Exception:
+                dxf_linetype = 'CONTINUOUS'
+                
+        # T-FLEx добавляет параметры к стилю при экспорте: "HIDDEN_per6_scale0.872385"
+        base_linetype = dxf_linetype.upper().split('_')[0]
+                
+        style_name = DXF_TO_STYLE.get(base_linetype, 'solid_main')
+        if style_name not in GOST_STYLES:
+            style_name = 'solid_main'
+            
+        # 2.5 Толщина линии (Lineweight)
+        # Если тип линии сплошной, то отличие Основной от Тонкой задается только толщиной!
+        if style_name == 'solid_main':
+            lineweight = entity.dxf.lineweight if entity.dxf.hasattr('lineweight') else -1 # ezdxf const LINEWEIGHT_BYLAYER
+            
+            if lineweight == -1: # ByLayer
+                try:
+                    layer_obj = doc.layers.get(layer_name)
+                    lineweight = layer_obj.dxf.lineweight if layer_obj.dxf.hasattr('lineweight') else -3 # DEFAULT
+                except Exception:
+                    lineweight = -3
+                    
+            # Если толщина задана (>=0) и она меньше 50 (0.5мм), считаем линию тонкой
+            # Обычно основная 0.8мм (80), тонкая 0.4мм (40).
+            if 0 <= lineweight < 60:
+                style_name = 'solid_thin'
+                
+        # 3. Цвет
+        rgb = (0, 0, 0)
+        color_index = entity.dxf.color if entity.dxf.hasattr('color') else 256
+        
+        if entity.dxf.hasattr('true_color'):
+            rgb = ezdxf.colors.int2rgb(entity.dxf.true_color)
+        elif color_index == 256: # ByLayer
+            try:
+                layer_obj = doc.layers.get(layer_name)
+                if layer_obj.dxf.hasattr('true_color'):
+                    rgb = ezdxf.colors.int2rgb(layer_obj.dxf.true_color)
+                else:
+                    layer_color_index = layer_obj.color
+                    rgb = ezdxf.colors.aci2rgb(abs(layer_color_index))
+            except Exception:
+                pass
+        elif color_index != 256 and color_index != 0:
+            rgb = ezdxf.colors.aci2rgb(color_index)
+            
+        color_hex = self._rgb_to_hex(rgb)
+
+        return layer_name, style_name, color_hex
+
     def import_dxf(self, state, filepath, root):
         """
         Чтение DXF файла и заполнение списков примитивов в AppState.
@@ -19,37 +99,72 @@ class DxfImporter:
             from logic.geometry import Point, Segment, Circle, Arc, Ellipse
             import math
             
-            # T-FLEX часто экспортирует примитивы внутри блоков (INSERT).
-            # Поэтому сначала "взрываем" все вхождения блоков (INSERT) в modelspace,
-            # чтобы они превратились в базовые примитивы (LINE, ARC, и т.д.)
-            for insert in msp.query('INSERT'):
-                insert.explode()
+            # Считываем слои (Phase 5)
+            from logic.state import Layer
+            for layer in doc.layers:
+                name = layer.dxf.name
+                if name.lower() == 'defpoints':
+                    name = '0'
+                    
+                if layer.dxf.hasattr('true_color'):
+                    rgb = ezdxf.colors.int2rgb(layer.dxf.true_color)
+                else:
+                    rgb = ezdxf.colors.aci2rgb(abs(layer.color))
+                color_hex = self._rgb_to_hex(rgb)
+                
+                # Добавляем или обновляем слой
+                existing = state.get_layer(name)
+                if existing:
+                    # Если слой 0 существует, мы не меняем его цвет на белый(черный), 
+                    # если только не хотим, но пока просто обновим его
+                    if name != '0' or existing.color == '#000000': 
+                         existing.color = color_hex
+                else:
+                    state.layers.append(Layer(name, color=color_hex))
+
+            # Многоуровневые блоки (INSERT):
+            # T-FLEX часто экспортирует примитивы внутри вложенных блоков.
+            # Поэтому "взрываем" вхождения блоков (INSERT) в modelspace рекурсивно,
+            # пока не останутся только базовые примитивы.
+            while True:
+                inserts = msp.query('INSERT')
+                if not inserts:
+                    break
+                for insert in inserts:
+                    insert.explode()
             
             # Phase 2 & 3: Parse entities
             for entity in msp:
+                layer_name, style_name, color_hex = self._get_entity_style(entity, doc)
+                
                 if entity.dxftype() == 'LINE':
                     p1 = Point(entity.dxf.start.x, entity.dxf.start.y)
                     p2 = Point(entity.dxf.end.x, entity.dxf.end.y)
-                    segment = Segment(p1, p2)
+                    segment = Segment(p1, p2, style_name=style_name, color=color_hex)
+                    segment.layer = layer_name
                     state.segments.append(segment)
                     
                 elif entity.dxftype() == 'POINT':
-                    point = Point(entity.dxf.location.x, entity.dxf.location.y)
+                    point = Point(entity.dxf.location.x, entity.dxf.location.y, style_name=style_name, color=color_hex)
+                    point.layer = layer_name
                     state.points.append(point)
                     
                 elif entity.dxftype() == 'CIRCLE':
                     center = Point(entity.dxf.center.x, entity.dxf.center.y)
                     radius = entity.dxf.radius
-                    state.circles.append(Circle.from_center_radius(center, radius))
+                    circle = Circle.from_center_radius(center, radius, style_name=style_name, color=color_hex)
+                    circle.layer = layer_name
+                    state.circles.append(circle)
                     
                 elif entity.dxftype() == 'ARC':
                     center = Point(entity.dxf.center.x, entity.dxf.center.y)
                     radius = entity.dxf.radius
-                    # ezdxf возвращает углы в градусах, нам нужны радианы
                     start_angle = math.radians(entity.dxf.start_angle)
                     end_angle = math.radians(entity.dxf.end_angle)
                     
-                    state.arcs.append(Arc.from_center_angles(center, radius, start_angle, end_angle))
+                    arc = Arc.from_center_angles(center, radius, start_angle, end_angle, style_name=style_name, color=color_hex)
+                    arc.layer = layer_name
+                    state.arcs.append(arc)
                     
                 elif entity.dxftype() == 'ELLIPSE':
                     center = Point(entity.dxf.center.x, entity.dxf.center.y)
@@ -87,7 +202,9 @@ class DxfImporter:
                     b_y = center.y + oy * minor_len
                     axis_point_b = Point(b_x, b_y)
                     
-                    state.ellipses.append(Ellipse.from_center_axes(center, axis_point_a, axis_point_b))
+                    ellipse = Ellipse.from_center_axes(center, axis_point_a, axis_point_b, style_name=style_name, color=color_hex)
+                    ellipse.layer = layer_name
+                    state.ellipses.append(ellipse)
 
                 elif entity.dxftype() in ('LWPOLYLINE', 'POLYLINE'):
                     # T-FLEX может экспортировать сплайны как POLYLINE с флагом 4 (3D) или 128 (2D Spline/Fit)
@@ -105,7 +222,8 @@ class DxfImporter:
                             points_to_use.append(Point(v.dxf.location.x, v.dxf.location.y))
                             
                         if points_to_use:
-                            spline = Spline(points_to_use)
+                            spline = Spline(points_to_use, style_name=style_name, color=color_hex)
+                            spline.layer = layer_name
                             if entity.is_closed:
                                 spline.is_closed = True
                             state.splines.append(spline)
@@ -116,13 +234,17 @@ class DxfImporter:
                             if v_entity.dxftype() == 'LINE':
                                 p1 = Point(v_entity.dxf.start.x, v_entity.dxf.start.y)
                                 p2 = Point(v_entity.dxf.end.x, v_entity.dxf.end.y)
-                                state.segments.append(Segment(p1, p2))
+                                segment = Segment(p1, p2, style_name=style_name, color=color_hex)
+                                segment.layer = layer_name
+                                state.segments.append(segment)
                             elif v_entity.dxftype() == 'ARC':
                                 center = Point(v_entity.dxf.center.x, v_entity.dxf.center.y)
                                 radius = v_entity.dxf.radius
                                 start_angle = math.radians(v_entity.dxf.start_angle)
                                 end_angle = math.radians(v_entity.dxf.end_angle)
-                                state.arcs.append(Arc.from_center_angles(center, radius, start_angle, end_angle))
+                                arc = Arc.from_center_angles(center, radius, start_angle, end_angle, style_name=style_name, color=color_hex)
+                                arc.layer = layer_name
+                                state.arcs.append(arc)
 
                 elif entity.dxftype() == 'SPLINE':
                     from logic.geometry import Spline
@@ -136,9 +258,9 @@ class DxfImporter:
                     
                     if points_to_use:
                         internal_points = [Point(p[0], p[1]) for p in points_to_use]
-                        spline = Spline(internal_points)
+                        spline = Spline(internal_points, style_name=style_name, color=color_hex)
+                        spline.layer = layer_name
                         
-                        # Если сплайн замкнут, нужно явно замкнуть его в нашей программе
                         if getattr(entity, 'closed', False):
                             spline.is_closed = True
                             
