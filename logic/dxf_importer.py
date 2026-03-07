@@ -88,10 +88,66 @@ class DxfImporter:
                     axis_point_b = Point(b_x, b_y)
                     
                     state.ellipses.append(Ellipse.from_center_axes(center, axis_point_a, axis_point_b))
+
+                elif entity.dxftype() in ('LWPOLYLINE', 'POLYLINE'):
+                    # T-FLEX может экспортировать сплайны как POLYLINE с флагом 4 (3D) или 128 (2D Spline/Fit)
+                    flags = getattr(entity.dxf, 'flags', 0)
+                    is_poly_spline = (flags & 4) or (flags & 128)
+                    
+                    if is_poly_spline and entity.dxftype() == 'POLYLINE':
+                        # Это сплайн, представленный полилинией.
+                        # В T-FLEX вершины такого сплайна могут не иметь флагов контрольных точек,
+                        # а быть просто набором точек для сглаживания.
+                        from logic.geometry import Spline
+                        
+                        points_to_use = []
+                        for v in entity.vertices:
+                            points_to_use.append(Point(v.dxf.location.x, v.dxf.location.y))
+                            
+                        if points_to_use:
+                            spline = Spline(points_to_use)
+                            if entity.is_closed:
+                                spline.is_closed = True
+                            state.splines.append(spline)
+                    else:
+                        # Обычная полилиния, может содержать как прямые сегменты, так и дуги (bulges)
+                        # ezdxf предоставляет удобный метод virtual_entities() для получения "чистых" примитивов
+                        for v_entity in entity.virtual_entities():
+                            if v_entity.dxftype() == 'LINE':
+                                p1 = Point(v_entity.dxf.start.x, v_entity.dxf.start.y)
+                                p2 = Point(v_entity.dxf.end.x, v_entity.dxf.end.y)
+                                state.segments.append(Segment(p1, p2))
+                            elif v_entity.dxftype() == 'ARC':
+                                center = Point(v_entity.dxf.center.x, v_entity.dxf.center.y)
+                                radius = v_entity.dxf.radius
+                                start_angle = math.radians(v_entity.dxf.start_angle)
+                                end_angle = math.radians(v_entity.dxf.end_angle)
+                                state.arcs.append(Arc.from_center_angles(center, radius, start_angle, end_angle))
+
+                elif entity.dxftype() == 'SPLINE':
+                    from logic.geometry import Spline
+                    
+                    # Проверяем, есть ли контрольные точки
+                    points_to_use = []
+                    if hasattr(entity, 'control_points') and len(entity.control_points) > 0:
+                        points_to_use = entity.control_points
+                    elif hasattr(entity, 'fit_points') and len(entity.fit_points) > 0:
+                        points_to_use = entity.fit_points
+                    
+                    if points_to_use:
+                        internal_points = [Point(p[0], p[1]) for p in points_to_use]
+                        spline = Spline(internal_points)
+                        
+                        # Если сплайн замкнут, нужно явно замкнуть его в нашей программе
+                        if getattr(entity, 'closed', False):
+                            spline.is_closed = True
+                            
+                        state.splines.append(spline)
             
             print(f"DXF успешно импортирован. Версия: {doc.dxfversion}")
             print(f"Загружено: отрезков {len(state.segments)}, точек {len(state.points)}, "
-                  f"окружностей {len(state.circles)}, дуг {len(state.arcs)}, эллипсов {len(state.ellipses)}")
+                  f"окружностей {len(state.circles)}, дуг {len(state.arcs)}, "
+                  f"эллипсов {len(state.ellipses)}, сплайнов {len(state.splines)}")
             
         except IOError:
             raise Exception(f"Невозможно прочитать файл: {filepath}")
