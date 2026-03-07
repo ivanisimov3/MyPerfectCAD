@@ -16,10 +16,29 @@ class DxfImporter:
             doc = ezdxf.readfile(filepath)
             msp = doc.modelspace()
             
-            # На Фазе 1 мы просто проверяем, что ezdxf.readfile отработал без ошибок.
-            # Последующий код будет добавлен в Фазе 2 и далее.
+            from logic.geometry import Point, Segment
             
-            print(f"DXF успешно открыт. Версия: {doc.dxfversion}")
+            # T-FLEX часто экспортирует примитивы внутри блоков (INSERT).
+            # Поэтому сначала "взрываем" все вхождения блоков (INSERT) в modelspace,
+            # чтобы они превратились в базовые примитивы (LINE, ARC, и т.д.)
+            for insert in msp.query('INSERT'):
+                insert.explode()
+            
+            # Phase 2: Basic Entities (LINE, POINT)
+            for entity in msp:
+                if entity.dxftype() == 'LINE':
+                    p1 = Point(entity.dxf.start.x, entity.dxf.start.y)
+                    p2 = Point(entity.dxf.end.x, entity.dxf.end.y)
+                    
+                    segment = Segment(p1, p2)
+                    state.segments.append(segment)
+                    
+                elif entity.dxftype() == 'POINT':
+                    point = Point(entity.dxf.location.x, entity.dxf.location.y)
+                    state.points.append(point)
+            
+            print(f"DXF успешно импортирован. Версия: {doc.dxfversion}")
+            print(f"Загружено отрезков: {len(state.segments)}, точек: {len(state.points)}")
             
         except IOError:
             raise Exception(f"Невозможно прочитать файл: {filepath}")
