@@ -56,10 +56,10 @@ class Callbacks:
             self.view.refresh_layers_list(self.state)
             self._sync_ui_with_selection()
             self._refresh_settings_context_panel()
-            self.redraw_all()
             
-            # Временно отключим автоцентрирование до Фазы 6, 
-            # но добавим пуш о успехе
+            # Зумируем камеру на импортированный чертеж (Phase 6)
+            self.on_fit_to_view()
+            
             messagebox.showinfo("Импорт DXF", "Файл успешно импортирован!")
         except Exception as e:
             messagebox.showerror("Ошибка импорта", f"Не удалось прочитать DXF:\n{e}")
@@ -2333,6 +2333,7 @@ class Callbacks:
             + self.state.ellipses
             + self.state.polygons
             + self.state.splines
+            + self.state.points
         )
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
@@ -2342,6 +2343,9 @@ class Callbacks:
             return
 
         xs, ys = [], []
+
+        for p in self.state.points:
+            xs.append(p.x); ys.append(p.y)
 
         for seg in self.state.segments:
             xs.extend([seg.p1.x, seg.p2.x])
