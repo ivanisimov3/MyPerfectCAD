@@ -38,6 +38,32 @@ class Callbacks:
         except Exception as e:
             messagebox.showerror("Ошибка экспорта", f"Не удалось сохранить DXF:\n{e}")
 
+    def on_import_dxf(self):
+        """Импорт чертежа из файла DXF."""
+        from logic.dxf_importer import DxfImporter
+        
+        filepath = filedialog.askopenfilename(
+            title="Импорт из DXF",
+            filetypes=[("DXF файлы", "*.dxf"), ("Все файлы", "*.*")]
+        )
+        if not filepath:
+            return
+        try:
+            importer = DxfImporter()
+            importer.import_dxf(self.state, filepath, self.view.root)
+            
+            # Обновляем UI после импорта
+            self.view.refresh_layers_list(self.state)
+            self._sync_ui_with_selection()
+            self._refresh_settings_context_panel()
+            self.redraw_all()
+            
+            # Временно отключим автоцентрирование до Фазы 6, 
+            # но добавим пуш о успехе
+            messagebox.showinfo("Импорт DXF", "Файл успешно импортирован!")
+        except Exception as e:
+            messagebox.showerror("Ошибка импорта", f"Не удалось прочитать DXF:\n{e}")
+
     def _refresh_settings_context_panel(self, *, auto_switch_tab=False):
 
         if not self.view:
