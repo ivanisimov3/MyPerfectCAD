@@ -23,6 +23,8 @@ class SnapPoint:
     snap_type: SnapType
     source_object: object = None
     priority: int = 0
+    ref_kind: str = None
+    ref_index: int = None
     
     def distance_to(self, px: float, py: float) -> float:
 
@@ -110,39 +112,39 @@ class SnapManager:
             if not self._is_obj_visible(seg): continue
             for p in [seg.p1, seg.p2]:
                 if self._in_range(p.x, p.y, cx, cy, radius):
-                    points.append(SnapPoint(p.x, p.y, SnapType.ENDPOINT, seg, priority))
+                    points.append(SnapPoint(p.x, p.y, SnapType.ENDPOINT, seg, priority, ref_kind='segment_endpoint', ref_index=0 if p is seg.p1 else 1))
         
         for arc in self.state.arcs:
             if not self._is_obj_visible(arc): continue
             start_x = arc.center.x + arc.radius * math.cos(arc.start_angle)
             start_y = arc.center.y + arc.radius * math.sin(arc.start_angle)
             if self._in_range(start_x, start_y, cx, cy, radius):
-                points.append(SnapPoint(start_x, start_y, SnapType.ENDPOINT, arc, priority))
+                points.append(SnapPoint(start_x, start_y, SnapType.ENDPOINT, arc, priority, ref_kind='arc_endpoint', ref_index=0))
             
             end_x = arc.center.x + arc.radius * math.cos(arc.end_angle)
             end_y = arc.center.y + arc.radius * math.sin(arc.end_angle)
             if self._in_range(end_x, end_y, cx, cy, radius):
-                points.append(SnapPoint(end_x, end_y, SnapType.ENDPOINT, arc, priority))
+                points.append(SnapPoint(end_x, end_y, SnapType.ENDPOINT, arc, priority, ref_kind='arc_endpoint', ref_index=1))
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
             corners = rect.corners()
-            for corner in corners:
+            for idx, corner in enumerate(corners):
                 if self._in_range(corner.x, corner.y, cx, cy, radius):
-                    points.append(SnapPoint(corner.x, corner.y, SnapType.ENDPOINT, rect, priority))
+                    points.append(SnapPoint(corner.x, corner.y, SnapType.ENDPOINT, rect, priority, ref_kind='rectangle_corner', ref_index=idx))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
             vertices = poly.vertices()
-            for v in vertices:
+            for idx, v in enumerate(vertices):
                 if self._in_range(v.x, v.y, cx, cy, radius):
-                    points.append(SnapPoint(v.x, v.y, SnapType.ENDPOINT, poly, priority))
+                    points.append(SnapPoint(v.x, v.y, SnapType.ENDPOINT, poly, priority, ref_kind='polygon_vertex', ref_index=idx))
         
         for spline in self.state.splines:
             if not self._is_obj_visible(spline): continue
             for p in spline.control_points:
                 if self._in_range(p.x, p.y, cx, cy, radius):
-                    points.append(SnapPoint(p.x, p.y, SnapType.ENDPOINT, spline, priority))
+                    points.append(SnapPoint(p.x, p.y, SnapType.ENDPOINT, spline, priority, ref_kind='spline_control', ref_index=spline.control_points.index(p)))
         
         return points
     
@@ -156,7 +158,7 @@ class SnapManager:
             mid_x = (seg.p1.x + seg.p2.x) / 2
             mid_y = (seg.p1.y + seg.p2.y) / 2
             if self._in_range(mid_x, mid_y, cx, cy, radius):
-                points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, seg, priority))
+                points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, seg, priority, ref_kind='segment_midpoint'))
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
@@ -165,7 +167,7 @@ class SnapManager:
                 mid_x = (edge.p1.x + edge.p2.x) / 2
                 mid_y = (edge.p1.y + edge.p2.y) / 2
                 if self._in_range(mid_x, mid_y, cx, cy, radius):
-                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, rect, priority))
+                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, rect, priority, ref_kind='rectangle_edge_midpoint', ref_index=edges.index(edge)))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
@@ -174,7 +176,7 @@ class SnapManager:
                 mid_x = (edge.p1.x + edge.p2.x) / 2
                 mid_y = (edge.p1.y + edge.p2.y) / 2
                 if self._in_range(mid_x, mid_y, cx, cy, radius):
-                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, poly, priority))
+                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, poly, priority, ref_kind='polygon_edge_midpoint', ref_index=edges.index(edge)))
         
         for arc in self.state.arcs:
             if not self._is_obj_visible(arc): continue
@@ -182,7 +184,7 @@ class SnapManager:
             mid_x = arc.center.x + arc.radius * math.cos(mid_angle)
             mid_y = arc.center.y + arc.radius * math.sin(mid_angle)
             if self._in_range(mid_x, mid_y, cx, cy, radius):
-                points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, arc, priority))
+                points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, arc, priority, ref_kind='arc_midpoint'))
         
         return points
     
@@ -194,28 +196,28 @@ class SnapManager:
         for circle in self.state.circles:
             if not self._is_obj_visible(circle): continue
             if self._in_range(circle.center.x, circle.center.y, cx, cy, radius):
-                points.append(SnapPoint(circle.center.x, circle.center.y, SnapType.CENTER, circle, priority))
+                points.append(SnapPoint(circle.center.x, circle.center.y, SnapType.CENTER, circle, priority, ref_kind='circle_center'))
         
         for arc in self.state.arcs:
             if not self._is_obj_visible(arc): continue
             if self._in_range(arc.center.x, arc.center.y, cx, cy, radius):
-                points.append(SnapPoint(arc.center.x, arc.center.y, SnapType.CENTER, arc, priority))
+                points.append(SnapPoint(arc.center.x, arc.center.y, SnapType.CENTER, arc, priority, ref_kind='arc_center'))
         
         for ellipse in self.state.ellipses:
             if not self._is_obj_visible(ellipse): continue
             if self._in_range(ellipse.center.x, ellipse.center.y, cx, cy, radius):
-                points.append(SnapPoint(ellipse.center.x, ellipse.center.y, SnapType.CENTER, ellipse, priority))
+                points.append(SnapPoint(ellipse.center.x, ellipse.center.y, SnapType.CENTER, ellipse, priority, ref_kind='ellipse_center'))
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
             center = rect.center
             if self._in_range(center.x, center.y, cx, cy, radius):
-                points.append(SnapPoint(center.x, center.y, SnapType.CENTER, rect, priority))
+                points.append(SnapPoint(center.x, center.y, SnapType.CENTER, rect, priority, ref_kind='rectangle_center'))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
             if self._in_range(poly.center.x, poly.center.y, cx, cy, radius):
-                points.append(SnapPoint(poly.center.x, poly.center.y, SnapType.CENTER, poly, priority))
+                points.append(SnapPoint(poly.center.x, poly.center.y, SnapType.CENTER, poly, priority, ref_kind='polygon_center'))
         
         return points
     

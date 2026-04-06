@@ -1638,6 +1638,91 @@ class Renderer:
                 flat_coords.extend([x, y])
             self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
+    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True):
+        sx, sy = self.converter.world_to_screen(point.x, point.y)
+        dx = direction.x
+        dy = direction.y
+        dir_screen_x, dir_screen_y = self.converter.world_to_screen(point.x + dx, point.y + dy)
+        vx = dir_screen_x - sx
+        vy = dir_screen_y - sy
+        length = math.hypot(vx, vy)
+        if length < 1e-9:
+            return
+        ux = vx / length
+        uy = vy / length
+        nx = -uy
+        ny = ux
+
+        back_x = sx + ux * size_px
+        back_y = sy + uy * size_px
+        wing = size_px * 0.45
+        points = [
+            sx, sy,
+            back_x + nx * wing, back_y + ny * wing,
+            back_x - nx * wing, back_y - ny * wing,
+        ]
+        self.canvas.create_polygon(
+            *points,
+            outline=color,
+            fill=color if filled else "",
+            width=1,
+        )
+
+    def draw_dimension(self, dimension, override_color=None):
+        geometry = dimension.resolve_geometry(self.state)
+        if not geometry:
+            return
+
+        style = dimension._style(self.state)
+        draw_color = override_color if override_color else dimension.color
+
+        for seg in geometry.get("segments", []):
+            seg.color = draw_color
+            self.draw_segment(seg)
+
+        for arc in geometry.get("arcs", []):
+            arc.color = draw_color
+            self.draw_arc(arc)
+
+        arrow_size_px = max(6, int(style.arrow_size_mm * self.state.mm_to_px_ratio))
+        for arrow in geometry.get("arrow_points", []):
+            self._draw_dimension_arrow(
+                arrow["point"],
+                arrow["direction"],
+                draw_color,
+                arrow_size_px,
+                filled=style.arrow_filled,
+            )
+
+        text_point = geometry.get("text_point")
+        text = geometry.get("text")
+        if text_point and text:
+            sx, sy = self.converter.world_to_screen(text_point.x, text_point.y)
+            font_size = max(8, int(style.text_height_mm * self.state.mm_to_px_ratio))
+            angle_deg = math.degrees(geometry.get("text_angle", 0.0) + self.state.rotation)
+            self.canvas.create_text(
+                sx,
+                sy,
+                text=text,
+                fill=draw_color if override_color else style.text_color,
+                font=("Arial", font_size),
+                angle=angle_deg,
+            )
+
+    def draw_dimension_grips(self, dimension):
+        grips = dimension.grip_points(self.state)
+        for grip_name, point in grips.items():
+            sx, sy = self.converter.world_to_screen(point.x, point.y)
+            size = 5 if grip_name != "text" else 6
+            fill = "#FF4444" if grip_name == "text" else "#FFFFFF"
+            outline = "#CC0000"
+            self.canvas.create_rectangle(
+                sx - size, sy - size, sx + size, sy + size,
+                outline=outline,
+                fill=fill,
+                width=2,
+            )
+
     def render_scene(self):
         
         self.clear()
@@ -1672,6 +1757,9 @@ class Renderer:
                 # Для точки можно использовать ту же функцию draw_point (хотя она рисует крестик)
                 # но draw_point рассчитана на объекты типа Point
                 self.draw_geometry_point(pt, override_color='#00FFFF', override_width=max(4, self.state.base_thickness_mm + 6))
+        for dimension in self.state.selected_dimensions:
+            if self.state.is_layer_visible(dimension.layer):
+                self.draw_dimension(dimension, override_color='#00FFFF')
 
         selected_segments_set = set(id(s) for s in self.state.selected_segments)
         for segment in self.state.segments:
@@ -1713,6 +1801,11 @@ class Renderer:
             if id(pt) not in selected_points_set and self.state.is_layer_visible(pt.layer):
                 self.draw_geometry_point(pt)
 
+        selected_dimensions_set = set(id(d) for d in self.state.selected_dimensions)
+        for dimension in self.state.dimensions:
+            if id(dimension) not in selected_dimensions_set and self.state.is_layer_visible(dimension.layer):
+                self.draw_dimension(dimension)
+
         if self.state.preview_segment:
             self.draw_segment(self.state.preview_segment, override_color='blue')
 
@@ -1731,6 +1824,8 @@ class Renderer:
             self.draw_polygon(self.state.preview_polygon, override_color='blue')
         if self.state.preview_spline:
             self.draw_spline(self.state.preview_spline, override_color='blue')
+        if self.state.preview_dimension:
+            self.draw_dimension(self.state.preview_dimension, override_color='blue')
 
         # Маркеры контрольных точек сплайна (при создании/редактировании)
         if self.state.app_mode == 'CREATING_SPLINE' and self.state.spline_control_points:
@@ -1758,6 +1853,9 @@ class Renderer:
             self.draw_point(self.state.active_p3)
         if self.state.active_p4:
             self.draw_point(self.state.active_p4)
+
+        if len(self.state.selected_dimensions) == 1 and self.state.app_mode == 'IDLE':
+            self.draw_dimension_grips(self.state.selected_dimensions[0])
         
         if self.state.current_snap_point:
             self.draw_snap_indicator(self.state.current_snap_point)

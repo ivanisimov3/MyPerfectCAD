@@ -104,6 +104,9 @@ class MainWindow:
             callbacks.on_polygon_variant_change()
             callbacks.on_new_polygon_mode()
 
+        def _start_linear_dimension(mode):
+            callbacks.on_new_linear_dimension_mode(mode)
+
         _add_icon_button("—", callbacks.on_new_segment_mode, [
             ("Отрезок (2 точки)", callbacks.on_new_segment_mode),
         ])
@@ -138,6 +141,16 @@ class MainWindow:
         _add_icon_button("~", callbacks.on_new_spline_mode, [
             ("Точки управления", callbacks.on_new_spline_mode),
         ])
+
+        _add_icon_button("⟷", callbacks.on_new_linear_dimension_mode, [
+            ("Линейный горизонтальный", lambda: _start_linear_dimension("horizontal")),
+            ("Линейный вертикальный", lambda: _start_linear_dimension("vertical")),
+            ("Линейный выровненный", lambda: _start_linear_dimension("aligned")),
+            ("Радиус", callbacks.on_new_radius_dimension_mode),
+            ("Диаметр", callbacks.on_new_diameter_dimension_mode),
+            ("Угол", callbacks.on_new_angular_dimension_mode),
+        ])
+
         ttk.Button(parent, text="Удалить", width=8, command=callbacks.on_delete_segment).pack(side=tk.LEFT, padx=4)
         ttk.Separator(parent, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
 
@@ -278,6 +291,10 @@ class MainWindow:
         self._context_pages["spline"] = spline_page
         self._setup_spline_tab(spline_page, callbacks)
 
+        dimension_page = ttk.Frame(self.context_pages_container)
+        self._context_pages["dimension"] = dimension_page
+        self._setup_dimension_tab(dimension_page, callbacks)
+
         for page in self._context_pages.values():
             page.pack_forget()
 
@@ -340,6 +357,24 @@ class MainWindow:
         self.style_combobox.bind("<<ComboboxSelected>>", callbacks.on_style_selected)
         
         ttk.Button(style_frame, text="Настроить стили...", command=callbacks.on_open_style_manager).pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        dim_style_frame = ttk.LabelFrame(parent, text="Стиль размера")
+        dim_style_frame.pack(padx=5, pady=5, fill=tk.X)
+
+        self.dimension_style_ids = []
+        dim_style_names = []
+        for key, style in sorted(callbacks.state.dimension_styles.items(), key=lambda x: x[1].display_name):
+            self.dimension_style_ids.append(key)
+            dim_style_names.append(style.display_name)
+
+        self.dimension_style_combobox = ttk.Combobox(dim_style_frame, values=dim_style_names, state="readonly")
+        current_dim_style = callbacks.state.current_dimension_style_name
+        if current_dim_style in self.dimension_style_ids:
+            self.dimension_style_combobox.current(self.dimension_style_ids.index(current_dim_style))
+        elif self.dimension_style_ids:
+            self.dimension_style_combobox.current(0)
+        self.dimension_style_combobox.pack(fill=tk.X, padx=5, pady=5)
+        self.dimension_style_combobox.bind("<<ComboboxSelected>>", callbacks.on_dimension_style_selected)
 
         snap_frame = ttk.LabelFrame(parent, text="Привязки")
         snap_frame.pack(padx=5, pady=5, fill=tk.X)
@@ -678,6 +713,37 @@ class MainWindow:
 
         ttk.Label(parent, text="Выберите точку для редактирования\nЛКМ на холсте - добавить в конец\nПКМ - удалить последнюю").pack(anchor=tk.W, padx=8, pady=4)
 
+    def _setup_dimension_tab(self, parent, callbacks):
+        info_frame = ttk.LabelFrame(parent, text="Информация")
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        self.dimension_type_var = tk.StringVar(value="—")
+        self.dimension_value_var = tk.StringVar(value="—")
+        self.dimension_layer_var = tk.StringVar(value="Слой: —")
+
+        ttk.Label(info_frame, textvariable=self.dimension_type_var).pack(anchor=tk.W, padx=5, pady=(4, 2))
+        ttk.Label(info_frame, textvariable=self.dimension_value_var).pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Label(info_frame, textvariable=self.dimension_layer_var).pack(anchor=tk.W, padx=5, pady=(2, 4))
+
+        text_frame = ttk.LabelFrame(parent, text="Текст размера")
+        text_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(text_frame, text="Переопределение:").pack(anchor=tk.W, padx=5, pady=(4, 2))
+        self.dimension_text_override_entry = ttk.Entry(text_frame)
+        self.dimension_text_override_entry.pack(fill=tk.X, padx=5, pady=(0, 5))
+        ttk.Button(text_frame, text="Применить текст", command=callbacks.on_apply_dimension_text_override).pack(fill=tk.X, padx=5, pady=(0, 2))
+        ttk.Button(text_frame, text="Сбросить переопределение", command=callbacks.on_reset_dimension_text_override).pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        style_frame = ttk.LabelFrame(parent, text="Стиль размера")
+        style_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.dimension_context_style_combobox = ttk.Combobox(style_frame, state="readonly")
+        self.dimension_context_style_combobox.pack(fill=tk.X, padx=5, pady=5)
+        self.dimension_context_style_combobox.bind("<<ComboboxSelected>>", callbacks.on_dimension_style_selected)
+
+        ttk.Label(
+            parent,
+            text="Создание размеров:\nЛКМ по точкам или объектам,\nПКМ — шаг назад, Enter — завершить при готовности.",
+        ).pack(anchor=tk.W, padx=8, pady=4)
+
     def _setup_layers_tab(self, parent, callbacks):
 
         # Listbox со слоями
@@ -885,6 +951,34 @@ class MainWindow:
              self.style_combobox.current(idx)
         elif style_names and current_text != "Разные":
              self.style_combobox.current(0)
+
+    def refresh_dimension_style_combobox_values(self, styles_dict):
+
+        sorted_items = sorted(styles_dict.items(), key=lambda x: x[1].display_name)
+        self.dimension_style_ids = []
+        names = []
+        for key, style in sorted_items:
+            self.dimension_style_ids.append(key)
+            names.append(style.display_name)
+
+        self.dimension_style_combobox['values'] = names
+        self.dimension_context_style_combobox['values'] = names
+
+        current_id = self.callbacks.state.current_dimension_style_name
+        if current_id in self.dimension_style_ids:
+            idx = self.dimension_style_ids.index(current_id)
+            self.dimension_style_combobox.current(idx)
+            self.dimension_context_style_combobox.current(idx)
+
+    def set_dimension_style_selection(self, style_name_or_text):
+
+        if style_name_or_text in self.dimension_style_ids:
+            idx = self.dimension_style_ids.index(style_name_or_text)
+            self.dimension_style_combobox.current(idx)
+            self.dimension_context_style_combobox.current(idx)
+        else:
+            self.dimension_style_combobox.set(style_name_or_text)
+            self.dimension_context_style_combobox.set(style_name_or_text)
 
     def set_style_selection(self, style_name_or_text):
 

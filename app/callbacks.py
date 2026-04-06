@@ -2,6 +2,13 @@ import tkinter as tk
 from tkinter import messagebox, colorchooser, filedialog, simpledialog, ttk
 import math
 from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
+from logic.dimensions import (
+    AngularDimension,
+    GeometryReference,
+    LinearDimension,
+    make_radial_dimension_from_object,
+    make_reference_from_snap,
+)
 from logic.converter import CoordinateConverter
 from logic.snap import SnapManager, SnapType
 from ui.renderer import Renderer
@@ -21,6 +28,60 @@ class Callbacks:
         
         self._drag_start_x = 0
         self._drag_start_y = 0
+
+    def _is_dimension_mode(self, mode=None):
+        mode = self.state.app_mode if mode is None else mode
+        return str(mode).startswith("CREATING_DIMENSION_")
+
+    def _get_dimension_mode_kind(self, mode=None):
+        mode = self.state.app_mode if mode is None else mode
+        return str(mode).replace("CREATING_DIMENSION_", "").lower()
+
+    def _current_dimension_style(self):
+        return self.state.dimension_styles.get(self.state.current_dimension_style_name)
+
+    def _make_dimension_reference(self, x, y):
+        snap_point = self.state.current_snap_point
+        return make_reference_from_snap(snap_point, Point(x, y))
+
+    def _selected_dimensions_count(self):
+        return len(self.state.selected_dimensions)
+
+    def _clear_dimension_creation_state(self):
+        self.state.dimension_creation_refs = []
+        self.state.dimension_creation_object = None
+        self.state.preview_dimension = None
+        self.state.dimension_grip_drag = None
+
+    def _clear_all_selection(self):
+        self.state.selected_segments = []
+        self.state.selected_circles = []
+        self.state.selected_arcs = []
+        self.state.selected_rectangles = []
+        self.state.selected_ellipses = []
+        self.state.selected_polygons = []
+        self.state.selected_splines = []
+        self.state.selected_dimensions = []
+
+    def _selected_non_dimension_objects(self):
+        return (
+            list(self.state.selected_segments)
+            + list(self.state.selected_circles)
+            + list(self.state.selected_arcs)
+            + list(self.state.selected_rectangles)
+            + list(self.state.selected_ellipses)
+            + list(self.state.selected_polygons)
+            + list(self.state.selected_splines)
+        )
+
+    def _clone_dimension_ref(self, ref):
+        return GeometryReference(
+            ref.kind,
+            Point(ref.point.x, ref.point.y),
+            source_object=ref.source_object,
+            ref_kind=ref.ref_kind,
+            ref_index=ref.ref_index,
+        )
 
     def on_export_dxf(self):
         """Экспорт чертежа в файл DXF."""
@@ -89,6 +150,7 @@ class Callbacks:
                 'ellipse': ("ellipse", "Редактирование: Эллипс"),
                 'polygon': ("polygon", "Редактирование: Многоугольник"),
                 'spline': ("spline", "Редактирование: Сплайн"),
+                'dimension': ("dimension", "Редактирование: Размер"),
             }
             if self.state.editing_object_type in edit_panels:
                 key, title = edit_panels[self.state.editing_object_type]
@@ -107,6 +169,7 @@ class Callbacks:
             + len(self.state.selected_ellipses)
             + len(self.state.selected_polygons)
             + len(self.state.selected_splines)
+            + len(self.state.selected_dimensions)
         )
 
         if total_selected == 1:
@@ -124,6 +187,8 @@ class Callbacks:
                 self.view.set_context_panel("polygon", "Выбрано: Многоугольник")
             elif self.state.selected_splines:
                 self.view.set_context_panel("spline", "Выбрано: Сплайн")
+            elif self.state.selected_dimensions:
+                self.view.set_context_panel("dimension", "Выбрано: Размер")
             else:
                 self.view.set_context_panel(None, "—")
                 return
@@ -141,6 +206,12 @@ class Callbacks:
             "CREATING_ELLIPSE": ("ellipse", "Создание: Эллипс"),
             "CREATING_POLYGON": ("polygon", "Создание: Многоугольник"),
             "CREATING_SPLINE": ("spline", "Создание: Сплайн"),
+            "CREATING_DIMENSION_HORIZONTAL": ("dimension", "Создание: Линейный размер"),
+            "CREATING_DIMENSION_VERTICAL": ("dimension", "Создание: Вертикальный размер"),
+            "CREATING_DIMENSION_ALIGNED": ("dimension", "Создание: Выровненный размер"),
+            "CREATING_DIMENSION_RADIUS": ("dimension", "Создание: Радиус"),
+            "CREATING_DIMENSION_DIAMETER": ("dimension", "Создание: Диаметр"),
+            "CREATING_DIMENSION_ANGULAR": ("dimension", "Создание: Угловой размер"),
         }
         if self.state.app_mode in mode_to_panel:
             key, title = mode_to_panel[self.state.app_mode]
@@ -161,6 +232,8 @@ class Callbacks:
         self.view.segment_swatch.config(background=self.state.current_color)
         
         self.view.update_style_preview(self.state.current_style_name)
+        self.view.refresh_dimension_style_combobox_values(self.state.dimension_styles)
+        self.view.set_dimension_style_selection(self.state.current_dimension_style_name)
 
         self.view.circle_method.set(self.state.circle_creation_method)
         self.view.arc_method.set(self.state.arc_creation_method)
@@ -190,6 +263,7 @@ class Callbacks:
         is_creating_ellipse = mode.startswith('CREATING_ELLIPSE')
         is_creating_polygon = mode.startswith('CREATING_POLYGON')
         is_creating_spline = mode.startswith('CREATING_SPLINE')
+        is_creating_dimension = mode.startswith('CREATING_DIMENSION')
         is_creating = (
             is_creating_segment
             or is_creating_circle
@@ -198,6 +272,7 @@ class Callbacks:
             or is_creating_ellipse
             or is_creating_polygon
             or is_creating_spline
+            or is_creating_dimension
         )
         is_panning = (mode == 'PANNING')
 
@@ -250,6 +325,15 @@ class Callbacks:
             self.state.preview_rectangle = None
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
+            self.state.preview_dimension = None
+        elif is_creating_dimension:
+            self.state.preview_segment = None
+            self.state.preview_circle = None
+            self.state.preview_arc = None
+            self.state.preview_rectangle = None
+            self.state.preview_ellipse = None
+            self.state.preview_polygon = None
+            self.state.preview_spline = None
 
         entered_creating = (not str(prev_mode).startswith("CREATING_")) and str(mode).startswith("CREATING_")
         is_editing = self.state.editing_object is not None
@@ -334,11 +418,13 @@ class Callbacks:
             self.state.preview_ellipse = None
             self.state.preview_polygon = None
             self.state.preview_spline = None
+            self.state.preview_dimension = None
             self.state.active_p1 = None
             self.state.active_p2 = None
             self.state.active_p3 = None
             self.state.active_p4 = None
             self.state.spline_control_points = []
+            self._clear_dimension_creation_state()
             try:
                 self._update_spline_points_listbox()
             except Exception:
@@ -423,6 +509,18 @@ class Callbacks:
             self.view.canvas.bind("<B1-Motion>", self._on_spline_mouse_drag)
             self.view.canvas.bind("<ButtonRelease-1>", self._on_spline_mouse_up)
             self.view.canvas.config(cursor="crosshair")
+        elif is_creating_dimension:
+            for entry in entries: entry.config(state='disabled')
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='disabled')
+            for entry in ellipse_entries: entry.config(state='disabled')
+            for entry in polygon_entries: entry.config(state='disabled')
+            for entry in spline_entries: entry.config(state='disabled')
+            self.state.points_clicked = len(self.state.dimension_creation_refs)
+            self.root.bind("<Return>", self.finalize_dimension)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_dimension)
+            self.view.canvas.config(cursor="crosshair")
             
         elif is_panning:
             self.view.canvas.bind("<Button-1>", self.on_mouse_press)
@@ -431,11 +529,31 @@ class Callbacks:
 
         else:
             self.view.canvas.bind("<Button-1>", self.on_selection_click)
+            self.view.canvas.bind("<B1-Motion>", self.on_idle_drag)
+            self.view.canvas.bind("<ButtonRelease-1>", self.on_idle_release)
             self.view.canvas.config(cursor="arrow")
         
         self.redraw_all()
 
+    def _find_dimension_grip_hit(self, event):
+        if len(self.state.selected_dimensions) != 1:
+            return None
+
+        dimension = self.state.selected_dimensions[0]
+        grips = dimension.grip_points(self.state)
+        for grip_name, point in grips.items():
+            sx, sy = self.converter.world_to_screen(point.x, point.y)
+            if abs(event.x - sx) <= 10 and abs(event.y - sy) <= 10:
+                return dimension, grip_name
+        return None
+
     def on_selection_click(self, event):
+        grip_hit = self._find_dimension_grip_hit(event)
+        if grip_hit:
+            dimension, grip_name = grip_hit
+            self.state.dimension_grip_drag = {"dimension": dimension, "grip": grip_name}
+            return
+
         wx, wy = self.converter.screen_to_world(event.x, event.y)
         hit_threshold_pixels = 8
         hit_threshold_world = hit_threshold_pixels / self.state.zoom
@@ -447,6 +565,7 @@ class Callbacks:
         found_ellipse = None
         found_polygon = None
         found_spline = None
+        found_dimension = None
 
         for segment in self.state.segments:
             if not self.state.is_layer_visible(segment.layer): continue
@@ -500,6 +619,13 @@ class Callbacks:
                 if dist < hit_threshold_world:
                     found_spline = spline
                     break
+        if not found_segment and not found_circle and not found_arc and not found_rectangle and not found_ellipse and not found_polygon and not found_spline:
+            for dimension in self.state.dimensions:
+                if not self.state.is_layer_visible(dimension.layer): continue
+                dist = dimension.distance_to_point(wx, wy, self.state)
+                if dist < hit_threshold_world * 1.5:
+                    found_dimension = dimension
+                    break
 
         ctrl_pressed = (event.state & 0x0004)
 
@@ -517,6 +643,7 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_circle:
             if ctrl_pressed:
                 if found_circle in self.state.selected_circles:
@@ -531,6 +658,7 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_arc:
             if ctrl_pressed:
                 if found_arc in self.state.selected_arcs:
@@ -545,6 +673,7 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_ellipse:
             if ctrl_pressed:
                 if found_ellipse in self.state.selected_ellipses:
@@ -559,6 +688,7 @@ class Callbacks:
                 self.state.selected_ellipses = [found_ellipse]
                 self.state.selected_polygons = []
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_rectangle:
             if ctrl_pressed:
                 if found_rectangle in self.state.selected_rectangles:
@@ -573,6 +703,7 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_polygon:
             if ctrl_pressed:
                 if found_polygon in self.state.selected_polygons:
@@ -587,6 +718,7 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = [found_polygon]
                 self.state.selected_splines = []
+                self.state.selected_dimensions = []
         elif found_spline:
             if ctrl_pressed:
                 if found_spline in self.state.selected_splines:
@@ -601,15 +733,19 @@ class Callbacks:
                 self.state.selected_ellipses = []
                 self.state.selected_polygons = []
                 self.state.selected_splines = [found_spline]
+                self.state.selected_dimensions = []
+        elif found_dimension:
+            if ctrl_pressed:
+                if found_dimension in self.state.selected_dimensions:
+                    self.state.selected_dimensions.remove(found_dimension)
+                else:
+                    self.state.selected_dimensions.append(found_dimension)
+            else:
+                self._clear_all_selection()
+                self.state.selected_dimensions = [found_dimension]
         else:
             if not ctrl_pressed:
-                self.state.selected_segments = []
-                self.state.selected_circles = []
-                self.state.selected_arcs = []
-                self.state.selected_rectangles = []
-                self.state.selected_ellipses = []
-                self.state.selected_polygons = []
-                self.state.selected_splines = []
+                self._clear_all_selection()
 
         self._sync_ui_with_selection()
         self._refresh_settings_context_panel()
@@ -624,10 +760,11 @@ class Callbacks:
         sel_ellipses = self.state.selected_ellipses
         sel_polygons = self.state.selected_polygons
         sel_splines = self.state.selected_splines
+        sel_dimensions = self.state.selected_dimensions
 
         all_selected = (
             list(sel_segments) + list(sel_circles) + list(sel_arcs) +
-            list(sel_rectangles) + list(sel_ellipses) + list(sel_polygons) + list(sel_splines)
+            list(sel_rectangles) + list(sel_ellipses) + list(sel_polygons) + list(sel_splines) + list(sel_dimensions)
         )
 
         if not all_selected:
@@ -635,19 +772,27 @@ class Callbacks:
             if style_obj:
                 self.view.set_style_selection(style_obj.name)
                 self.view.segment_swatch.config(bg=self.state.current_color)
+            self.view.set_dimension_style_selection(self.state.current_dimension_style_name)
+            self.view.dimension_type_var.set("—")
+            self.view.dimension_value_var.set("—")
+            self.view.dimension_layer_var.set("Слой: —")
+            self.view.dimension_text_override_entry.delete(0, tk.END)
             self._refresh_settings_context_panel()
             return
 
         unique_styles = set()
         unique_colors = set()
         for obj in all_selected:
-            unique_styles.add(obj.style_name)
+            if hasattr(obj, 'style_name'):
+                unique_styles.add(obj.style_name)
             unique_colors.add(obj.color)
 
         if len(unique_styles) == 1:
             style_name = list(unique_styles)[0]
             self.view.set_style_selection(style_name)
             self.state.current_style_name = style_name
+        elif not unique_styles:
+            pass
         else:
             self.view.set_style_selection("Разные")
 
@@ -657,6 +802,43 @@ class Callbacks:
             self.state.current_color = color
         else:
             self.view.segment_swatch.config(bg="#cccccc")
+
+        if sel_dimensions and len(all_selected) == len(sel_dimensions):
+            unique_dim_styles = {dim.dimension_style_name for dim in sel_dimensions}
+            if len(unique_dim_styles) == 1:
+                dim_style_name = list(unique_dim_styles)[0]
+                self.state.current_dimension_style_name = dim_style_name
+                self.view.set_dimension_style_selection(dim_style_name)
+            else:
+                self.view.set_dimension_style_selection("Разные")
+
+            if len(sel_dimensions) == 1:
+                dimension = sel_dimensions[0]
+                geometry = dimension.resolve_geometry(self.state)
+                type_map = {
+                    "linear": "Линейный размер",
+                    "radius": "Радиальный размер",
+                    "diameter": "Диаметральный размер",
+                    "angular": "Угловой размер",
+                }
+                self.view.dimension_type_var.set(type_map.get(dimension.dimension_type, "Размер"))
+                self.view.dimension_value_var.set(
+                    f"Значение: {geometry.get('text', '—') if geometry else '—'}"
+                )
+                self.view.dimension_layer_var.set(f"Слой: {dimension.layer}")
+                self.view.dimension_text_override_entry.delete(0, tk.END)
+                if dimension.text_override:
+                    self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+            else:
+                self.view.dimension_type_var.set("Несколько размеров")
+                self.view.dimension_value_var.set("Значение: Разные")
+                self.view.dimension_layer_var.set("Слой: Разные")
+                self.view.dimension_text_override_entry.delete(0, tk.END)
+        else:
+            self.view.dimension_type_var.set("—")
+            self.view.dimension_value_var.set("—")
+            self.view.dimension_layer_var.set("Слой: —")
+            self.view.dimension_text_override_entry.delete(0, tk.END)
 
         self._refresh_settings_context_panel()
 
@@ -811,6 +993,33 @@ class Callbacks:
         self.update_preview_spline()
         self.redraw_all()
 
+    def on_dimension_style_selected(self, event=None):
+        if event is not None and event.widget is self.view.dimension_context_style_combobox:
+            idx = self.view.dimension_context_style_combobox.current()
+        elif event is not None and event.widget is self.view.dimension_style_combobox:
+            idx = self.view.dimension_style_combobox.current()
+        else:
+            idx = self.view.dimension_style_combobox.current()
+            if idx == -1:
+                idx = self.view.dimension_context_style_combobox.current()
+        if idx == -1:
+            return
+
+        try:
+            new_style_name = self.view.dimension_style_ids[idx]
+        except IndexError:
+            return
+
+        self.state.current_dimension_style_name = new_style_name
+        for dimension in self.state.selected_dimensions:
+            dimension.dimension_style_name = new_style_name
+
+        if self.state.preview_dimension:
+            self.state.preview_dimension.dimension_style_name = new_style_name
+
+        self._sync_ui_with_selection()
+        self.redraw_all()
+
     def on_new_segment_mode(self, event=None):
         self.set_app_state('CREATING_SEGMENT')
 
@@ -913,6 +1122,31 @@ class Callbacks:
         self.view.spline_point_x_entry.focus_set()
 
         self.view.polygon_center_x_entry.focus_set()
+
+    def on_new_linear_dimension_mode(self, mode="aligned", event=None):
+        mode_map = {
+            "horizontal": "CREATING_DIMENSION_HORIZONTAL",
+            "vertical": "CREATING_DIMENSION_VERTICAL",
+            "aligned": "CREATING_DIMENSION_ALIGNED",
+        }
+        self._clear_dimension_creation_state()
+        self.set_app_state(mode_map.get(mode, "CREATING_DIMENSION_ALIGNED"))
+        self.view.canvas.focus_set()
+
+    def on_new_radius_dimension_mode(self, event=None):
+        self._clear_dimension_creation_state()
+        self.set_app_state("CREATING_DIMENSION_RADIUS")
+        self.view.canvas.focus_set()
+
+    def on_new_diameter_dimension_mode(self, event=None):
+        self._clear_dimension_creation_state()
+        self.set_app_state("CREATING_DIMENSION_DIAMETER")
+        self.view.canvas.focus_set()
+
+    def on_new_angular_dimension_mode(self, event=None):
+        self._clear_dimension_creation_state()
+        self.set_app_state("CREATING_DIMENSION_ANGULAR")
+        self.view.canvas.focus_set()
 
     def on_hand_mode(self, event=None):
         self.set_app_state('PANNING')
@@ -1097,6 +1331,77 @@ class Callbacks:
             color=self.state.current_color
         )
         self.redraw_all()
+
+    def update_preview_dimension(self, event=None):
+        refs = self.state.dimension_creation_refs
+        kind = self._get_dimension_mode_kind()
+        self.state.preview_dimension = None
+        target_layer = (
+            self.state.editing_object.layer
+            if self.state.editing_object is not None and self.state.editing_object_type == 'dimension'
+            else self.state.active_layer
+        )
+
+        try:
+            if kind in ("horizontal", "vertical", "aligned") and len(refs) >= 3:
+                self.state.preview_dimension = LinearDimension(
+                    refs[0],
+                    refs[1],
+                    refs[2],
+                    mode=kind,
+                    color=self.state.current_color,
+                    layer=target_layer,
+                    dimension_style_name=self.state.current_dimension_style_name,
+                )
+            elif kind in ("radius", "diameter") and self.state.dimension_creation_object is not None and len(refs) >= 1:
+                prefix = "R" if kind == "radius" else "⌀"
+                self.state.preview_dimension = make_radial_dimension_from_object(
+                    self.state.dimension_creation_object,
+                    refs[0].resolve(),
+                    prefix=prefix,
+                    color=self.state.current_color,
+                    layer=target_layer,
+                    dimension_style_name=self.state.current_dimension_style_name,
+                )
+            elif kind == "angular" and len(refs) >= 4:
+                self.state.preview_dimension = AngularDimension(
+                    refs[0],
+                    refs[1],
+                    refs[2],
+                    refs[3],
+                    color=self.state.current_color,
+                    layer=target_layer,
+                    dimension_style_name=self.state.current_dimension_style_name,
+                )
+        except Exception:
+            self.state.preview_dimension = None
+
+        if self.state.preview_dimension and self.state.editing_object is not None and self.state.editing_object_type == 'dimension':
+            self.state.preview_dimension.text_override = self.state.editing_object.text_override
+            if getattr(self.state.editing_object, 'manual_text_position', None) is not None:
+                self.state.preview_dimension.manual_text_position = Point(
+                    self.state.editing_object.manual_text_position.x,
+                    self.state.editing_object.manual_text_position.y,
+                )
+
+        self.redraw_all()
+
+    def finalize_dimension(self, event=None):
+        if not self.state.preview_dimension:
+            return
+
+        if self.state.editing_object and self.state.editing_object_type == 'dimension':
+            idx = self.state.dimensions.index(self.state.editing_object)
+            self.state.dimensions[idx] = self.state.preview_dimension
+            self.state.selected_dimensions = [self.state.preview_dimension]
+            self.state.editing_object = None
+            self.state.editing_object_type = None
+        else:
+            self.state.dimensions.append(self.state.preview_dimension)
+            self.state.selected_dimensions = [self.state.preview_dimension]
+
+        self._clear_dimension_creation_state()
+        self.set_app_state('IDLE')
 
     def finalize_segment(self, event=None):
         if self.state.preview_segment:
@@ -1295,18 +1600,13 @@ class Callbacks:
             self.set_app_state('IDLE')
 
     def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING'] or self._is_dimension_mode():
             self.state.editing_object = None
             self.state.editing_object_type = None
+            self._clear_dimension_creation_state()
             self.set_app_state('IDLE')
-        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons or self.state.selected_splines:
-            self.state.selected_segments = []
-            self.state.selected_circles = []
-            self.state.selected_arcs = []
-            self.state.selected_rectangles = []
-            self.state.selected_ellipses = []
-            self.state.selected_polygons = []
-            self.state.selected_splines = []
+        elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons or self.state.selected_splines or self.state.selected_dimensions:
+            self._clear_all_selection()
             self._sync_ui_with_selection()
             self.redraw_all()
         elif self.state.app_mode == 'IDLE' and messagebox.askyesno("Выход", "Выйти из программы?"):
@@ -1353,6 +1653,11 @@ class Callbacks:
             if spline.distance_to_point(wx, wy) < hit_threshold_world:
                 self.start_edit_spline(spline)
                 return
+        for dimension in self.state.dimensions:
+            if not self.state.is_layer_visible(dimension.layer): continue
+            if dimension.distance_to_point(wx, wy, self.state) < hit_threshold_world * 1.5:
+                self.start_edit_dimension(dimension)
+                return
 
     def on_edit_selected(self, event=None):
 
@@ -1370,6 +1675,8 @@ class Callbacks:
             self.start_edit_polygon(self.state.selected_polygons[0])
         elif len(self.state.selected_splines) == 1:
             self.start_edit_spline(self.state.selected_splines[0])
+        elif len(self.state.selected_dimensions) == 1:
+            self.start_edit_dimension(self.state.selected_dimensions[0])
 
     def start_edit_segment(self, segment):
 
@@ -1665,6 +1972,41 @@ class Callbacks:
         
         self.update_preview_spline()
 
+    def start_edit_dimension(self, dimension):
+        self.state.editing_object = dimension
+        self.state.editing_object_type = 'dimension'
+        self.state.current_color = dimension.color
+        self.state.current_dimension_style_name = dimension.dimension_style_name
+        self.view.set_dimension_style_selection(dimension.dimension_style_name)
+        self.view.dimension_text_override_entry.delete(0, tk.END)
+        if dimension.text_override:
+            self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+
+        if isinstance(dimension, LinearDimension):
+            self.state.dimension_creation_refs = [
+                self._clone_dimension_ref(dimension.p1_ref),
+                self._clone_dimension_ref(dimension.p2_ref),
+                self._clone_dimension_ref(dimension.line_ref),
+            ]
+            self.set_app_state(f"CREATING_DIMENSION_{dimension.mode.upper()}")
+        elif isinstance(dimension, AngularDimension):
+            self.state.dimension_creation_refs = [
+                self._clone_dimension_ref(dimension.p1_ref),
+                self._clone_dimension_ref(dimension.vertex_ref),
+                self._clone_dimension_ref(dimension.p2_ref),
+                self._clone_dimension_ref(dimension.arc_ref),
+            ]
+            self.set_app_state("CREATING_DIMENSION_ANGULAR")
+        else:
+            prefix = getattr(dimension, 'prefix', 'R')
+            self.state.dimension_creation_object = None
+            if dimension.center_ref.source_object is not None:
+                self.state.dimension_creation_object = dimension.center_ref.source_object
+            self.state.dimension_creation_refs = [self._clone_dimension_ref(dimension.leader_ref)]
+            self.set_app_state("CREATING_DIMENSION_RADIUS" if prefix == "R" else "CREATING_DIMENSION_DIAMETER")
+        self.state.preview_dimension = dimension
+        self.update_preview_dimension()
+
     def on_delete_segment(self, event=None):
 
         has_selection = (
@@ -1674,59 +2016,88 @@ class Callbacks:
             self.state.selected_rectangles or
             self.state.selected_ellipses or
             self.state.selected_polygons or
-            self.state.selected_splines
+            self.state.selected_splines or
+            self.state.selected_dimensions
         )
         
         if has_selection:
+            removed_objects = []
             for seg in self.state.selected_segments:
                 if seg in self.state.segments:
                     self.state.segments.remove(seg)
+                    removed_objects.append(seg)
             self.state.selected_segments = []
             
             for circle in self.state.selected_circles:
                 if circle in self.state.circles:
                     self.state.circles.remove(circle)
+                    removed_objects.append(circle)
             self.state.selected_circles = []
             
             for arc in self.state.selected_arcs:
                 if arc in self.state.arcs:
                     self.state.arcs.remove(arc)
+                    removed_objects.append(arc)
             self.state.selected_arcs = []
             
             for rect in self.state.selected_rectangles:
                 if rect in self.state.rectangles:
                     self.state.rectangles.remove(rect)
+                    removed_objects.append(rect)
             self.state.selected_rectangles = []
             
             for ellipse in self.state.selected_ellipses:
                 if ellipse in self.state.ellipses:
                     self.state.ellipses.remove(ellipse)
+                    removed_objects.append(ellipse)
             self.state.selected_ellipses = []
             
             for poly in self.state.selected_polygons:
                 if poly in self.state.polygons:
                     self.state.polygons.remove(poly)
+                    removed_objects.append(poly)
             self.state.selected_polygons = []
             
             for spline in self.state.selected_splines:
                 if spline in self.state.splines:
                     self.state.splines.remove(spline)
+                    removed_objects.append(spline)
             self.state.selected_splines = []
+
+            for dimension in self.state.selected_dimensions:
+                if dimension in self.state.dimensions:
+                    self.state.dimensions.remove(dimension)
+            self.state.selected_dimensions = []
+
+            if removed_objects:
+                self.state.dimensions = [
+                    dim for dim in self.state.dimensions
+                    if not any(dim.depends_on(obj) for obj in removed_objects)
+                ]
         else:
+            removed_object = None
             if self.state.segments:
-                self.state.segments.pop()
+                removed_object = self.state.segments.pop()
             elif self.state.circles:
-                self.state.circles.pop()
+                removed_object = self.state.circles.pop()
             elif self.state.arcs:
-                self.state.arcs.pop()
+                removed_object = self.state.arcs.pop()
             elif self.state.rectangles:
-                self.state.rectangles.pop()
+                removed_object = self.state.rectangles.pop()
             elif self.state.ellipses:
-                self.state.ellipses.pop()
+                removed_object = self.state.ellipses.pop()
             elif self.state.polygons:
-                self.state.polygons.pop()
+                removed_object = self.state.polygons.pop()
             elif self.state.splines:
-                self.state.splines.pop()
+                removed_object = self.state.splines.pop()
+            elif self.state.dimensions:
+                self.state.dimensions.pop()
+
+            if removed_object is not None:
+                self.state.dimensions = [
+                    dim for dim in self.state.dimensions
+                    if not dim.depends_on(removed_object)
+                ]
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -1773,6 +2144,37 @@ class Callbacks:
         except ValueError:
             return
         self.update_preview_polygon()
+
+    def on_apply_dimension_text_override(self, event=None):
+        if len(self.state.selected_dimensions) != 1:
+            return
+        dimension = self.state.selected_dimensions[0]
+        dimension.text_override = self.view.dimension_text_override_entry.get().strip()
+        self._sync_ui_with_selection()
+        self.redraw_all()
+
+    def on_reset_dimension_text_override(self, event=None):
+        if len(self.state.selected_dimensions) != 1:
+            return
+        dimension = self.state.selected_dimensions[0]
+        dimension.text_override = ""
+        self.view.dimension_text_override_entry.delete(0, tk.END)
+        self._sync_ui_with_selection()
+        self.redraw_all()
+
+    def _find_circle_or_arc_under_cursor(self, wx, wy):
+        hit_threshold_world = 8 / self.state.zoom
+        for circle in self.state.circles:
+            if not self.state.is_layer_visible(circle.layer):
+                continue
+            if circle.distance_to_point(wx, wy) < hit_threshold_world * 1.5:
+                return circle
+        for arc in self.state.arcs:
+            if not self.state.is_layer_visible(arc.layer):
+                continue
+            if arc.distance_to_point(wx, wy) < hit_threshold_world * 1.5:
+                return arc
+        return None
 
     def on_lmb_click(self, event):
         wx, wy = self._get_snapped_coordinates(event.x, event.y)
@@ -1979,6 +2381,74 @@ class Callbacks:
             self.state.polygon_start_angle = math.atan2(wy - cy, wx - cx)
             self.state.points_clicked = 2
         self.update_preview_polygon()
+
+    def on_lmb_click_dimension(self, event):
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
+        kind = self._get_dimension_mode_kind()
+
+        if kind in ("horizontal", "vertical", "aligned"):
+            if len(self.state.dimension_creation_refs) < 2:
+                ref = self._make_dimension_reference(wx, wy)
+                self.state.dimension_creation_refs.append(ref)
+                if len(self.state.dimension_creation_refs) == 1:
+                    self.state.active_p1 = ref.resolve()
+                elif len(self.state.dimension_creation_refs) == 2:
+                    self.state.active_p2 = ref.resolve()
+            else:
+                ref = GeometryReference.static(Point(wx, wy))
+                if len(self.state.dimension_creation_refs) == 2:
+                    self.state.dimension_creation_refs.append(ref)
+                else:
+                    self.state.dimension_creation_refs[2] = ref
+                self.state.active_p3 = ref.resolve()
+                self.state.points_clicked = 3
+                self.update_preview_dimension()
+                self.finalize_dimension()
+                return
+
+        elif kind in ("radius", "diameter"):
+            if self.state.dimension_creation_object is None:
+                obj = self._find_circle_or_arc_under_cursor(wx, wy)
+                if obj is None:
+                    return
+                self.state.dimension_creation_object = obj
+                self.state.active_p1 = Point(obj.center.x, obj.center.y)
+            else:
+                ref = GeometryReference.static(Point(wx, wy))
+                if self.state.dimension_creation_refs:
+                    self.state.dimension_creation_refs[0] = ref
+                else:
+                    self.state.dimension_creation_refs.append(ref)
+                self.state.active_p2 = ref.resolve()
+                self.state.points_clicked = 2
+                self.update_preview_dimension()
+                self.finalize_dimension()
+                return
+
+        elif kind == "angular":
+            if len(self.state.dimension_creation_refs) < 3:
+                ref = self._make_dimension_reference(wx, wy)
+                self.state.dimension_creation_refs.append(ref)
+                if len(self.state.dimension_creation_refs) == 1:
+                    self.state.active_p1 = ref.resolve()
+                elif len(self.state.dimension_creation_refs) == 2:
+                    self.state.active_p2 = ref.resolve()
+                elif len(self.state.dimension_creation_refs) == 3:
+                    self.state.active_p3 = ref.resolve()
+            else:
+                ref = GeometryReference.static(Point(wx, wy))
+                if len(self.state.dimension_creation_refs) == 3:
+                    self.state.dimension_creation_refs.append(ref)
+                else:
+                    self.state.dimension_creation_refs[3] = ref
+                self.state.active_p4 = ref.resolve()
+                self.state.points_clicked = 4
+                self.update_preview_dimension()
+                self.finalize_dimension()
+                return
+
+        self.state.points_clicked = len(self.state.dimension_creation_refs)
+        self.update_preview_dimension()
 
     def _update_spline_points_listbox(self):
         lb = self.view.spline_points_listbox
@@ -2212,6 +2682,19 @@ class Callbacks:
             self.state.points_clicked = 0
         self.update_preview_polygon()
 
+    def on_rmb_click_dimension(self, event=None):
+        kind = self._get_dimension_mode_kind()
+        if kind in ("horizontal", "vertical", "aligned", "angular"):
+            if self.state.dimension_creation_refs:
+                self.state.dimension_creation_refs.pop()
+        elif kind in ("radius", "diameter"):
+            if self.state.dimension_creation_refs:
+                self.state.dimension_creation_refs = []
+            else:
+                self.state.dimension_creation_object = None
+        self.state.points_clicked = len(self.state.dimension_creation_refs)
+        self.update_preview_dimension()
+
     def on_rmb_click_spline(self, event):
 
         self.on_remove_last_spline_point()
@@ -2334,6 +2817,7 @@ class Callbacks:
             + self.state.polygons
             + self.state.splines
             + self.state.points
+            + self.state.dimensions
         )
         if not all_objects:
             self.state.pan_x, self.state.pan_y = 0, 0
@@ -2383,6 +2867,23 @@ class Callbacks:
         for spline in self.state.splines:
             for p in spline.sample_points():
                 xs.append(p.x); ys.append(p.y)
+
+        for dimension in self.state.dimensions:
+            geometry = dimension.resolve_geometry(self.state)
+            if not geometry:
+                continue
+            for seg in geometry.get("segments", []):
+                xs.extend([seg.p1.x, seg.p2.x])
+                ys.extend([seg.p1.y, seg.p2.y])
+            for arc in geometry.get("arcs", []):
+                xs.append(arc.center.x - arc.radius)
+                xs.append(arc.center.x + arc.radius)
+                ys.append(arc.center.y - arc.radius)
+                ys.append(arc.center.y + arc.radius)
+            tp = geometry.get("text_point")
+            if tp:
+                xs.append(tp.x)
+                ys.append(tp.y)
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -2456,8 +2957,12 @@ class Callbacks:
                 poly.color = c
             for spline in self.state.selected_splines:
                 spline.color = c
+            for dimension in self.state.selected_dimensions:
+                dimension.color = c
             if self.state.preview_spline:
                 self.state.preview_spline.color = c
+            if self.state.preview_dimension:
+                self.state.preview_dimension.color = c
             self.redraw_all()
 
     def _create_points_from_entries(self):
@@ -2776,6 +3281,28 @@ class Callbacks:
                 self.view.p2_coord_var.set(f"Точка финиша: ({last.x:.2f}; {last.y:.2f})")
             return
 
+        if self._is_dimension_mode():
+            self._clear_info_panel()
+            preview = self.state.preview_dimension
+            kind = self._get_dimension_mode_kind()
+            names = {
+                "horizontal": "Линейный размер",
+                "vertical": "Вертикальный размер",
+                "aligned": "Выровненный размер",
+                "radius": "Радиус",
+                "diameter": "Диаметр",
+                "angular": "Угол",
+            }
+            self.view.length_var.set(f"Тип: {names.get(kind, 'Размер')}")
+            if preview:
+                self.view.angle_var.set(f"Значение: {preview.display_text(self.state)}")
+                grips = preview.grip_points(self.state)
+                if "p1" in grips:
+                    self.view.p1_coord_var.set(f"P1: ({grips['p1'].x:.2f}; {grips['p1'].y:.2f})")
+                if "p2" in grips:
+                    self.view.p2_coord_var.set(f"P2: ({grips['p2'].x:.2f}; {grips['p2'].y:.2f})")
+            return
+
         if self.state.selected_segments:
             self._clear_info_panel()
             seg = self.state.selected_segments[0]
@@ -2847,6 +3374,14 @@ class Callbacks:
                 self.view.p2_coord_var.set(f"Точка финиша: ({pts[-1].x:.2f}; {pts[-1].y:.2f})")
             return
 
+        if self.state.selected_dimensions:
+            self._clear_info_panel()
+            dim = self.state.selected_dimensions[0]
+            self.view.length_var.set(f"Размер: {dim.display_text(self.state)}")
+            self.view.angle_var.set(f"Стиль: {dim.dimension_style_name}")
+            self.view.p1_coord_var.set(f"Слой: {dim.layer}")
+            return
+
         self._clear_info_panel()
 
     def on_reset_view(self, event=None):
@@ -2913,6 +3448,8 @@ class Callbacks:
             self._update_polygon_preview_mouse(wx, wy)
         elif mode == 'CREATING_SPLINE':
             self._update_spline_preview_mouse(wx, wy)
+        elif self._is_dimension_mode(mode):
+            self._update_dimension_preview_mouse(wx, wy)
     
     def _update_segment_preview_mouse(self, wx, wy):
 
@@ -3130,6 +3667,51 @@ class Callbacks:
             )
         else:
             self.state.preview_spline = None
+
+    def _update_dimension_preview_mouse(self, wx, wy):
+        kind = self._get_dimension_mode_kind()
+
+        if kind in ("horizontal", "vertical", "aligned"):
+            if len(self.state.dimension_creation_refs) >= 2:
+                line_ref = GeometryReference.static(Point(wx, wy))
+                if len(self.state.dimension_creation_refs) == 2:
+                    refs = self.state.dimension_creation_refs + [line_ref]
+                else:
+                    refs = self.state.dimension_creation_refs[:2] + [line_ref]
+                self.state.dimension_creation_refs = refs
+                self.update_preview_dimension()
+        elif kind in ("radius", "diameter"):
+            if self.state.dimension_creation_object is not None:
+                ref = GeometryReference.static(Point(wx, wy))
+                if self.state.dimension_creation_refs:
+                    self.state.dimension_creation_refs[0] = ref
+                else:
+                    self.state.dimension_creation_refs = [ref]
+                self.update_preview_dimension()
+        elif kind == "angular":
+            if len(self.state.dimension_creation_refs) >= 3:
+                ref = GeometryReference.static(Point(wx, wy))
+                if len(self.state.dimension_creation_refs) == 3:
+                    self.state.dimension_creation_refs.append(ref)
+                else:
+                    self.state.dimension_creation_refs[3] = ref
+                self.update_preview_dimension()
+
+    def on_idle_drag(self, event):
+        drag = self.state.dimension_grip_drag
+        if not drag:
+            return
+
+        wx, wy = self._get_snapped_coordinates(event.x, event.y)
+        new_point = Point(wx, wy)
+        dimension = drag["dimension"]
+        grip_name = drag["grip"]
+        dimension.move_grip(grip_name, new_point)
+        self._sync_ui_with_selection()
+        self.redraw_all()
+
+    def on_idle_release(self, event):
+        self.state.dimension_grip_drag = None
     
     def _get_snapped_coordinates(self, event_x, event_y):
 
@@ -3154,6 +3736,7 @@ class Callbacks:
             + len(self.state.selected_ellipses)
             + len(self.state.selected_polygons)
             + len(self.state.selected_splines)
+            + len(self.state.selected_dimensions)
         )
         
         is_editing = self.state.editing_object is not None
@@ -3166,7 +3749,8 @@ class Callbacks:
                 'rectangle': "Редактирование прямоугольника",
                 'ellipse': "Редактирование эллипса",
                 'polygon': "Редактирование многоугольника",
-                'spline': "Редактирование сплайна"
+                'spline': "Редактирование сплайна",
+                'dimension': "Редактирование размера"
             }
             mode_text = edit_modes.get(self.state.editing_object_type, "Редактирование")
         elif total_selected > 0:
@@ -3181,6 +3765,12 @@ class Callbacks:
                 'CREATING_ELLIPSE': "Создание эллипса",
                 'CREATING_POLYGON': "Создание многоугольника",
                 'CREATING_SPLINE': "Создание сплайна",
+                'CREATING_DIMENSION_HORIZONTAL': "Создание линейного размера",
+                'CREATING_DIMENSION_VERTICAL': "Создание вертикального размера",
+                'CREATING_DIMENSION_ALIGNED': "Создание выровненного размера",
+                'CREATING_DIMENSION_RADIUS': "Создание радиуса",
+                'CREATING_DIMENSION_DIAMETER': "Создание диаметра",
+                'CREATING_DIMENSION_ANGULAR': "Создание углового размера",
                 'PANNING': "Панорамирование"
             }
             mode_text = modes.get(self.state.app_mode, self.state.app_mode)
@@ -3195,7 +3785,8 @@ class Callbacks:
             list(self.state.selected_rectangles) +
             list(self.state.selected_ellipses) +
             list(self.state.selected_polygons) +
-            list(self.state.selected_splines)
+            list(self.state.selected_splines) +
+            list(self.state.selected_dimensions)
         )
         if not all_selected:
             self.view.status_layer.config(text="")
@@ -3207,7 +3798,7 @@ class Callbacks:
                 self.view.status_layer.config(text="Разные слои")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE']:
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE'] or self._is_dimension_mode():
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
@@ -3220,6 +3811,8 @@ class Callbacks:
                 self.on_rmb_click_ellipse(event)
             elif self.state.app_mode == 'CREATING_POLYGON':
                 self.on_rmb_click_polygon(event)
+            elif self._is_dimension_mode():
+                self.on_rmb_click_dimension(event)
             else:
                 self.on_rmb_click_spline(event)
         else:
@@ -3231,6 +3824,7 @@ class Callbacks:
                 + len(self.state.selected_ellipses)
                 + len(self.state.selected_polygons)
                 + len(self.state.selected_splines)
+                + len(self.state.selected_dimensions)
             )
             if total_selected == 1:
                 self.view.context_menu.entryconfig(0, state='normal')
@@ -3482,7 +4076,8 @@ class Callbacks:
             self.state.selected_rectangles +
             self.state.selected_ellipses +
             self.state.selected_polygons +
-            self.state.selected_splines
+            self.state.selected_splines +
+            self.state.selected_dimensions
         )
         if not all_selected:
             messagebox.showinfo("Слой", "Сначала выделите объекты для переноса.")
