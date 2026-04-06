@@ -588,9 +588,7 @@ class LinearDimension(DimensionBase):
         return left_required, right_required, basis
 
     def _minimum_dim_line_extension_mm(self, state):
-        left_required, right_required, _ = self._text_extension_requirements(state)
-        outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
-        return max(outside_min, left_required, right_required)
+        return 7.0 if self._outside_arrow_mode(state) else 0.0
 
     def resolve_geometry(self, state):
         basis = self._line_basis(state)
@@ -612,7 +610,7 @@ class LinearDimension(DimensionBase):
         extension_overrun = self._effective_extension_overrun_mm(state)
         ext_style_name = self._effective_extension_line_style_name(state)
         dim_style_name = self._effective_dim_line_style_name(state)
-        requested_extension = self._requested_dim_line_extension_mm(state)
+        requested_extension = self._effective_dim_line_extension_mm(state)
         left_required, right_required, _ = self._text_extension_requirements(state)
         outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
         left_extension = max(requested_extension, outside_min, left_required)
@@ -812,12 +810,7 @@ class RadialDimension(DimensionBase):
         return left_required, right_required, basis
 
     def _minimum_dim_line_extension_mm(self, state):
-        left_required, right_required, _ = self._text_extension_requirements(state)
-        if self.prefix == "R":
-            outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
-            return max(left_required, right_required, outside_min)
-        outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
-        return max(left_required, right_required, outside_min)
+        return 7.0 if self._outside_arrow_mode(state) else 0.0
 
     def resolve_geometry(self, state):
         basis = self._radial_basis(state)
@@ -835,7 +828,7 @@ class RadialDimension(DimensionBase):
         text_point = basis["text_point"]
         dim_style_name = self._effective_dim_line_style_name(state)
         text_height = basis["text_height"]
-        requested_extension = self._requested_dim_line_extension_mm(state)
+        requested_extension = self._effective_dim_line_extension_mm(state)
         left_required, right_required, _ = self._text_extension_requirements(state)
         outside_mode = self._outside_arrow_mode(state)
 
@@ -1035,8 +1028,7 @@ class AngularDimension(DimensionBase):
         }
 
     def _minimum_dim_line_extension_mm(self, state):
-        left_required, right_required, _ = self._text_extension_requirements(state)
-        return max(7.0, left_required, right_required)
+        return 7.0
 
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
@@ -1050,7 +1042,7 @@ class AngularDimension(DimensionBase):
         if radius < 1e-9:
             return None
 
-        requested_extension = self._requested_dim_line_extension_mm(state)
+        requested_extension = self._effective_dim_line_extension_mm(state)
         left_required, right_required, basis = self._text_extension_requirements(state)
         left_extension = max(requested_extension, 7.0, left_required)
         right_extension = max(requested_extension, 7.0, right_required)
