@@ -83,6 +83,133 @@ class Callbacks:
             ref_index=ref.ref_index,
         )
 
+    def _selected_single_dimension(self):
+        return self.state.selected_dimensions[0] if len(self.state.selected_dimensions) == 1 else None
+
+    def _dimension_context_target(self):
+        if self.state.editing_object is not None and self.state.editing_object_type == 'dimension':
+            return self.state.editing_object
+        return self._selected_single_dimension()
+
+    def _sync_preview_dimension_from_editing_object(self):
+        if (
+            self.state.editing_object is not None
+            and self.state.editing_object_type == 'dimension'
+            and self.state.preview_dimension is not None
+            and self.state.preview_dimension is not self.state.editing_object
+        ):
+            self.state.preview_dimension.copy_display_overrides_from(self.state.editing_object)
+
+    def _set_dimension_swatch(self, swatch, color):
+        swatch.config(bg=color or "#cccccc")
+
+    def _set_dimension_entry_value(self, entry, value):
+        prev_state = str(entry.cget("state"))
+        if prev_state != "normal":
+            entry.config(state="normal")
+        entry.delete(0, tk.END)
+        if value is not None:
+            entry.insert(0, f"{float(value):.2f}")
+        if prev_state != "normal":
+            entry.config(state=prev_state)
+
+    def _set_dimension_control_state(self, widget, enabled, readonly=False):
+        try:
+            widget.config(state="readonly" if enabled and readonly else ("normal" if enabled else "disabled"))
+        except tk.TclError:
+            widget.config(state=("normal" if enabled else "disabled"))
+
+    def _selected_combobox_id(self, combobox, ids):
+        idx = combobox.current()
+        if 0 <= idx < len(ids):
+            return ids[idx]
+        return combobox.get().strip()
+
+    def _sync_dimension_appearance_controls(self, dimension=None):
+        if dimension is None:
+            self.view.dimension_extension_note_var.set("")
+            self._set_dimension_swatch(self.view.dimension_ext_color_swatch, "#cccccc")
+            self._set_dimension_swatch(self.view.dimension_dim_color_swatch, "#cccccc")
+            self.view.dimension_ext_style_combobox.set("")
+            self.view.dimension_dim_style_combobox.set("")
+            self.view.dimension_arrow_type_combobox.set("")
+            self.view.dimension_text_font_combobox.set("")
+            self.view.dimension_text_position_combobox.set("")
+            for entry in [
+                self.view.dimension_ext_overrun_entry,
+                self.view.dimension_dim_extension_entry,
+                self.view.dimension_arrow_size_entry,
+                self.view.dimension_text_height_entry,
+            ]:
+                entry.delete(0, tk.END)
+            self.view.dimension_arrow_filled_var.set(True)
+            controls = [
+                (self.view.dimension_ext_style_combobox, True),
+                (self.view.dimension_dim_style_combobox, True),
+                (self.view.dimension_arrow_type_combobox, True),
+                (self.view.dimension_text_font_combobox, True),
+                (self.view.dimension_text_position_combobox, True),
+            ]
+            for widget, readonly in controls:
+                self._set_dimension_control_state(widget, False, readonly=readonly)
+            for widget in [
+                self.view.dimension_ext_overrun_entry,
+                self.view.dimension_dim_extension_entry,
+                self.view.dimension_arrow_size_entry,
+                self.view.dimension_text_height_entry,
+                self.view.dimension_arrow_filled_check,
+            ]:
+                self._set_dimension_control_state(widget, False)
+            return
+
+        uses_extensions = dimension.dimension_type not in ("radius", "diameter")
+        self.view.dimension_extension_note_var.set("" if uses_extensions else "Для радиуса и диаметра выносные линии не используются.")
+
+        for widget, enabled, readonly in [
+            (self.view.dimension_ext_style_combobox, uses_extensions, True),
+            (self.view.dimension_dim_style_combobox, True, True),
+            (self.view.dimension_arrow_type_combobox, True, True),
+            (self.view.dimension_text_font_combobox, True, True),
+            (self.view.dimension_text_position_combobox, True, True),
+        ]:
+            self._set_dimension_control_state(widget, enabled, readonly=readonly)
+
+        for widget, enabled in [
+            (self.view.dimension_ext_overrun_entry, uses_extensions),
+            (self.view.dimension_dim_extension_entry, True),
+            (self.view.dimension_arrow_size_entry, True),
+            (self.view.dimension_text_height_entry, True),
+            (self.view.dimension_arrow_filled_check, True),
+        ]:
+            self._set_dimension_control_state(widget, enabled)
+
+        self._set_dimension_swatch(self.view.dimension_ext_color_swatch, dimension._effective_extension_line_color(self.state))
+        self._set_dimension_swatch(self.view.dimension_dim_color_swatch, dimension._effective_dim_line_color(self.state))
+        self.view.set_dimension_line_style_selection(self.view.dimension_ext_style_combobox, dimension._effective_extension_line_style_name(self.state))
+        self.view.set_dimension_line_style_selection(self.view.dimension_dim_style_combobox, dimension._effective_dim_line_style_name(self.state))
+        self._set_dimension_entry_value(self.view.dimension_ext_overrun_entry, dimension._effective_extension_overrun_mm(self.state))
+        self._set_dimension_entry_value(self.view.dimension_dim_extension_entry, dimension._effective_dim_line_extension_mm(self.state))
+        self._set_dimension_entry_value(self.view.dimension_arrow_size_entry, dimension._effective_arrow_size_mm(self.state))
+        self._set_dimension_entry_value(self.view.dimension_text_height_entry, dimension._effective_text_height_mm(self.state))
+        self.view.set_dimension_option_selection(
+            self.view.dimension_arrow_type_combobox,
+            self.view.dimension_arrow_type_ids,
+            self.view.dimension_arrow_type_names,
+            dimension._effective_arrow_type(self.state),
+        )
+        self.view.dimension_arrow_filled_var.set(dimension._effective_arrow_filled(self.state))
+        self.view.set_dimension_option_selection(
+            self.view.dimension_text_position_combobox,
+            self.view.dimension_text_position_ids,
+            self.view.dimension_text_position_names,
+            dimension._effective_text_position_mode(self.state),
+        )
+        font_name = dimension._effective_text_font_family(self.state)
+        if font_name in self.view.dimension_font_names:
+            self.view.dimension_text_font_combobox.current(self.view.dimension_font_names.index(font_name))
+        else:
+            self.view.dimension_text_font_combobox.set(font_name)
+
     def on_export_dxf(self):
         """Экспорт чертежа в файл DXF."""
         filepath = filedialog.asksaveasfilename(
@@ -233,6 +360,7 @@ class Callbacks:
         
         self.view.update_style_preview(self.state.current_style_name)
         self.view.refresh_dimension_style_combobox_values(self.state.dimension_styles)
+        self.view.refresh_dimension_line_style_combobox_values(self.state.line_styles)
         self.view.set_dimension_style_selection(self.state.current_dimension_style_name)
 
         self.view.circle_method.set(self.state.circle_creation_method)
@@ -752,6 +880,33 @@ class Callbacks:
         self.redraw_all()
 
     def _sync_ui_with_selection(self):
+        editing_dimension = (
+            self.state.editing_object
+            if self.state.editing_object is not None and self.state.editing_object_type == 'dimension'
+            else None
+        )
+
+        if editing_dimension is not None:
+            geometry = editing_dimension.resolve_geometry(self.state)
+            type_map = {
+                "linear": "Линейный размер",
+                "radius": "Радиальный размер",
+                "diameter": "Диаметральный размер",
+                "angular": "Угловой размер",
+            }
+            self.state.current_dimension_style_name = editing_dimension.dimension_style_name
+            self.view.set_dimension_style_selection(editing_dimension.dimension_style_name)
+            self.view.dimension_type_var.set(type_map.get(editing_dimension.dimension_type, "Размер"))
+            self.view.dimension_value_var.set(
+                f"Значение: {geometry.get('text', '—') if geometry else '—'}"
+            )
+            self.view.dimension_layer_var.set(f"Слой: {editing_dimension.layer}")
+            self.view.dimension_text_override_entry.delete(0, tk.END)
+            if editing_dimension.text_override:
+                self.view.dimension_text_override_entry.insert(0, editing_dimension.text_override)
+            self._sync_dimension_appearance_controls(editing_dimension)
+            self._refresh_settings_context_panel()
+            return
 
         sel_segments = self.state.selected_segments
         sel_circles = self.state.selected_circles
@@ -777,6 +932,7 @@ class Callbacks:
             self.view.dimension_value_var.set("—")
             self.view.dimension_layer_var.set("Слой: —")
             self.view.dimension_text_override_entry.delete(0, tk.END)
+            self._sync_dimension_appearance_controls()
             self._refresh_settings_context_panel()
             return
 
@@ -829,16 +985,19 @@ class Callbacks:
                 self.view.dimension_text_override_entry.delete(0, tk.END)
                 if dimension.text_override:
                     self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+                self._sync_dimension_appearance_controls(dimension)
             else:
                 self.view.dimension_type_var.set("Несколько размеров")
                 self.view.dimension_value_var.set("Значение: Разные")
                 self.view.dimension_layer_var.set("Слой: Разные")
                 self.view.dimension_text_override_entry.delete(0, tk.END)
+                self._sync_dimension_appearance_controls()
         else:
             self.view.dimension_type_var.set("—")
             self.view.dimension_value_var.set("—")
             self.view.dimension_layer_var.set("Слой: —")
             self.view.dimension_text_override_entry.delete(0, tk.END)
+            self._sync_dimension_appearance_controls()
 
         self._refresh_settings_context_panel()
 
@@ -1377,12 +1536,7 @@ class Callbacks:
             self.state.preview_dimension = None
 
         if self.state.preview_dimension and self.state.editing_object is not None and self.state.editing_object_type == 'dimension':
-            self.state.preview_dimension.text_override = self.state.editing_object.text_override
-            if getattr(self.state.editing_object, 'manual_text_position', None) is not None:
-                self.state.preview_dimension.manual_text_position = Point(
-                    self.state.editing_object.manual_text_position.x,
-                    self.state.editing_object.manual_text_position.y,
-                )
+            self.state.preview_dimension.copy_display_overrides_from(self.state.editing_object)
 
         self.redraw_all()
 
@@ -2006,6 +2160,7 @@ class Callbacks:
             self.set_app_state("CREATING_DIMENSION_RADIUS" if prefix == "R" else "CREATING_DIMENSION_DIAMETER")
         self.state.preview_dimension = dimension
         self.update_preview_dimension()
+        self._sync_ui_with_selection()
 
     def on_delete_segment(self, event=None):
 
@@ -2146,21 +2301,107 @@ class Callbacks:
         self.update_preview_polygon()
 
     def on_apply_dimension_text_override(self, event=None):
-        if len(self.state.selected_dimensions) != 1:
+        dimension = self._dimension_context_target()
+        if dimension is None:
             return
-        dimension = self.state.selected_dimensions[0]
         dimension.text_override = self.view.dimension_text_override_entry.get().strip()
+        self._sync_preview_dimension_from_editing_object()
         self._sync_ui_with_selection()
         self.redraw_all()
 
     def on_reset_dimension_text_override(self, event=None):
-        if len(self.state.selected_dimensions) != 1:
+        dimension = self._dimension_context_target()
+        if dimension is None:
             return
-        dimension = self.state.selected_dimensions[0]
         dimension.text_override = ""
         self.view.dimension_text_override_entry.delete(0, tk.END)
+        self._sync_preview_dimension_from_editing_object()
         self._sync_ui_with_selection()
         self.redraw_all()
+
+    def on_choose_dimension_extension_color(self):
+        dimension = self._dimension_context_target()
+        if dimension is None or dimension.dimension_type in ("radius", "diameter"):
+            return
+        _, c = colorchooser.askcolor(initialcolor=dimension._effective_extension_line_color(self.state))
+        if c:
+            dimension.extension_line_color = c
+            self._sync_preview_dimension_from_editing_object()
+            self._set_dimension_swatch(self.view.dimension_ext_color_swatch, c)
+            self.redraw_all()
+
+    def on_choose_dimension_dim_color(self):
+        dimension = self._dimension_context_target()
+        if dimension is None:
+            return
+        _, c = colorchooser.askcolor(initialcolor=dimension._effective_dim_line_color(self.state))
+        if c:
+            dimension.dim_line_color = c
+            self._sync_preview_dimension_from_editing_object()
+            self._set_dimension_swatch(self.view.dimension_dim_color_swatch, c)
+            self.redraw_all()
+
+    def on_apply_dimension_appearance(self):
+        dimension = self._dimension_context_target()
+        if dimension is None:
+            return
+
+        try:
+            if dimension.dimension_type not in ("radius", "diameter"):
+                dimension.extension_overrun_mm = float(self.view.dimension_ext_overrun_entry.get() or 0.0)
+                dimension.extension_line_style_name = self._selected_combobox_id(
+                    self.view.dimension_ext_style_combobox,
+                    self.view.dimension_line_style_ids,
+                )
+            dimension.dim_line_extension_mm = float(self.view.dimension_dim_extension_entry.get() or 0.0)
+            dimension.dim_line_style_name = self._selected_combobox_id(
+                self.view.dimension_dim_style_combobox,
+                self.view.dimension_line_style_ids,
+            )
+            dimension.arrow_type = self._selected_combobox_id(
+                self.view.dimension_arrow_type_combobox,
+                self.view.dimension_arrow_type_ids,
+            )
+            dimension.arrow_size_mm = float(self.view.dimension_arrow_size_entry.get() or 0.0)
+            dimension.arrow_filled = bool(self.view.dimension_arrow_filled_var.get())
+            dimension.text_font_family = self.view.dimension_text_font_combobox.get().strip() or "Arial"
+            dimension.text_height_mm = float(self.view.dimension_text_height_entry.get() or 0.0)
+            dimension.text_position_mode = self._selected_combobox_id(
+                self.view.dimension_text_position_combobox,
+                self.view.dimension_text_position_ids,
+            )
+        except ValueError:
+            messagebox.showerror("Параметры размера", "Числовые поля должны содержать корректные числа.")
+            return
+
+        self._sync_preview_dimension_from_editing_object()
+        self.redraw_all()
+        self._sync_ui_with_selection()
+
+    def on_reset_dimension_appearance(self):
+        dimension = self._dimension_context_target()
+        if dimension is None:
+            return
+
+        for attr in [
+            "extension_line_color",
+            "extension_line_style_name",
+            "extension_overrun_mm",
+            "dim_line_color",
+            "dim_line_style_name",
+            "dim_line_extension_mm",
+            "arrow_type",
+            "arrow_size_mm",
+            "arrow_filled",
+            "text_font_family",
+            "text_height_mm",
+            "text_position_mode",
+        ]:
+            setattr(dimension, attr, None)
+
+        self._sync_preview_dimension_from_editing_object()
+        self.redraw_all()
+        self._sync_ui_with_selection()
 
     def _find_circle_or_arc_under_cursor(self, wx, wy):
         hit_threshold_world = 8 / self.state.zoom
@@ -3835,6 +4076,7 @@ class Callbacks:
 
     def on_styles_updated(self):
         self.view.refresh_style_combobox_values(self.state.line_styles)
+        self.view.refresh_dimension_line_style_combobox_values(self.state.line_styles)
         
         self.redraw_all()
         

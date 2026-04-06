@@ -188,6 +188,8 @@ class GeometryReference:
 
 class DimensionBase:
     dimension_type = "dimension"
+    ARROW_TYPES = {"closed", "open", "tick"}
+    TEXT_POSITIONS = {"above", "center", "below"}
 
     def __init__(
         self,
@@ -202,10 +204,46 @@ class DimensionBase:
         self.dimension_style_name = dimension_style_name
         self.text_override = text_override
         self.manual_text_position = None
+        self.extension_line_color = None
+        self.extension_line_style_name = None
+        self.extension_overrun_mm = None
+        self.dim_line_color = None
+        self.dim_line_style_name = None
+        self.dim_line_extension_mm = None
+        self.arrow_type = None
+        self.arrow_size_mm = None
+        self.arrow_filled = None
+        self.text_color = None
+        self.text_font_family = None
+        self.text_height_mm = None
+        self.text_position_mode = None
 
     def _style(self, state):
         styles = getattr(state, "dimension_styles", DEFAULT_DIMENSION_STYLES)
         return styles.get(self.dimension_style_name) or next(iter(styles.values()))
+
+    def copy_display_overrides_from(self, other):
+        attrs = [
+            "text_override",
+            "extension_line_color",
+            "extension_line_style_name",
+            "extension_overrun_mm",
+            "dim_line_color",
+            "dim_line_style_name",
+            "dim_line_extension_mm",
+            "arrow_type",
+            "arrow_size_mm",
+            "arrow_filled",
+            "text_color",
+            "text_font_family",
+            "text_height_mm",
+            "text_position_mode",
+        ]
+        for attr in attrs:
+            setattr(self, attr, getattr(other, attr, None))
+
+        manual_text = getattr(other, "manual_text_position", None)
+        self.manual_text_position = None if manual_text is None else Point(manual_text.x, manual_text.y)
 
     def _format_linear(self, value, state):
         style = self._style(state)
@@ -218,6 +256,60 @@ class DimensionBase:
 
     def _override_display_text(self, state):
         return self.text_override
+
+    def _effective_extension_line_color(self, state):
+        return self.extension_line_color or self.color
+
+    def _effective_extension_line_style_name(self, state):
+        return self.extension_line_style_name or self._style(state).line_style_name
+
+    def _effective_extension_overrun_mm(self, state):
+        style = self._style(state)
+        return style.extension_overrun_mm if self.extension_overrun_mm is None else max(0.0, float(self.extension_overrun_mm))
+
+    def _effective_dim_line_color(self, state):
+        return self.dim_line_color or self.color
+
+    def _effective_dim_line_style_name(self, state):
+        return self.dim_line_style_name or self._style(state).line_style_name
+
+    def _effective_dim_line_extension_mm(self, state):
+        style = self._style(state)
+        return style.dim_line_extension_mm if self.dim_line_extension_mm is None else max(0.0, float(self.dim_line_extension_mm))
+
+    def _effective_arrow_type(self, state):
+        arrow_type = (self.arrow_type or "closed").lower()
+        return arrow_type if arrow_type in self.ARROW_TYPES else "closed"
+
+    def _effective_arrow_size_mm(self, state):
+        style = self._style(state)
+        return style.arrow_size_mm if self.arrow_size_mm is None else max(0.1, float(self.arrow_size_mm))
+
+    def _effective_arrow_filled(self, state):
+        style = self._style(state)
+        return style.arrow_filled if self.arrow_filled is None else bool(self.arrow_filled)
+
+    def _effective_text_color(self, state):
+        return self.text_color or self._style(state).text_color
+
+    def _effective_text_font_family(self, state):
+        return self.text_font_family or "Arial"
+
+    def _effective_text_height_mm(self, state):
+        style = self._style(state)
+        return style.text_height_mm if self.text_height_mm is None else max(0.1, float(self.text_height_mm))
+
+    def _effective_text_position_mode(self, state):
+        position = (self.text_position_mode or "above").lower()
+        return position if position in self.TEXT_POSITIONS else "above"
+
+    def _text_offset_factor(self, state):
+        position = self._effective_text_position_mode(state)
+        if position == "center":
+            return 0.0
+        if position == "below":
+            return -1.0
+        return 1.0
 
     def display_text(self, state):
         if self.text_override:
@@ -236,10 +328,24 @@ class DimensionBase:
             return float("inf")
 
         distances = []
-        for seg in geo.get("segments", []):
-            distances.append(seg.distance_to_point(mx, my))
-        for arc in geo.get("arcs", []):
-            distances.append(arc.distance_to_point(mx, my))
+        if "extension_segments" in geo or "dimension_segments" in geo:
+            segment_groups = [
+                geo.get("extension_segments", []),
+                geo.get("dimension_segments", []),
+            ]
+        else:
+            segment_groups = [geo.get("segments", [])]
+        for seg_group in segment_groups:
+            for seg in seg_group:
+                distances.append(seg.distance_to_point(mx, my))
+
+        if "dimension_arcs" in geo:
+            arc_groups = [geo.get("dimension_arcs", [])]
+        else:
+            arc_groups = [geo.get("arcs", [])]
+        for arc_group in arc_groups:
+            for arc in arc_group:
+                distances.append(arc.distance_to_point(mx, my))
 
         text_point = geo.get("text_point")
         if text_point is not None:
@@ -288,6 +394,12 @@ class LinearDimension(DimensionBase):
     def resolve_geometry(self, state):
         p1, p2, line_pt = self._resolved_points()
         style = self._style(state)
+        text_gap = style.text_gap_mm * self._text_offset_factor(state)
+        text_height = self._effective_text_height_mm(state)
+        extension_overrun = self._effective_extension_overrun_mm(state)
+        dim_line_extension = self._effective_dim_line_extension_mm(state)
+        ext_style_name = self._effective_extension_line_style_name(state)
+        dim_style_name = self._effective_dim_line_style_name(state)
 
         if self.mode == "horizontal":
             dim_dir = Point(1.0, 0.0)
@@ -298,7 +410,7 @@ class LinearDimension(DimensionBase):
             base2 = Point(p2.x, p2.y)
             sign = 1.0 if dim_y >= (p1.y + p2.y) / 2.0 else -1.0
             normal = Point(0.0, sign)
-            text_point = Point((dim_p1.x + dim_p2.x) / 2.0, dim_y + sign * style.text_gap_mm)
+            text_point = Point((dim_p1.x + dim_p2.x) / 2.0, dim_y + sign * text_gap)
             text_angle = 0.0
         elif self.mode == "vertical":
             dim_dir = Point(0.0, 1.0)
@@ -309,7 +421,7 @@ class LinearDimension(DimensionBase):
             base2 = Point(p2.x, p2.y)
             sign = 1.0 if dim_x >= (p1.x + p2.x) / 2.0 else -1.0
             normal = Point(sign, 0.0)
-            text_point = Point(dim_x + sign * style.text_gap_mm, (dim_p1.y + dim_p2.y) / 2.0)
+            text_point = Point(dim_x + sign * text_gap, (dim_p1.y + dim_p2.y) / 2.0)
             text_angle = math.pi / 2
         else:
             vx = p2.x - p1.x
@@ -330,8 +442,8 @@ class LinearDimension(DimensionBase):
             sign = 1.0 if offset >= 0.0 else -1.0
             normal = Point(nx * sign, ny * sign)
             text_point = Point(
-                (dim_p1.x + dim_p2.x) / 2.0 + normal.x * style.text_gap_mm,
-                (dim_p1.y + dim_p2.y) / 2.0 + normal.y * style.text_gap_mm,
+                (dim_p1.x + dim_p2.x) / 2.0 + normal.x * text_gap,
+                (dim_p1.y + dim_p2.y) / 2.0 + normal.y * text_gap,
             )
             text_angle = math.atan2(uy, ux)
 
@@ -340,22 +452,30 @@ class LinearDimension(DimensionBase):
 
         ext1_start = Point(base1.x, base1.y)
         ext2_start = Point(base2.x, base2.y)
-        ext1_end = Point(dim_p1.x + normal.x * style.extension_overrun_mm, dim_p1.y + normal.y * style.extension_overrun_mm)
-        ext2_end = Point(dim_p2.x + normal.x * style.extension_overrun_mm, dim_p2.y + normal.y * style.extension_overrun_mm)
+        ext1_end = Point(dim_p1.x + normal.x * extension_overrun, dim_p1.y + normal.y * extension_overrun)
+        ext2_end = Point(dim_p2.x + normal.x * extension_overrun, dim_p2.y + normal.y * extension_overrun)
 
-        dim_start = Point(dim_p1.x - dim_dir.x * style.dim_line_extension_mm, dim_p1.y - dim_dir.y * style.dim_line_extension_mm)
-        dim_end = Point(dim_p2.x + dim_dir.x * style.dim_line_extension_mm, dim_p2.y + dim_dir.y * style.dim_line_extension_mm)
+        dim_start = Point(dim_p1.x - dim_dir.x * dim_line_extension, dim_p1.y - dim_dir.y * dim_line_extension)
+        dim_end = Point(dim_p2.x + dim_dir.x * dim_line_extension, dim_p2.y + dim_dir.y * dim_line_extension)
+
+        extension_segments = [
+            Segment(ext1_start, ext1_end, style_name=ext_style_name, color=self.color),
+            Segment(ext2_start, ext2_end, style_name=ext_style_name, color=self.color),
+        ]
+        dimension_segments = [
+            Segment(dim_start, dim_end, style_name=dim_style_name, color=self.color),
+        ]
 
         return {
-            "segments": [
-                Segment(ext1_start, ext1_end, style_name=style.line_style_name, color=self.color),
-                Segment(ext2_start, ext2_end, style_name=style.line_style_name, color=self.color),
-                Segment(dim_start, dim_end, style_name=style.line_style_name, color=self.color),
-            ],
+            "segments": extension_segments + dimension_segments,
+            "extension_segments": extension_segments,
+            "dimension_segments": dimension_segments,
             "arcs": [],
+            "dimension_arcs": [],
             "text_point": text_point,
             "text": self.display_text(state),
             "text_angle": text_angle,
+            "text_height_mm": text_height,
             "arrow_points": [
                 {"point": dim_p1, "direction": Point(dim_dir.x, dim_dir.y)},
                 {"point": dim_p2, "direction": Point(-dim_dir.x, -dim_dir.y)},
@@ -436,6 +556,9 @@ class RadialDimension(DimensionBase):
         center = self.center_ref.resolve()
         edge = self.edge_ref.resolve()
         style = self._style(state)
+        text_gap = style.text_gap_mm * self._text_offset_factor(state)
+        dim_style_name = self._effective_dim_line_style_name(state)
+        text_height = self._effective_text_height_mm(state)
 
         radius = math.hypot(edge.x - center.x, edge.y - center.y)
         if radius < 1e-9:
@@ -460,21 +583,27 @@ class RadialDimension(DimensionBase):
             ]
 
         text_point = Point(
-            (dim_start.x + dim_end.x) / 2.0 + normal.x * style.text_gap_mm,
-            (dim_start.y + dim_end.y) / 2.0 + normal.y * style.text_gap_mm,
+            (dim_start.x + dim_end.x) / 2.0 + normal.x * text_gap,
+            (dim_start.y + dim_end.y) / 2.0 + normal.y * text_gap,
         )
 
         if self.manual_text_position is not None:
             text_point = _point_from(self.manual_text_position)
 
+        dimension_segments = [
+            Segment(dim_start, dim_end, style_name=dim_style_name, color=self.color),
+        ]
+
         return {
-            "segments": [
-                Segment(dim_start, dim_end, style_name=style.line_style_name, color=self.color),
-            ],
+            "segments": dimension_segments,
+            "extension_segments": [],
+            "dimension_segments": dimension_segments,
             "arcs": [],
+            "dimension_arcs": [],
             "text_point": text_point,
             "text": self.display_text(state),
             "text_angle": _normalized_text_angle(math.atan2(dir_y, dir_x)),
+            "text_height_mm": text_height,
             "arrow_points": arrow_points,
             "grips": {
                 "line": edge,
@@ -549,6 +678,11 @@ class AngularDimension(DimensionBase):
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
         style = self._style(state)
+        extension_overrun = self._effective_extension_overrun_mm(state)
+        ext_style_name = self._effective_extension_line_style_name(state)
+        dim_style_name = self._effective_dim_line_style_name(state)
+        text_height = self._effective_text_height_mm(state)
+        radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
         radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
         if radius < 1e-9:
             return None
@@ -558,40 +692,46 @@ class AngularDimension(DimensionBase):
             radius,
             start,
             end,
-            style_name=style.line_style_name,
+            style_name=dim_style_name,
             color=self.color,
         )
         start_point = Point(vertex.x + radius * math.cos(start), vertex.y + radius * math.sin(start))
         end_point = Point(vertex.x + radius * math.cos(end), vertex.y + radius * math.sin(end))
 
         ex1_end = Point(
-            vertex.x + (radius + style.extension_overrun_mm) * math.cos(start),
-            vertex.y + (radius + style.extension_overrun_mm) * math.sin(start),
+            vertex.x + (radius + extension_overrun) * math.cos(start),
+            vertex.y + (radius + extension_overrun) * math.sin(start),
         )
         ex2_end = Point(
-            vertex.x + (radius + style.extension_overrun_mm) * math.cos(end),
-            vertex.y + (radius + style.extension_overrun_mm) * math.sin(end),
+            vertex.x + (radius + extension_overrun) * math.cos(end),
+            vertex.y + (radius + extension_overrun) * math.sin(end),
         )
 
         bisector = start + _ccw_delta(start, end) / 2.0
         text_point = Point(
-            vertex.x + (radius + style.text_gap_mm + style.text_height_mm * 0.5) * math.cos(bisector),
-            vertex.y + (radius + style.text_gap_mm + style.text_height_mm * 0.5) * math.sin(bisector),
+            vertex.x + (radius + radial_offset) * math.cos(bisector),
+            vertex.y + (radius + radial_offset) * math.sin(bisector),
         )
         if self.manual_text_position is not None:
             text_point = _point_from(self.manual_text_position)
 
         tangent_angle = _normalized_text_angle(bisector + math.pi / 2.0)
 
+        extension_segments = [
+            Segment(vertex, ex1_end, style_name=ext_style_name, color=self.color),
+            Segment(vertex, ex2_end, style_name=ext_style_name, color=self.color),
+        ]
+
         return {
-            "segments": [
-                Segment(vertex, ex1_end, style_name=style.line_style_name, color=self.color),
-                Segment(vertex, ex2_end, style_name=style.line_style_name, color=self.color),
-            ],
+            "segments": extension_segments,
+            "extension_segments": extension_segments,
+            "dimension_segments": [],
             "arcs": [dim_arc],
+            "dimension_arcs": [dim_arc],
             "text_point": text_point,
             "text": self.display_text(state),
             "text_angle": tangent_angle,
+            "text_height_mm": text_height,
             "arrow_points": [
                 {"point": start_point, "direction": Point(math.sin(start), -math.cos(start))},
                 {"point": end_point, "direction": Point(-math.sin(end), math.cos(end))},

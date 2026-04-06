@@ -258,8 +258,19 @@ class MainWindow:
         )
         self.context_hint.pack(anchor=tk.W, padx=6, pady=(0, 6))
 
-        self.context_pages_container = ttk.Frame(self.context_tab)
-        self.context_pages_container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        self.context_canvas = tk.Canvas(self.context_tab, highlightthickness=0, borderwidth=0)
+        self.context_canvas.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+
+        self.context_pages_container = ttk.Frame(self.context_canvas)
+        self.context_canvas_window = self.context_canvas.create_window(
+            (0, 0),
+            window=self.context_pages_container,
+            anchor="nw",
+        )
+        self.context_pages_container.bind("<Configure>", self._on_context_inner_configure)
+        self.context_canvas.bind("<Configure>", self._on_context_canvas_configure)
+        self.context_canvas.bind("<Enter>", self._bind_context_mousewheel)
+        self.context_canvas.bind("<Leave>", self._unbind_context_mousewheel)
 
         self._context_pages = {}
 
@@ -325,7 +336,24 @@ class MainWindow:
         self.context_title_var.set(title or "Параметры")
         self.context_hint.pack_forget()
         page.pack(fill=tk.BOTH, expand=True)
+        self.context_canvas.yview_moveto(0.0)
         self._active_context_key = key
+
+    def _on_context_inner_configure(self, event=None):
+        self.context_canvas.configure(scrollregion=self.context_canvas.bbox("all"))
+
+    def _on_context_canvas_configure(self, event):
+        self.context_canvas.itemconfigure(self.context_canvas_window, width=event.width)
+
+    def _bind_context_mousewheel(self, event=None):
+        self.context_canvas.bind_all("<MouseWheel>", self._on_context_mousewheel)
+
+    def _unbind_context_mousewheel(self, event=None):
+        self.context_canvas.unbind_all("<MouseWheel>")
+
+    def _on_context_mousewheel(self, event):
+        if self.context_canvas.winfo_exists():
+            self.context_canvas.yview_scroll(int(-event.delta / 120), "units")
 
     def _setup_general_tab(self, parent, callbacks):
         style_frame = ttk.LabelFrame(parent, text="Стиль линии")
@@ -739,6 +767,71 @@ class MainWindow:
         self.dimension_context_style_combobox.pack(fill=tk.X, padx=5, pady=5)
         self.dimension_context_style_combobox.bind("<<ComboboxSelected>>", callbacks.on_dimension_style_selected)
 
+        sorted_line_styles = sorted(callbacks.state.line_styles.items(), key=lambda x: (x[1].is_custom, x[1].display_name))
+        self.dimension_line_style_ids = []
+        line_style_names = []
+        for key, style in sorted_line_styles:
+            self.dimension_line_style_ids.append(key)
+            line_style_names.append(style.display_name)
+
+        self.dimension_arrow_type_ids = ["closed", "open", "tick"]
+        self.dimension_arrow_type_names = ["Закрытая", "Открытая", "Засечка"]
+        self.dimension_text_position_ids = ["above", "center", "below"]
+        self.dimension_text_position_names = ["Над линией", "На линии", "Под линией"]
+        self.dimension_font_names = ["Arial", "Calibri", "Times New Roman", "Tahoma", "Consolas"]
+
+        extension_frame = ttk.LabelFrame(parent, text="Выносные линии")
+        extension_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.dimension_extension_frame = extension_frame
+        self.dimension_extension_note_var = tk.StringVar(value="")
+        ttk.Label(extension_frame, textvariable=self.dimension_extension_note_var).pack(anchor=tk.W, padx=5, pady=(4, 0))
+        self.dimension_ext_color_swatch = self._create_color_chooser(extension_frame, "Цвет:", callbacks.on_choose_dimension_extension_color)
+        ttk.Label(extension_frame, text="Тип линии:").pack(anchor=tk.W, padx=5, pady=(4, 2))
+        self.dimension_ext_style_combobox = ttk.Combobox(extension_frame, values=line_style_names, state="readonly")
+        self.dimension_ext_style_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
+        ttk.Label(extension_frame, text="Выход за размерную:").pack(anchor=tk.W, padx=5, pady=(0, 2))
+        self.dimension_ext_overrun_entry = ttk.Entry(extension_frame)
+        self.dimension_ext_overrun_entry.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        dim_line_frame = ttk.LabelFrame(parent, text="Размерная линия")
+        dim_line_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.dimension_dim_color_swatch = self._create_color_chooser(dim_line_frame, "Цвет:", callbacks.on_choose_dimension_dim_color)
+        ttk.Label(dim_line_frame, text="Тип линии:").pack(anchor=tk.W, padx=5, pady=(4, 2))
+        self.dimension_dim_style_combobox = ttk.Combobox(dim_line_frame, values=line_style_names, state="readonly")
+        self.dimension_dim_style_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
+        ttk.Label(dim_line_frame, text="Расширение за выносные:").pack(anchor=tk.W, padx=5, pady=(0, 2))
+        self.dimension_dim_extension_entry = ttk.Entry(dim_line_frame)
+        self.dimension_dim_extension_entry.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        arrow_frame = ttk.LabelFrame(parent, text="Стрелки")
+        arrow_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(arrow_frame, text="Тип:").pack(anchor=tk.W, padx=5, pady=(4, 2))
+        self.dimension_arrow_type_combobox = ttk.Combobox(arrow_frame, values=self.dimension_arrow_type_names, state="readonly")
+        self.dimension_arrow_type_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
+        ttk.Label(arrow_frame, text="Размер:").pack(anchor=tk.W, padx=5, pady=(0, 2))
+        self.dimension_arrow_size_entry = ttk.Entry(arrow_frame)
+        self.dimension_arrow_size_entry.pack(fill=tk.X, padx=5, pady=(0, 4))
+        self.dimension_arrow_filled_var = tk.BooleanVar(value=True)
+        self.dimension_arrow_filled_check = ttk.Checkbutton(arrow_frame, text="Заполненные", variable=self.dimension_arrow_filled_var)
+        self.dimension_arrow_filled_check.pack(anchor=tk.W, padx=5, pady=(0, 5))
+
+        text_style_frame = ttk.LabelFrame(parent, text="Размерный текст")
+        text_style_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(text_style_frame, text="Шрифт:").pack(anchor=tk.W, padx=5, pady=(4, 2))
+        self.dimension_text_font_combobox = ttk.Combobox(text_style_frame, values=self.dimension_font_names, state="readonly")
+        self.dimension_text_font_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
+        ttk.Label(text_style_frame, text="Высота:").pack(anchor=tk.W, padx=5, pady=(0, 2))
+        self.dimension_text_height_entry = ttk.Entry(text_style_frame)
+        self.dimension_text_height_entry.pack(fill=tk.X, padx=5, pady=(0, 4))
+        ttk.Label(text_style_frame, text="Положение:").pack(anchor=tk.W, padx=5, pady=(0, 2))
+        self.dimension_text_position_combobox = ttk.Combobox(text_style_frame, values=self.dimension_text_position_names, state="readonly")
+        self.dimension_text_position_combobox.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        appearance_btns = ttk.Frame(parent)
+        appearance_btns.pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Button(appearance_btns, text="Применить параметры", command=callbacks.on_apply_dimension_appearance).pack(fill=tk.X, pady=(0, 2))
+        ttk.Button(appearance_btns, text="Сбросить к стилю", command=callbacks.on_reset_dimension_appearance).pack(fill=tk.X)
+
         ttk.Label(
             parent,
             text="Создание размеров:\nЛКМ по точкам или объектам,\nПКМ — шаг назад, Enter — завершить при готовности.",
@@ -969,6 +1062,32 @@ class MainWindow:
             idx = self.dimension_style_ids.index(current_id)
             self.dimension_style_combobox.current(idx)
             self.dimension_context_style_combobox.current(idx)
+
+    def refresh_dimension_line_style_combobox_values(self, styles_dict):
+
+        sorted_items = sorted(styles_dict.items(), key=lambda x: (x[1].is_custom, x[1].display_name))
+        self.dimension_line_style_ids = []
+        names = []
+        for key, style in sorted_items:
+            self.dimension_line_style_ids.append(key)
+            names.append(style.display_name)
+
+        self.dimension_ext_style_combobox["values"] = names
+        self.dimension_dim_style_combobox["values"] = names
+
+    def set_dimension_line_style_selection(self, combobox, style_name_or_text):
+
+        if style_name_or_text in self.dimension_line_style_ids:
+            combobox.current(self.dimension_line_style_ids.index(style_name_or_text))
+        else:
+            combobox.set(style_name_or_text)
+
+    def set_dimension_option_selection(self, combobox, option_ids, option_names, option_id):
+
+        if option_id in option_ids:
+            combobox.current(option_ids.index(option_id))
+        else:
+            combobox.set(option_id)
 
     def set_dimension_style_selection(self, style_name_or_text):
 

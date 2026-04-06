@@ -1638,7 +1638,7 @@ class Renderer:
                 flat_coords.extend([x, y])
             self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
-    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True):
+    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True, arrow_type="closed"):
         sx, sy = self.converter.world_to_screen(point.x, point.y)
         dx = direction.x
         dy = direction.y
@@ -1653,6 +1653,15 @@ class Renderer:
         nx = -uy
         ny = ux
 
+        if arrow_type == "tick":
+            tick_len = size_px * 0.9
+            x1 = sx - ux * tick_len * 0.35 - nx * tick_len * 0.55
+            y1 = sy - uy * tick_len * 0.35 - ny * tick_len * 0.55
+            x2 = sx + ux * tick_len * 0.35 + nx * tick_len * 0.55
+            y2 = sy + uy * tick_len * 0.35 + ny * tick_len * 0.55
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=1.5)
+            return
+
         back_x = sx + ux * size_px
         back_y = sy + uy * size_px
         wing = size_px * 0.45
@@ -1664,7 +1673,7 @@ class Renderer:
         self.canvas.create_polygon(
             *points,
             outline=color,
-            fill=color if filled else "",
+            fill=color if (filled and arrow_type == "closed") else "",
             width=1,
         )
 
@@ -1674,38 +1683,55 @@ class Renderer:
             return
 
         style = dimension._style(self.state)
-        draw_color = override_color if override_color else dimension.color
+        extension_color = override_color if override_color else dimension._effective_extension_line_color(self.state)
+        dim_line_color = override_color if override_color else dimension._effective_dim_line_color(self.state)
 
-        for seg in geometry.get("segments", []):
-            seg.color = draw_color
+        extension_segments = geometry.get("extension_segments")
+        dimension_segments = geometry.get("dimension_segments")
+        dimension_arcs = geometry.get("dimension_arcs")
+
+        if extension_segments is None and dimension_segments is None:
+            extension_segments = []
+            dimension_segments = geometry.get("segments", [])
+        if dimension_arcs is None:
+            dimension_arcs = geometry.get("arcs", [])
+
+        for seg in extension_segments:
+            seg.color = extension_color
             self.draw_segment(seg)
 
-        for arc in geometry.get("arcs", []):
-            arc.color = draw_color
+        for seg in dimension_segments:
+            seg.color = dim_line_color
+            self.draw_segment(seg)
+
+        for arc in dimension_arcs:
+            arc.color = dim_line_color
             self.draw_arc(arc)
 
-        arrow_size_px = max(6, int(style.arrow_size_mm * self.state.mm_to_px_ratio))
+        arrow_size_px = max(6, int(dimension._effective_arrow_size_mm(self.state) * self.state.mm_to_px_ratio))
+        arrow_type = dimension._effective_arrow_type(self.state)
         for arrow in geometry.get("arrow_points", []):
             self._draw_dimension_arrow(
                 arrow["point"],
                 arrow["direction"],
-                draw_color,
+                dim_line_color,
                 arrow_size_px,
-                filled=style.arrow_filled,
+                filled=dimension._effective_arrow_filled(self.state),
+                arrow_type=arrow_type,
             )
 
         text_point = geometry.get("text_point")
         text = geometry.get("text")
         if text_point and text:
             sx, sy = self.converter.world_to_screen(text_point.x, text_point.y)
-            font_size = max(8, int(style.text_height_mm * self.state.mm_to_px_ratio))
+            font_size = max(8, int(geometry.get("text_height_mm", dimension._effective_text_height_mm(self.state)) * self.state.mm_to_px_ratio))
             angle_deg = math.degrees(geometry.get("text_angle", 0.0) + self.state.rotation)
             self.canvas.create_text(
                 sx,
                 sy,
                 text=text,
-                fill=draw_color if override_color else style.text_color,
-                font=("Arial", font_size),
+                fill=override_color if override_color else dimension._effective_text_color(self.state),
+                font=(dimension._effective_text_font_family(self.state), font_size),
                 angle=angle_deg,
             )
 
