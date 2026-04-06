@@ -14,6 +14,17 @@ def _distance_point_to_segment(px, py, a: Point, b: Point):
     return Segment(a, b).distance_to_point(px, py)
 
 
+def _project_point_to_segment(point: Point, a: Point, b: Point):
+    dx = b.x - a.x
+    dy = b.y - a.y
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-12:
+        return Point(a.x, a.y), 0.0
+    t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len_sq
+    t = max(0.0, min(1.0, t))
+    return Point(a.x + dx * t, a.y + dy * t), t
+
+
 def _normalize_angle(angle):
     two_pi = 2 * math.pi
     return angle % two_pi
@@ -29,13 +40,53 @@ def _is_between_ccw(test, start, end):
     return delta_test <= delta_total + 1e-9
 
 
+def _normalized_text_angle(angle_rad):
+    while angle_rad > math.pi / 2:
+        angle_rad -= math.pi
+    while angle_rad < -math.pi / 2:
+        angle_rad += math.pi
+    return angle_rad
+
+
+def _angle_distance(a, b):
+    return abs((a - b + math.pi) % (2 * math.pi) - math.pi)
+
+
+def _clamp_angle_to_arc(angle, arc: Arc):
+    if _is_between_ccw(angle, arc.start_angle, arc.end_angle):
+        return angle
+
+    start_dist = _angle_distance(angle, arc.start_angle)
+    end_dist = _angle_distance(angle, arc.end_angle)
+    return arc.start_angle if start_dist <= end_dist else arc.end_angle
+
+
+def _project_point_to_radial_object(obj, point: Point):
+    if isinstance(obj, Circle):
+        angle = math.atan2(point.y - obj.center.y, point.x - obj.center.x)
+        return Point(
+            obj.center.x + obj.radius * math.cos(angle),
+            obj.center.y + obj.radius * math.sin(angle),
+        )
+
+    if isinstance(obj, Arc):
+        angle = math.atan2(point.y - obj.center.y, point.x - obj.center.x)
+        angle = _clamp_angle_to_arc(angle, obj)
+        return Point(
+            obj.center.x + obj.radius * math.cos(angle),
+            obj.center.y + obj.radius * math.sin(angle),
+        )
+
+    return _point_from(point)
+
+
 @dataclass
 class GeometryReference:
     kind: str
     point: Point
     source_object: object = None
     ref_kind: Optional[str] = None
-    ref_index: Optional[int] = None
+    ref_index: Optional[float] = None
 
     @classmethod
     def static(cls, point: Point):
@@ -55,6 +106,12 @@ class GeometryReference:
                 return _point_from(obj.p1 if self.ref_index == 0 else obj.p2)
             if self.ref_kind == "segment_midpoint":
                 return Point((obj.p1.x + obj.p2.x) / 2.0, (obj.p1.y + obj.p2.y) / 2.0)
+            if self.ref_kind == "segment_param":
+                t = max(0.0, min(1.0, float(self.ref_index if self.ref_index is not None else 0.0)))
+                return Point(
+                    obj.p1.x + (obj.p2.x - obj.p1.x) * t,
+                    obj.p1.y + (obj.p2.y - obj.p1.y) * t,
+                )
             if self.ref_kind == "circle_center":
                 return _point_from(obj.center)
             if self.ref_kind == "circle_angle":
@@ -159,9 +216,12 @@ class DimensionBase:
         value_deg = math.degrees(value_rad)
         return f"{value_deg:.{style.decimal_places}f}°"
 
+    def _override_display_text(self, state):
+        return self.text_override
+
     def display_text(self, state):
         if self.text_override:
-            return self.text_override
+            return self._override_display_text(state)
         return self.default_text(state)
 
     def default_text(self, state):
@@ -231,23 +291,25 @@ class LinearDimension(DimensionBase):
 
         if self.mode == "horizontal":
             dim_dir = Point(1.0, 0.0)
-            normal = Point(0.0, 1.0)
             dim_y = line_pt.y
             dim_p1 = Point(p1.x, dim_y)
             dim_p2 = Point(p2.x, dim_y)
             base1 = Point(p1.x, p1.y)
             base2 = Point(p2.x, p2.y)
-            text_point = Point((dim_p1.x + dim_p2.x) / 2.0, dim_y + style.text_gap_mm)
+            sign = 1.0 if dim_y >= (p1.y + p2.y) / 2.0 else -1.0
+            normal = Point(0.0, sign)
+            text_point = Point((dim_p1.x + dim_p2.x) / 2.0, dim_y + sign * style.text_gap_mm)
             text_angle = 0.0
         elif self.mode == "vertical":
             dim_dir = Point(0.0, 1.0)
-            normal = Point(1.0, 0.0)
             dim_x = line_pt.x
             dim_p1 = Point(dim_x, p1.y)
             dim_p2 = Point(dim_x, p2.y)
             base1 = Point(p1.x, p1.y)
             base2 = Point(p2.x, p2.y)
-            text_point = Point(dim_x + style.text_gap_mm, (dim_p1.y + dim_p2.y) / 2.0)
+            sign = 1.0 if dim_x >= (p1.x + p2.x) / 2.0 else -1.0
+            normal = Point(sign, 0.0)
+            text_point = Point(dim_x + sign * style.text_gap_mm, (dim_p1.y + dim_p2.y) / 2.0)
             text_angle = math.pi / 2
         else:
             vx = p2.x - p1.x
@@ -265,18 +327,19 @@ class LinearDimension(DimensionBase):
             base1 = Point(p1.x, p1.y)
             base2 = Point(p2.x, p2.y)
             dim_dir = Point(ux, uy)
-            normal = Point(nx, ny)
+            sign = 1.0 if offset >= 0.0 else -1.0
+            normal = Point(nx * sign, ny * sign)
             text_point = Point(
-                (dim_p1.x + dim_p2.x) / 2.0 + nx * style.text_gap_mm,
-                (dim_p1.y + dim_p2.y) / 2.0 + ny * style.text_gap_mm,
+                (dim_p1.x + dim_p2.x) / 2.0 + normal.x * style.text_gap_mm,
+                (dim_p1.y + dim_p2.y) / 2.0 + normal.y * style.text_gap_mm,
             )
             text_angle = math.atan2(uy, ux)
 
         if self.manual_text_position is not None:
             text_point = _point_from(self.manual_text_position)
 
-        ext1_start = Point(base1.x + normal.x * style.extension_offset_mm, base1.y + normal.y * style.extension_offset_mm)
-        ext2_start = Point(base2.x + normal.x * style.extension_offset_mm, base2.y + normal.y * style.extension_offset_mm)
+        ext1_start = Point(base1.x, base1.y)
+        ext2_start = Point(base2.x, base2.y)
         ext1_end = Point(dim_p1.x + normal.x * style.extension_overrun_mm, dim_p1.y + normal.y * style.extension_overrun_mm)
         ext2_end = Point(dim_p2.x + normal.x * style.extension_overrun_mm, dim_p2.y + normal.y * style.extension_overrun_mm)
 
@@ -307,11 +370,31 @@ class LinearDimension(DimensionBase):
 
     def move_grip(self, grip_name, new_point: Point):
         if grip_name == "p1":
-            self.p1_ref.break_associativity(new_point)
+            if isinstance(self.p1_ref.source_object, Segment):
+                projected, t = _project_point_to_segment(new_point, self.p1_ref.source_object.p1, self.p1_ref.source_object.p2)
+                self.p1_ref.kind = "associative"
+                self.p1_ref.point = projected
+                self.p1_ref.ref_kind = "segment_param"
+                self.p1_ref.ref_index = t
+            else:
+                self.p1_ref.break_associativity(new_point)
         elif grip_name == "p2":
-            self.p2_ref.break_associativity(new_point)
+            if isinstance(self.p2_ref.source_object, Segment):
+                projected, t = _project_point_to_segment(new_point, self.p2_ref.source_object.p1, self.p2_ref.source_object.p2)
+                self.p2_ref.kind = "associative"
+                self.p2_ref.point = projected
+                self.p2_ref.ref_kind = "segment_param"
+                self.p2_ref.ref_index = t
+            else:
+                self.p2_ref.break_associativity(new_point)
         elif grip_name == "line":
+            old_line = self.line_ref.resolve()
             self.line_ref.break_associativity(new_point)
+            if self.manual_text_position is not None:
+                self.manual_text_position = Point(
+                    self.manual_text_position.x + (new_point.x - old_line.x),
+                    self.manual_text_position.y + (new_point.y - old_line.y),
+                )
         elif grip_name == "text":
             self.manual_text_position = _point_from(new_point)
 
@@ -328,7 +411,7 @@ class RadialDimension(DimensionBase):
         self.dimension_type = "diameter" if prefix == "⌀" else "radius"
 
     def depends_on(self, obj):
-        return any(ref.depends_on(obj) for ref in [self.center_ref, self.edge_ref, self.leader_ref])
+        return any(ref.depends_on(obj) for ref in [self.center_ref, self.edge_ref])
 
     def measured_value(self, state):
         center = self.center_ref.resolve()
@@ -341,10 +424,17 @@ class RadialDimension(DimensionBase):
     def default_text(self, state):
         return f"{self.prefix}{self._format_linear(self.measured_value(state), state)}"
 
+    def _override_display_text(self, state):
+        raw = self.text_override.strip()
+        if self.prefix == "R":
+            raw = raw.removeprefix("R").strip()
+            return f"R{raw}"
+        raw = raw.removeprefix("⌀").strip()
+        return f"⌀{raw}"
+
     def resolve_geometry(self, state):
         center = self.center_ref.resolve()
         edge = self.edge_ref.resolve()
-        leader = self.leader_ref.resolve()
         style = self._style(state)
 
         radius = math.hypot(edge.x - center.x, edge.y - center.y)
@@ -353,58 +443,66 @@ class RadialDimension(DimensionBase):
 
         dir_x = (edge.x - center.x) / radius
         dir_y = (edge.y - center.y) / radius
+        normal = Point(-dir_y, dir_x)
 
         if self.prefix == "⌀":
-            opp = Point(center.x - dir_x * radius, center.y - dir_y * radius)
-            dim_segments = [
-                Segment(opp, edge, style_name=style.line_style_name, color=self.color),
-            ]
+            dim_start = Point(center.x - dir_x * radius, center.y - dir_y * radius)
+            dim_end = edge
             arrow_points = [
-                {"point": opp, "direction": Point(dir_x, dir_y)},
-                {"point": edge, "direction": Point(-dir_x, -dir_y)},
+                {"point": dim_start, "direction": Point(dir_x, dir_y)},
+                {"point": dim_end, "direction": Point(-dir_x, -dir_y)},
             ]
         else:
-            dim_segments = [
-                Segment(center, edge, style_name=style.line_style_name, color=self.color),
-            ]
+            dim_start = center
+            dim_end = edge
             arrow_points = [
-                {"point": edge, "direction": Point(-dir_x, -dir_y)},
+                {"point": dim_end, "direction": Point(-dir_x, -dir_y)},
             ]
 
-        if math.hypot(leader.x - edge.x, leader.y - edge.y) > style.text_gap_mm:
-            dim_segments.append(Segment(edge, leader, style_name=style.line_style_name, color=self.color))
-            text_point = Point(
-                leader.x + dir_x * style.text_gap_mm,
-                leader.y + dir_y * style.text_gap_mm,
-            )
-        else:
-            text_point = Point(
-                edge.x + dir_x * style.text_gap_mm,
-                edge.y + dir_y * style.text_gap_mm,
-            )
+        text_point = Point(
+            (dim_start.x + dim_end.x) / 2.0 + normal.x * style.text_gap_mm,
+            (dim_start.y + dim_end.y) / 2.0 + normal.y * style.text_gap_mm,
+        )
 
         if self.manual_text_position is not None:
             text_point = _point_from(self.manual_text_position)
 
         return {
-            "segments": dim_segments,
+            "segments": [
+                Segment(dim_start, dim_end, style_name=style.line_style_name, color=self.color),
+            ],
             "arcs": [],
             "text_point": text_point,
             "text": self.display_text(state),
-            "text_angle": 0.0,
+            "text_angle": _normalized_text_angle(math.atan2(dir_y, dir_x)),
             "arrow_points": arrow_points,
             "grips": {
-                "edge": edge,
-                "leader": leader,
+                "line": edge,
                 "text": text_point,
             },
         }
 
     def move_grip(self, grip_name, new_point: Point):
-        if grip_name == "edge":
-            self.edge_ref.break_associativity(new_point)
-        elif grip_name == "leader":
-            self.leader_ref.break_associativity(new_point)
+        if grip_name == "line":
+            old_edge = self.edge_ref.resolve()
+            edge_object = self.edge_ref.source_object
+            if isinstance(edge_object, (Circle, Arc)):
+                projected = _project_point_to_radial_object(edge_object, new_point)
+                self.edge_ref.kind = "associative"
+                self.edge_ref.point = projected
+                self.edge_ref.ref_kind = "circle_angle" if isinstance(edge_object, Circle) else "arc_angle"
+                self.edge_ref.source_object = edge_object
+                self.leader_ref.break_associativity(projected)
+                new_point = projected
+            else:
+                self.edge_ref.break_associativity(new_point)
+                self.leader_ref.break_associativity(new_point)
+
+            if self.manual_text_position is not None:
+                self.manual_text_position = Point(
+                    self.manual_text_position.x + (new_point.x - old_edge.x),
+                    self.manual_text_position.y + (new_point.y - old_edge.y),
+                )
         elif grip_name == "text":
             self.manual_text_position = _point_from(new_point)
 
@@ -443,6 +541,11 @@ class AngularDimension(DimensionBase):
     def default_text(self, state):
         return self._format_angular(self.measured_value(state), state)
 
+    def _override_display_text(self, state):
+        raw = self.text_override.strip()
+        raw = raw.removesuffix("°").strip()
+        return f"{raw}°"
+
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
         style = self._style(state)
@@ -472,11 +575,13 @@ class AngularDimension(DimensionBase):
 
         bisector = start + _ccw_delta(start, end) / 2.0
         text_point = Point(
-            vertex.x + (radius + style.text_gap_mm) * math.cos(bisector),
-            vertex.y + (radius + style.text_gap_mm) * math.sin(bisector),
+            vertex.x + (radius + style.text_gap_mm + style.text_height_mm * 0.5) * math.cos(bisector),
+            vertex.y + (radius + style.text_gap_mm + style.text_height_mm * 0.5) * math.sin(bisector),
         )
         if self.manual_text_position is not None:
             text_point = _point_from(self.manual_text_position)
+
+        tangent_angle = _normalized_text_angle(bisector + math.pi / 2.0)
 
         return {
             "segments": [
@@ -486,7 +591,7 @@ class AngularDimension(DimensionBase):
             "arcs": [dim_arc],
             "text_point": text_point,
             "text": self.display_text(state),
-            "text_angle": 0.0,
+            "text_angle": tangent_angle,
             "arrow_points": [
                 {"point": start_point, "direction": Point(math.sin(start), -math.cos(start))},
                 {"point": end_point, "direction": Point(-math.sin(end), math.cos(end))},
@@ -508,7 +613,13 @@ class AngularDimension(DimensionBase):
         elif grip_name == "p2":
             self.p2_ref.break_associativity(new_point)
         elif grip_name == "arc":
+            old_arc = self.arc_ref.resolve()
             self.arc_ref.break_associativity(new_point)
+            if self.manual_text_position is not None:
+                self.manual_text_position = Point(
+                    self.manual_text_position.x + (new_point.x - old_arc.x),
+                    self.manual_text_position.y + (new_point.y - old_arc.y),
+                )
         elif grip_name == "text":
             self.manual_text_position = _point_from(new_point)
 
