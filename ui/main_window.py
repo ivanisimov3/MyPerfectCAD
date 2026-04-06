@@ -2,12 +2,14 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import colorchooser 
 import math
+import os
 from logic.styles import GOST_STYLES
 
 class MainWindow:
     def __init__(self, root, callbacks):
         self.root = root
         self.callbacks = callbacks 
+        self.dimension_font_names = self._load_dimension_fonts()
         
         root.title("MyPerfectCAD")
         root.minsize(950, 600)
@@ -38,7 +40,7 @@ class MainWindow:
         info_panel = ttk.Frame(root, padding="5")
         info_panel.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5)
         self.setup_info_panel(info_panel)
-        
+
         status_bar = ttk.Frame(root, relief="sunken", padding="2")
         status_bar.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E))
         self.setup_status_bar(status_bar)
@@ -65,6 +67,30 @@ class MainWindow:
         self.root.bind("<Right>", callbacks.on_rotate_right)
         self.root.bind("<Shift-Left>", callbacks.on_rotate_left)
         self.root.bind("<Shift-Right>", callbacks.on_rotate_right)
+
+    def _load_dimension_fonts(self):
+        fallback_names = [
+            "ГОСТ тип А",
+            "ГОСТ тип А наклонный",
+            "ГОСТ тип В",
+            "ГОСТ тип В наклонный",
+        ]
+        fonts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts")
+        loaded_names = []
+
+        try:
+            import ctypes
+
+            FR_PRIVATE = 0x10
+            for name in fallback_names:
+                path = os.path.join(fonts_dir, f"{name}.ttf")
+                if os.path.isfile(path):
+                    ctypes.windll.gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
+                    loaded_names.append(name)
+        except Exception:
+            return fallback_names
+
+        return loaded_names or fallback_names
 
     def _setup_toolbar_buttons(self, parent, callbacks):
         def _popup(menu, event):
@@ -774,11 +800,12 @@ class MainWindow:
             self.dimension_line_style_ids.append(key)
             line_style_names.append(style.display_name)
 
-        self.dimension_arrow_type_ids = ["closed", "open", "tick"]
-        self.dimension_arrow_type_names = ["Закрытая", "Открытая", "Засечка"]
+        self.dimension_arrow_type_ids = ["triangle", "circle", "square", "tick"]
+        self.dimension_arrow_type_names = ["Треугольник", "Круг", "Квадрат", "Засечка"]
         self.dimension_text_position_ids = ["above", "center", "below"]
         self.dimension_text_position_names = ["Над линией", "На линии", "Под линией"]
-        self.dimension_font_names = ["Arial", "Calibri", "Times New Roman", "Tahoma", "Consolas"]
+        self.dimension_text_height_ids = ["2.5", "3.5", "5.0", "7.0", "10.0", "14.0", "20.0"]
+        self.dimension_text_height_names = ["2,5", "3,5", "5,0", "7,0", "10,0", "14,0", "20,0"]
 
         extension_frame = ttk.LabelFrame(parent, text="Выносные линии")
         extension_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -821,8 +848,8 @@ class MainWindow:
         self.dimension_text_font_combobox = ttk.Combobox(text_style_frame, values=self.dimension_font_names, state="readonly")
         self.dimension_text_font_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
         ttk.Label(text_style_frame, text="Высота:").pack(anchor=tk.W, padx=5, pady=(0, 2))
-        self.dimension_text_height_entry = ttk.Entry(text_style_frame)
-        self.dimension_text_height_entry.pack(fill=tk.X, padx=5, pady=(0, 4))
+        self.dimension_text_height_combobox = ttk.Combobox(text_style_frame, values=self.dimension_text_height_names, state="readonly")
+        self.dimension_text_height_combobox.pack(fill=tk.X, padx=5, pady=(0, 4))
         ttk.Label(text_style_frame, text="Положение:").pack(anchor=tk.W, padx=5, pady=(0, 2))
         self.dimension_text_position_combobox = ttk.Combobox(text_style_frame, values=self.dimension_text_position_names, state="readonly")
         self.dimension_text_position_combobox.pack(fill=tk.X, padx=5, pady=(0, 5))
@@ -1088,6 +1115,19 @@ class MainWindow:
             combobox.current(option_ids.index(option_id))
         else:
             combobox.set(option_id)
+
+    def set_dimension_text_height_selection(self, value):
+
+        try:
+            normalized = f"{float(value):.1f}"
+        except (TypeError, ValueError):
+            normalized = str(value)
+
+        if normalized in self.dimension_text_height_ids:
+            idx = self.dimension_text_height_ids.index(normalized)
+            self.dimension_text_height_combobox.current(idx)
+        else:
+            self.dimension_text_height_combobox.set(str(value))
 
     def set_dimension_style_selection(self, style_name_or_text):
 

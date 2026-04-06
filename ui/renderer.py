@@ -1638,7 +1638,7 @@ class Renderer:
                 flat_coords.extend([x, y])
             self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
-    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True, arrow_type="closed"):
+    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True, arrow_type="triangle"):
         sx, sy = self.converter.world_to_screen(point.x, point.y)
         dx = direction.x
         dy = direction.y
@@ -1654,12 +1654,50 @@ class Renderer:
         ny = ux
 
         if arrow_type == "tick":
-            tick_len = size_px * 0.9
+            tick_len = size_px
             x1 = sx - ux * tick_len * 0.35 - nx * tick_len * 0.55
             y1 = sy - uy * tick_len * 0.35 - ny * tick_len * 0.55
             x2 = sx + ux * tick_len * 0.35 + nx * tick_len * 0.55
             y2 = sy + uy * tick_len * 0.35 + ny * tick_len * 0.55
             self.canvas.create_line(x1, y1, x2, y2, fill=color, width=1.5)
+            return
+
+        if arrow_type == "circle":
+            radius = size_px / 2.0
+            cx = sx
+            cy = sy
+            self.canvas.create_oval(
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
+                outline=color,
+                fill=color if filled else "",
+                width=1,
+            )
+            return
+
+        if arrow_type == "square":
+            half = size_px / 2.0
+            cx = sx
+            cy = sy
+            p1x = cx + ux * half + nx * half
+            p1y = cy + uy * half + ny * half
+            p2x = cx + ux * half - nx * half
+            p2y = cy + uy * half - ny * half
+            p3x = cx - ux * half - nx * half
+            p3y = cy - uy * half - ny * half
+            p4x = cx - ux * half + nx * half
+            p4y = cy - uy * half + ny * half
+            self.canvas.create_polygon(
+                p1x, p1y,
+                p2x, p2y,
+                p3x, p3y,
+                p4x, p4y,
+                outline=color,
+                fill=color if filled else "",
+                width=1,
+            )
             return
 
         back_x = sx + ux * size_px
@@ -1673,16 +1711,37 @@ class Renderer:
         self.canvas.create_polygon(
             *points,
             outline=color,
-            fill=color if (filled and arrow_type == "closed") else "",
+            fill=color if filled else "",
             width=1,
         )
+
+    def _dimension_font_spec(self, font_name):
+        normalized = (font_name or "").strip().lower()
+        mapping = {
+            "тип а": "ГОСТ тип А",
+            "тип а наклонный": "ГОСТ тип А наклонный",
+            "тип б": "ГОСТ тип В",
+            "тип б наклонный": "ГОСТ тип В наклонный",
+            "gost type a": "ГОСТ тип А",
+            "gost type a italic": "ГОСТ тип А наклонный",
+            "gost type b": "ГОСТ тип В",
+            "gost type b italic": "ГОСТ тип В наклонный",
+        }
+        resolved = mapping.get(normalized, font_name or "Arial")
+        resolved_norm = resolved.strip().lower()
+
+        italic = "наклонный" in resolved_norm or "italic" in resolved_norm
+        if resolved_norm == "гост тип а наклонный":
+            return ("ГОСТ тип А", italic)
+        if resolved_norm == "гост тип в наклонный":
+            return ("ГОСТ тип В", italic)
+        return (resolved, italic)
 
     def draw_dimension(self, dimension, override_color=None):
         geometry = dimension.resolve_geometry(self.state)
         if not geometry:
             return
 
-        style = dimension._style(self.state)
         extension_color = override_color if override_color else dimension._effective_extension_line_color(self.state)
         dim_line_color = override_color if override_color else dimension._effective_dim_line_color(self.state)
 
@@ -1708,7 +1767,7 @@ class Renderer:
             arc.color = dim_line_color
             self.draw_arc(arc)
 
-        arrow_size_px = max(6, int(dimension._effective_arrow_size_mm(self.state) * self.state.mm_to_px_ratio))
+        arrow_size_px = max(1, int(dimension._effective_arrow_size_mm(self.state) * self.state.zoom))
         arrow_type = dimension._effective_arrow_type(self.state)
         for arrow in geometry.get("arrow_points", []):
             self._draw_dimension_arrow(
@@ -1724,14 +1783,16 @@ class Renderer:
         text = geometry.get("text")
         if text_point and text:
             sx, sy = self.converter.world_to_screen(text_point.x, text_point.y)
-            font_size = max(8, int(geometry.get("text_height_mm", dimension._effective_text_height_mm(self.state)) * self.state.mm_to_px_ratio))
+            font_size = max(1, int(geometry.get("text_height_mm", dimension._effective_text_height_mm(self.state)) * self.state.zoom))
             angle_deg = math.degrees(geometry.get("text_angle", 0.0) + self.state.rotation)
+            font_family, italic = self._dimension_font_spec(dimension._effective_text_font_family(self.state))
+            font_spec = (font_family, font_size, "italic") if italic else (font_family, font_size)
             self.canvas.create_text(
                 sx,
                 sy,
                 text=text,
                 fill=override_color if override_color else dimension._effective_text_color(self.state),
-                font=(dimension._effective_text_font_family(self.state), font_size),
+                font=font_spec,
                 angle=angle_deg,
             )
 

@@ -188,7 +188,7 @@ class GeometryReference:
 
 class DimensionBase:
     dimension_type = "dimension"
-    ARROW_TYPES = {"closed", "open", "tick"}
+    ARROW_TYPES = {"triangle", "circle", "square", "tick"}
     TEXT_POSITIONS = {"above", "center", "below"}
 
     def __init__(
@@ -274,12 +274,16 @@ class DimensionBase:
         return self.dim_line_style_name or self._style(state).line_style_name
 
     def _effective_dim_line_extension_mm(self, state):
-        style = self._style(state)
-        return style.dim_line_extension_mm if self.dim_line_extension_mm is None else max(0.0, float(self.dim_line_extension_mm))
+        if self.dim_line_extension_mm is None:
+            return max(0.0, float(self._default_dim_line_extension_mm(state)))
+        return max(0.0, float(self.dim_line_extension_mm))
+
+    def _default_dim_line_extension_mm(self, state):
+        return self._style(state).dim_line_extension_mm
 
     def _effective_arrow_type(self, state):
-        arrow_type = (self.arrow_type or "closed").lower()
-        return arrow_type if arrow_type in self.ARROW_TYPES else "closed"
+        arrow_type = (self.arrow_type or "triangle").lower()
+        return arrow_type if arrow_type in self.ARROW_TYPES else "triangle"
 
     def _effective_arrow_size_mm(self, state):
         style = self._style(state)
@@ -293,7 +297,7 @@ class DimensionBase:
         return self.text_color or self._style(state).text_color
 
     def _effective_text_font_family(self, state):
-        return self.text_font_family or "Arial"
+        return self.text_font_family or "ГОСТ тип В наклонный"
 
     def _effective_text_height_mm(self, state):
         style = self._style(state)
@@ -552,6 +556,22 @@ class RadialDimension(DimensionBase):
         raw = raw.removeprefix("⌀").strip()
         return f"⌀{raw}"
 
+    def _circle_diameter_layout_mode(self):
+        obj = self.center_ref.source_object
+        if self.prefix != "⌀" or not isinstance(obj, Circle):
+            return "default"
+
+        diameter = obj.radius * 2.0
+        if diameter < 12.0:
+            return "outside"
+        return "inside"
+
+    def _default_dim_line_extension_mm(self, state):
+        mode = self._circle_diameter_layout_mode()
+        if mode == "outside":
+            return 7.0
+        return 0.0
+
     def resolve_geometry(self, state):
         center = self.center_ref.resolve()
         edge = self.edge_ref.resolve()
@@ -559,6 +579,7 @@ class RadialDimension(DimensionBase):
         text_gap = style.text_gap_mm * self._text_offset_factor(state)
         dim_style_name = self._effective_dim_line_style_name(state)
         text_height = self._effective_text_height_mm(state)
+        dim_line_extension = self._effective_dim_line_extension_mm(state)
 
         radius = math.hypot(edge.x - center.x, edge.y - center.y)
         if radius < 1e-9:
@@ -567,24 +588,39 @@ class RadialDimension(DimensionBase):
         dir_x = (edge.x - center.x) / radius
         dir_y = (edge.y - center.y) / radius
         normal = Point(-dir_y, dir_x)
+        layout_mode = self._circle_diameter_layout_mode()
 
         if self.prefix == "⌀":
-            dim_start = Point(center.x - dir_x * radius, center.y - dir_y * radius)
-            dim_end = edge
-            arrow_points = [
-                {"point": dim_start, "direction": Point(dir_x, dir_y)},
-                {"point": dim_end, "direction": Point(-dir_x, -dir_y)},
-            ]
+            inner_start = Point(center.x - dir_x * radius, center.y - dir_y * radius)
+            inner_end = edge
+            text_anchor_start = inner_start
+            text_anchor_end = inner_end
+            if layout_mode == "outside":
+                dim_start = Point(center.x - dir_x * (radius + dim_line_extension), center.y - dir_y * (radius + dim_line_extension))
+                dim_end = Point(center.x + dir_x * (radius + dim_line_extension), center.y + dir_y * (radius + dim_line_extension))
+                arrow_points = [
+                    {"point": inner_start, "direction": Point(-dir_x, -dir_y)},
+                    {"point": inner_end, "direction": Point(dir_x, dir_y)},
+                ]
+            else:
+                dim_start = inner_start
+                dim_end = inner_end
+                arrow_points = [
+                    {"point": inner_start, "direction": Point(dir_x, dir_y)},
+                    {"point": inner_end, "direction": Point(-dir_x, -dir_y)},
+                ]
         else:
+            text_anchor_start = center
+            text_anchor_end = edge
             dim_start = center
-            dim_end = edge
+            dim_end = Point(center.x + dir_x * (radius + dim_line_extension), center.y + dir_y * (radius + dim_line_extension))
             arrow_points = [
-                {"point": dim_end, "direction": Point(-dir_x, -dir_y)},
+                {"point": edge, "direction": Point(-dir_x, -dir_y)},
             ]
 
         text_point = Point(
-            (dim_start.x + dim_end.x) / 2.0 + normal.x * text_gap,
-            (dim_start.y + dim_end.y) / 2.0 + normal.y * text_gap,
+            (text_anchor_start.x + text_anchor_end.x) / 2.0 + normal.x * text_gap,
+            (text_anchor_start.y + text_anchor_end.y) / 2.0 + normal.y * text_gap,
         )
 
         if self.manual_text_position is not None:
@@ -675,6 +711,9 @@ class AngularDimension(DimensionBase):
         raw = raw.removesuffix("°").strip()
         return f"{raw}°"
 
+    def _default_dim_line_extension_mm(self, state):
+        return 7.0
+
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
         style = self._style(state)
@@ -683,15 +722,21 @@ class AngularDimension(DimensionBase):
         dim_style_name = self._effective_dim_line_style_name(state)
         text_height = self._effective_text_height_mm(state)
         radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
+        dim_line_extension = self._effective_dim_line_extension_mm(state)
         radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
         if radius < 1e-9:
             return None
 
+        arc_extension = max(0.0, dim_line_extension)
+        arc_extension_angle = arc_extension / radius if radius > 1e-9 else 0.0
+        dim_start = start - arc_extension_angle
+        dim_end = end + arc_extension_angle
+
         dim_arc = Arc.from_center_angles(
             _point_from(vertex),
             radius,
-            start,
-            end,
+            dim_start,
+            dim_end,
             style_name=dim_style_name,
             color=self.color,
         )

@@ -7,8 +7,8 @@ class DimensionStyle:
     display_name: str
     line_style_name: str = "solid_thin"
     text_color: str = "black"
-    text_height_mm: float = 3.5
-    arrow_size_mm: float = 3.5
+    text_height_mm: float = 5.0
+    arrow_size_mm: float = 5.0
     arrow_filled: bool = True
     extension_offset_mm: float = 1.0
     extension_overrun_mm: float = 2.0
@@ -23,8 +23,8 @@ DEFAULT_DIMENSION_STYLES = {
         display_name="ГОСТ по умолчанию",
         line_style_name="solid_thin",
         text_color="black",
-        text_height_mm=3.5,
-        arrow_size_mm=3.5,
+        text_height_mm=5.0,
+        arrow_size_mm=5.0,
         arrow_filled=True,
         extension_offset_mm=1.0,
         extension_overrun_mm=2.0,

@@ -139,15 +139,16 @@ class Callbacks:
                 self.view.dimension_ext_overrun_entry,
                 self.view.dimension_dim_extension_entry,
                 self.view.dimension_arrow_size_entry,
-                self.view.dimension_text_height_entry,
             ]:
                 entry.delete(0, tk.END)
+            self.view.dimension_text_height_combobox.set("")
             self.view.dimension_arrow_filled_var.set(True)
             controls = [
                 (self.view.dimension_ext_style_combobox, True),
                 (self.view.dimension_dim_style_combobox, True),
                 (self.view.dimension_arrow_type_combobox, True),
                 (self.view.dimension_text_font_combobox, True),
+                (self.view.dimension_text_height_combobox, True),
                 (self.view.dimension_text_position_combobox, True),
             ]
             for widget, readonly in controls:
@@ -156,7 +157,6 @@ class Callbacks:
                 self.view.dimension_ext_overrun_entry,
                 self.view.dimension_dim_extension_entry,
                 self.view.dimension_arrow_size_entry,
-                self.view.dimension_text_height_entry,
                 self.view.dimension_arrow_filled_check,
             ]:
                 self._set_dimension_control_state(widget, False)
@@ -170,6 +170,7 @@ class Callbacks:
             (self.view.dimension_dim_style_combobox, True, True),
             (self.view.dimension_arrow_type_combobox, True, True),
             (self.view.dimension_text_font_combobox, True, True),
+            (self.view.dimension_text_height_combobox, True, True),
             (self.view.dimension_text_position_combobox, True, True),
         ]:
             self._set_dimension_control_state(widget, enabled, readonly=readonly)
@@ -178,7 +179,6 @@ class Callbacks:
             (self.view.dimension_ext_overrun_entry, uses_extensions),
             (self.view.dimension_dim_extension_entry, True),
             (self.view.dimension_arrow_size_entry, True),
-            (self.view.dimension_text_height_entry, True),
             (self.view.dimension_arrow_filled_check, True),
         ]:
             self._set_dimension_control_state(widget, enabled)
@@ -190,7 +190,7 @@ class Callbacks:
         self._set_dimension_entry_value(self.view.dimension_ext_overrun_entry, dimension._effective_extension_overrun_mm(self.state))
         self._set_dimension_entry_value(self.view.dimension_dim_extension_entry, dimension._effective_dim_line_extension_mm(self.state))
         self._set_dimension_entry_value(self.view.dimension_arrow_size_entry, dimension._effective_arrow_size_mm(self.state))
-        self._set_dimension_entry_value(self.view.dimension_text_height_entry, dimension._effective_text_height_mm(self.state))
+        self.view.set_dimension_text_height_selection(dimension._effective_text_height_mm(self.state))
         self.view.set_dimension_option_selection(
             self.view.dimension_arrow_type_combobox,
             self.view.dimension_arrow_type_ids,
@@ -2364,8 +2364,12 @@ class Callbacks:
             )
             dimension.arrow_size_mm = float(self.view.dimension_arrow_size_entry.get() or 0.0)
             dimension.arrow_filled = bool(self.view.dimension_arrow_filled_var.get())
-            dimension.text_font_family = self.view.dimension_text_font_combobox.get().strip() or "Arial"
-            dimension.text_height_mm = float(self.view.dimension_text_height_entry.get() or 0.0)
+            dimension.text_font_family = self.view.dimension_text_font_combobox.get().strip() or "ГОСТ тип В наклонный"
+            height_text = self._selected_combobox_id(
+                self.view.dimension_text_height_combobox,
+                self.view.dimension_text_height_ids,
+            ).replace(",", ".")
+            dimension.text_height_mm = float(height_text or 0.0)
             dimension.text_position_mode = self._selected_combobox_id(
                 self.view.dimension_text_position_combobox,
                 self.view.dimension_text_position_ids,
