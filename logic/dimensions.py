@@ -190,6 +190,21 @@ class DimensionBase:
     dimension_type = "dimension"
     ARROW_TYPES = {"triangle", "circle", "square", "tick"}
     TEXT_POSITIONS = {"above", "center", "below"}
+    APPEARANCE_ATTRS = [
+        "extension_line_color",
+        "extension_line_style_name",
+        "extension_overrun_mm",
+        "dim_line_color",
+        "dim_line_style_name",
+        "dim_line_extension_mm",
+        "arrow_type",
+        "arrow_size_mm",
+        "arrow_filled",
+        "text_color",
+        "text_font_family",
+        "text_height_mm",
+        "text_position_mode",
+    ]
 
     def __init__(
         self,
@@ -217,6 +232,7 @@ class DimensionBase:
         self.text_font_family = None
         self.text_height_mm = None
         self.text_position_mode = None
+        self.custom_style_snapshot = {}
 
     def _style(self, state):
         styles = getattr(state, "dimension_styles", DEFAULT_DIMENSION_STYLES)
@@ -225,22 +241,10 @@ class DimensionBase:
     def copy_display_overrides_from(self, other):
         attrs = [
             "text_override",
-            "extension_line_color",
-            "extension_line_style_name",
-            "extension_overrun_mm",
-            "dim_line_color",
-            "dim_line_style_name",
-            "dim_line_extension_mm",
-            "arrow_type",
-            "arrow_size_mm",
-            "arrow_filled",
-            "text_color",
-            "text_font_family",
-            "text_height_mm",
-            "text_position_mode",
-        ]
+        ] + list(self.APPEARANCE_ATTRS)
         for attr in attrs:
             setattr(self, attr, getattr(other, attr, None))
+        self.custom_style_snapshot = dict(getattr(other, "custom_style_snapshot", {}) or {})
 
         manual_text = getattr(other, "manual_text_position", None)
         self.manual_text_position = None if manual_text is None else Point(manual_text.x, manual_text.y)
@@ -297,7 +301,7 @@ class DimensionBase:
         return self.text_color or self._style(state).text_color
 
     def _effective_text_font_family(self, state):
-        return self.text_font_family or "ГОСТ тип В наклонный"
+        return self.text_font_family or "ГОСТ тип А наклонный"
 
     def _effective_text_height_mm(self, state):
         style = self._style(state)
@@ -314,6 +318,26 @@ class DimensionBase:
         if position == "below":
             return -1.0
         return 1.0
+
+    def _capture_appearance_state(self):
+        return {attr: getattr(self, attr, None) for attr in self.APPEARANCE_ATTRS}
+
+    def _restore_appearance_state(self, snapshot):
+        snapshot = snapshot or {}
+        for attr in self.APPEARANCE_ATTRS:
+            setattr(self, attr, snapshot.get(attr))
+
+    def activate_dimension_style(self, style_name):
+        if self.dimension_style_name == "user_custom":
+            self.custom_style_snapshot = self._capture_appearance_state()
+
+        if style_name == "user_custom":
+            self._restore_appearance_state(self.custom_style_snapshot)
+        else:
+            for attr in self.APPEARANCE_ATTRS:
+                setattr(self, attr, None)
+
+        self.dimension_style_name = style_name
 
     def display_text(self, state):
         if self.text_override:

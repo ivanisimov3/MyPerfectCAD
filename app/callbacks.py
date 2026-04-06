@@ -1171,10 +1171,14 @@ class Callbacks:
 
         self.state.current_dimension_style_name = new_style_name
         for dimension in self.state.selected_dimensions:
-            dimension.dimension_style_name = new_style_name
+            dimension.activate_dimension_style(new_style_name)
 
         if self.state.preview_dimension:
-            self.state.preview_dimension.dimension_style_name = new_style_name
+            self.state.preview_dimension.activate_dimension_style(new_style_name)
+
+        if self.state.editing_object is not None and self.state.editing_object_type == 'dimension':
+            self.state.editing_object.activate_dimension_style(new_style_name)
+            self._sync_preview_dimension_from_editing_object()
 
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -2364,7 +2368,7 @@ class Callbacks:
             )
             dimension.arrow_size_mm = float(self.view.dimension_arrow_size_entry.get() or 0.0)
             dimension.arrow_filled = bool(self.view.dimension_arrow_filled_var.get())
-            dimension.text_font_family = self.view.dimension_text_font_combobox.get().strip() or "ГОСТ тип В наклонный"
+            dimension.text_font_family = self.view.dimension_text_font_combobox.get().strip() or "ГОСТ тип А наклонный"
             height_text = self._selected_combobox_id(
                 self.view.dimension_text_height_combobox,
                 self.view.dimension_text_height_ids,
@@ -2378,6 +2382,9 @@ class Callbacks:
             messagebox.showerror("Параметры размера", "Числовые поля должны содержать корректные числа.")
             return
 
+        dimension.custom_style_snapshot = dimension._capture_appearance_state()
+        dimension.dimension_style_name = "user_custom"
+        self.state.current_dimension_style_name = "user_custom"
         self._sync_preview_dimension_from_editing_object()
         self.redraw_all()
         self._sync_ui_with_selection()
@@ -2403,6 +2410,9 @@ class Callbacks:
         ]:
             setattr(dimension, attr, None)
 
+        dimension.custom_style_snapshot = {}
+        dimension.dimension_style_name = "gost_default"
+        self.state.current_dimension_style_name = "gost_default"
         self._sync_preview_dimension_from_editing_object()
         self.redraw_all()
         self._sync_ui_with_selection()
