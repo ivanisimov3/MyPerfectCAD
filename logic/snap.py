@@ -132,6 +132,12 @@ class SnapManager:
             for idx, corner in enumerate(corners):
                 if self._in_range(corner.x, corner.y, cx, cy, radius):
                     points.append(SnapPoint(corner.x, corner.y, SnapType.ENDPOINT, rect, priority, ref_kind='rectangle_corner', ref_index=idx))
+
+        for ellipse in self.state.ellipses:
+            if not self._is_obj_visible(ellipse): continue
+            for idx, axis_point in enumerate(ellipse.axis_snap_points()):
+                if self._in_range(axis_point.x, axis_point.y, cx, cy, radius):
+                    points.append(SnapPoint(axis_point.x, axis_point.y, SnapType.ENDPOINT, ellipse, priority, ref_kind='ellipse_axis', ref_index=idx))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue

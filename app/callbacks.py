@@ -2417,7 +2417,7 @@ class Callbacks:
         self.redraw_all()
         self._sync_ui_with_selection()
 
-    def _find_circle_or_arc_under_cursor(self, wx, wy):
+    def _find_radial_dimension_target_under_cursor(self, wx, wy):
         hit_threshold_world = 8 / self.state.zoom
         for circle in self.state.circles:
             if not self.state.is_layer_visible(circle.layer):
@@ -2429,6 +2429,12 @@ class Callbacks:
                 continue
             if arc.distance_to_point(wx, wy) < hit_threshold_world * 1.5:
                 return arc
+        for rect in self.state.rectangles:
+            if not self.state.is_layer_visible(rect.layer):
+                continue
+            for fillet_arc in rect.fillet_arcs():
+                if fillet_arc.distance_to_point(wx, wy) < hit_threshold_world * 1.5:
+                    return rect
         return None
 
     def on_lmb_click(self, event):
@@ -2663,11 +2669,11 @@ class Callbacks:
 
         elif kind in ("radius", "diameter"):
             if self.state.dimension_creation_object is None:
-                obj = self._find_circle_or_arc_under_cursor(wx, wy)
+                obj = self._find_radial_dimension_target_under_cursor(wx, wy)
                 if obj is None:
                     return
                 self.state.dimension_creation_object = obj
-                self.state.active_p1 = Point(obj.center.x, obj.center.y)
+                self.state.active_p1 = Point(wx, wy)
             else:
                 ref = GeometryReference.static(Point(wx, wy))
                 if self.state.dimension_creation_refs:
@@ -3961,7 +3967,7 @@ class Callbacks:
         new_point = Point(wx, wy)
         dimension = drag["dimension"]
         grip_name = drag["grip"]
-        dimension.move_grip(grip_name, new_point)
+        dimension.move_grip(grip_name, new_point, self.state)
         self._sync_ui_with_selection()
         self.redraw_all()
 

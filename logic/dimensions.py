@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from logic.dimension_styles import DEFAULT_DIMENSION_STYLES
-from logic.geometry import Arc, Circle, Point, Segment
+from logic.geometry import Arc, Circle, Ellipse, Point, Rectangle, Segment
 
 
 def _point_from(obj):
@@ -23,6 +23,34 @@ def _project_point_to_segment(point: Point, a: Point, b: Point):
     t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len_sq
     t = max(0.0, min(1.0, t))
     return Point(a.x + dx * t, a.y + dy * t), t
+
+
+def _project_point_to_line(point: Point, a: Point, b: Point):
+    dx = b.x - a.x
+    dy = b.y - a.y
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-12:
+        return Point(a.x, a.y)
+    t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len_sq
+    return Point(a.x + dx * t, a.y + dy * t)
+
+
+def _translate_text_along_line(target_point: Point, current_text_point: Point, line_a: Point, line_b: Point):
+    projected_target = _project_point_to_line(target_point, line_a, line_b)
+    projected_current = _project_point_to_line(current_text_point, line_a, line_b)
+    return Point(
+        projected_target.x + (current_text_point.x - projected_current.x),
+        projected_target.y + (current_text_point.y - projected_current.y),
+    )
+
+
+def _reapply_text_offset_on_line(manual_point: Point, auto_text_point: Point, line_a: Point, line_b: Point):
+    projected_manual = _project_point_to_line(manual_point, line_a, line_b)
+    projected_auto = _project_point_to_line(auto_text_point, line_a, line_b)
+    return Point(
+        projected_manual.x + (auto_text_point.x - projected_auto.x),
+        projected_manual.y + (auto_text_point.y - projected_auto.y),
+    )
 
 
 def _normalize_angle(angle):
@@ -50,6 +78,10 @@ def _normalized_text_angle(angle_rad):
 
 def _angle_distance(a, b):
     return abs((a - b + math.pi) % (2 * math.pi) - math.pi)
+
+
+def _signed_angle_delta(start, end):
+    return ((end - start + math.pi) % (2 * math.pi)) - math.pi
 
 
 def _clamp_angle_to_arc(angle, arc: Arc):
@@ -144,6 +176,11 @@ class GeometryReference:
                 )
             if self.ref_kind == "ellipse_center":
                 return _point_from(obj.center)
+            if self.ref_kind == "ellipse_axis":
+                points = obj.axis_snap_points()
+                idx = int(self.ref_index if self.ref_index is not None else 0)
+                if 0 <= idx < len(points):
+                    return _point_from(points[idx])
             if self.ref_kind == "rectangle_corner":
                 corners = obj.corners()
                 if self.ref_index is not None and 0 <= self.ref_index < len(corners):
@@ -155,6 +192,22 @@ class GeometryReference:
                 if self.ref_index is not None and 0 <= self.ref_index < len(edges):
                     edge = edges[self.ref_index]
                     return Point((edge.p1.x + edge.p2.x) / 2.0, (edge.p1.y + edge.p2.y) / 2.0)
+            if self.ref_kind == "rectangle_fillet_center":
+                arcs = obj.fillet_arcs()
+                idx = int(self.ref_index if self.ref_index is not None else 0)
+                if 0 <= idx < len(arcs):
+                    return _point_from(arcs[idx].center)
+            if self.ref_kind == "rectangle_fillet_angle":
+                arcs = obj.fillet_arcs()
+                idx = int(self.ref_index if self.ref_index is not None else 0)
+                if 0 <= idx < len(arcs):
+                    arc = arcs[idx]
+                    angle = math.atan2(self.point.y - arc.center.y, self.point.x - arc.center.x)
+                    angle = _clamp_angle_to_arc(angle, arc)
+                    return Point(
+                        arc.center.x + arc.radius * math.cos(angle),
+                        arc.center.y + arc.radius * math.sin(angle),
+                    )
             if self.ref_kind == "polygon_vertex":
                 verts = obj.vertices()
                 if self.ref_index is not None and 0 <= self.ref_index < len(verts):
@@ -277,10 +330,16 @@ class DimensionBase:
     def _effective_dim_line_style_name(self, state):
         return self.dim_line_style_name or self._style(state).line_style_name
 
-    def _effective_dim_line_extension_mm(self, state):
+    def _requested_dim_line_extension_mm(self, state):
         if self.dim_line_extension_mm is None:
             return max(0.0, float(self._default_dim_line_extension_mm(state)))
         return max(0.0, float(self.dim_line_extension_mm))
+
+    def _minimum_dim_line_extension_mm(self, state):
+        return 0.0
+
+    def _effective_dim_line_extension_mm(self, state):
+        return max(self._requested_dim_line_extension_mm(state), self._minimum_dim_line_extension_mm(state))
 
     def _default_dim_line_extension_mm(self, state):
         return self._style(state).dim_line_extension_mm
@@ -321,6 +380,23 @@ class DimensionBase:
 
     def _capture_appearance_state(self):
         return {attr: getattr(self, attr, None) for attr in self.APPEARANCE_ATTRS}
+
+    def _approx_text_width_mm(self, state, text=None, text_height=None):
+        text = self.display_text(state) if text is None else str(text)
+        text_height = self._effective_text_height_mm(state) if text_height is None else max(0.1, float(text_height))
+        width_units = 0.0
+        for ch in text:
+            if ch.isspace():
+                width_units += 0.35
+            elif ch in ".,:;!|ilI1'`":
+                width_units += 0.3
+            elif ch in "°":
+                width_units += 0.45
+            elif ch in "MWЖШЩЮ@#":
+                width_units += 0.85
+            else:
+                width_units += 0.6
+        return max(text_height, width_units * text_height)
 
     def _restore_appearance_state(self, snapshot):
         snapshot = snapshot or {}
@@ -388,7 +464,7 @@ class DimensionBase:
         geo = self.resolve_geometry(state)
         return geo.get("grips", {}) if geo else {}
 
-    def move_grip(self, grip_name, new_point: Point):
+    def move_grip(self, grip_name, new_point: Point, state=None):
         raise NotImplementedError
 
 
@@ -419,15 +495,14 @@ class LinearDimension(DimensionBase):
     def default_text(self, state):
         return self._format_linear(self.measured_value(state), state)
 
-    def resolve_geometry(self, state):
+    def _outside_arrow_mode(self, state):
+        return self.measured_value(state) < 12.0
+
+    def _line_basis(self, state):
         p1, p2, line_pt = self._resolved_points()
         style = self._style(state)
         text_gap = style.text_gap_mm * self._text_offset_factor(state)
         text_height = self._effective_text_height_mm(state)
-        extension_overrun = self._effective_extension_overrun_mm(state)
-        dim_line_extension = self._effective_dim_line_extension_mm(state)
-        ext_style_name = self._effective_extension_line_style_name(state)
-        dim_style_name = self._effective_dim_line_style_name(state)
 
         if self.mode == "horizontal":
             dim_dir = Point(1.0, 0.0)
@@ -473,18 +548,83 @@ class LinearDimension(DimensionBase):
                 (dim_p1.x + dim_p2.x) / 2.0 + normal.x * text_gap,
                 (dim_p1.y + dim_p2.y) / 2.0 + normal.y * text_gap,
             )
-            text_angle = math.atan2(uy, ux)
+            text_angle = _normalized_text_angle(math.atan2(uy, ux))
 
         if self.manual_text_position is not None:
-            text_point = _point_from(self.manual_text_position)
+            text_point = _reapply_text_offset_on_line(self.manual_text_position, text_point, dim_p1, dim_p2)
+
+        return {
+            "p1": p1,
+            "p2": p2,
+            "line_pt": line_pt,
+            "dim_p1": dim_p1,
+            "dim_p2": dim_p2,
+            "base1": base1,
+            "base2": base2,
+            "dim_dir": dim_dir,
+            "normal": normal,
+            "text_point": text_point,
+            "text_angle": text_angle,
+            "text_height": text_height,
+        }
+
+    def _text_extension_requirements(self, state):
+        basis = self._line_basis(state)
+        if basis is None:
+            return 0.0, 0.0, None
+
+        dim_p1 = basis["dim_p1"]
+        dim_p2 = basis["dim_p2"]
+        dim_dir = basis["dim_dir"]
+        text_point = basis["text_point"]
+        length = math.hypot(dim_p2.x - dim_p1.x, dim_p2.y - dim_p1.y)
+        if length < 1e-9:
+            return 0.0, 0.0, basis
+
+        center_coord = (text_point.x - dim_p1.x) * dim_dir.x + (text_point.y - dim_p1.y) * dim_dir.y
+        half_span = self._approx_text_width_mm(state, text_height=basis["text_height"]) / 2.0
+        left_required = max(0.0, half_span - center_coord)
+        right_required = max(0.0, center_coord + half_span - length)
+        return left_required, right_required, basis
+
+    def _minimum_dim_line_extension_mm(self, state):
+        left_required, right_required, _ = self._text_extension_requirements(state)
+        outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
+        return max(outside_min, left_required, right_required)
+
+    def resolve_geometry(self, state):
+        basis = self._line_basis(state)
+        if basis is None:
+            return None
+
+        p1 = basis["p1"]
+        p2 = basis["p2"]
+        line_pt = basis["line_pt"]
+        dim_p1 = basis["dim_p1"]
+        dim_p2 = basis["dim_p2"]
+        base1 = basis["base1"]
+        base2 = basis["base2"]
+        dim_dir = basis["dim_dir"]
+        normal = basis["normal"]
+        text_point = basis["text_point"]
+        text_angle = basis["text_angle"]
+        text_height = basis["text_height"]
+        extension_overrun = self._effective_extension_overrun_mm(state)
+        ext_style_name = self._effective_extension_line_style_name(state)
+        dim_style_name = self._effective_dim_line_style_name(state)
+        requested_extension = self._requested_dim_line_extension_mm(state)
+        left_required, right_required, _ = self._text_extension_requirements(state)
+        outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
+        left_extension = max(requested_extension, outside_min, left_required)
+        right_extension = max(requested_extension, outside_min, right_required)
 
         ext1_start = Point(base1.x, base1.y)
         ext2_start = Point(base2.x, base2.y)
         ext1_end = Point(dim_p1.x + normal.x * extension_overrun, dim_p1.y + normal.y * extension_overrun)
         ext2_end = Point(dim_p2.x + normal.x * extension_overrun, dim_p2.y + normal.y * extension_overrun)
 
-        dim_start = Point(dim_p1.x - dim_dir.x * dim_line_extension, dim_p1.y - dim_dir.y * dim_line_extension)
-        dim_end = Point(dim_p2.x + dim_dir.x * dim_line_extension, dim_p2.y + dim_dir.y * dim_line_extension)
+        dim_start = Point(dim_p1.x - dim_dir.x * left_extension, dim_p1.y - dim_dir.y * left_extension)
+        dim_end = Point(dim_p2.x + dim_dir.x * right_extension, dim_p2.y + dim_dir.y * right_extension)
 
         extension_segments = [
             Segment(ext1_start, ext1_end, style_name=ext_style_name, color=self.color),
@@ -504,10 +644,17 @@ class LinearDimension(DimensionBase):
             "text": self.display_text(state),
             "text_angle": text_angle,
             "text_height_mm": text_height,
-            "arrow_points": [
-                {"point": dim_p1, "direction": Point(dim_dir.x, dim_dir.y)},
-                {"point": dim_p2, "direction": Point(-dim_dir.x, -dim_dir.y)},
-            ],
+            "arrow_points": (
+                [
+                    {"point": dim_p1, "direction": Point(-dim_dir.x, -dim_dir.y)},
+                    {"point": dim_p2, "direction": Point(dim_dir.x, dim_dir.y)},
+                ]
+                if self._outside_arrow_mode(state)
+                else [
+                    {"point": dim_p1, "direction": Point(dim_dir.x, dim_dir.y)},
+                    {"point": dim_p2, "direction": Point(-dim_dir.x, -dim_dir.y)},
+                ]
+            ),
             "grips": {
                 "p1": base1,
                 "p2": base2,
@@ -516,7 +663,7 @@ class LinearDimension(DimensionBase):
             },
         }
 
-    def move_grip(self, grip_name, new_point: Point):
+    def move_grip(self, grip_name, new_point: Point, state=None):
         if grip_name == "p1":
             if isinstance(self.p1_ref.source_object, Segment):
                 projected, t = _project_point_to_segment(new_point, self.p1_ref.source_object.p1, self.p1_ref.source_object.p2)
@@ -544,6 +691,17 @@ class LinearDimension(DimensionBase):
                     self.manual_text_position.y + (new_point.y - old_line.y),
                 )
         elif grip_name == "text":
+            if state is not None:
+                geometry = self.resolve_geometry(state)
+                if geometry and geometry["dimension_segments"]:
+                    dim_segment = geometry["dimension_segments"][0]
+                    self.manual_text_position = _translate_text_along_line(
+                        new_point,
+                        geometry["text_point"],
+                        dim_segment.p1,
+                        dim_segment.p2,
+                    )
+                    return
             self.manual_text_position = _point_from(new_point)
 
 
@@ -580,30 +738,20 @@ class RadialDimension(DimensionBase):
         raw = raw.removeprefix("⌀").strip()
         return f"⌀{raw}"
 
-    def _circle_diameter_layout_mode(self):
-        obj = self.center_ref.source_object
-        if self.prefix != "⌀" or not isinstance(obj, Circle):
-            return "default"
-
-        diameter = obj.radius * 2.0
-        if diameter < 12.0:
-            return "outside"
-        return "inside"
+    def _outside_arrow_mode(self, state):
+        return self.measured_value(state) < 12.0
 
     def _default_dim_line_extension_mm(self, state):
-        mode = self._circle_diameter_layout_mode()
-        if mode == "outside":
+        if self._outside_arrow_mode(state):
             return 7.0
         return 0.0
 
-    def resolve_geometry(self, state):
+    def _radial_basis(self, state):
         center = self.center_ref.resolve()
         edge = self.edge_ref.resolve()
         style = self._style(state)
         text_gap = style.text_gap_mm * self._text_offset_factor(state)
-        dim_style_name = self._effective_dim_line_style_name(state)
         text_height = self._effective_text_height_mm(state)
-        dim_line_extension = self._effective_dim_line_extension_mm(state)
 
         radius = math.hypot(edge.x - center.x, edge.y - center.y)
         if radius < 1e-9:
@@ -612,43 +760,112 @@ class RadialDimension(DimensionBase):
         dir_x = (edge.x - center.x) / radius
         dir_y = (edge.y - center.y) / radius
         normal = Point(-dir_y, dir_x)
-        layout_mode = self._circle_diameter_layout_mode()
 
         if self.prefix == "⌀":
-            inner_start = Point(center.x - dir_x * radius, center.y - dir_y * radius)
-            inner_end = edge
-            text_anchor_start = inner_start
-            text_anchor_end = inner_end
-            if layout_mode == "outside":
-                dim_start = Point(center.x - dir_x * (radius + dim_line_extension), center.y - dir_y * (radius + dim_line_extension))
-                dim_end = Point(center.x + dir_x * (radius + dim_line_extension), center.y + dir_y * (radius + dim_line_extension))
-                arrow_points = [
-                    {"point": inner_start, "direction": Point(-dir_x, -dir_y)},
-                    {"point": inner_end, "direction": Point(dir_x, dir_y)},
-                ]
-            else:
-                dim_start = inner_start
-                dim_end = inner_end
-                arrow_points = [
-                    {"point": inner_start, "direction": Point(dir_x, dir_y)},
-                    {"point": inner_end, "direction": Point(-dir_x, -dir_y)},
-                ]
+            base_start = Point(center.x - dir_x * radius, center.y - dir_y * radius)
+            base_end = edge
+            text_anchor_start = base_start
+            text_anchor_end = base_end
         else:
+            base_start = center
+            base_end = edge
             text_anchor_start = center
             text_anchor_end = edge
-            dim_start = center
-            dim_end = Point(center.x + dir_x * (radius + dim_line_extension), center.y + dir_y * (radius + dim_line_extension))
-            arrow_points = [
-                {"point": edge, "direction": Point(-dir_x, -dir_y)},
-            ]
 
         text_point = Point(
             (text_anchor_start.x + text_anchor_end.x) / 2.0 + normal.x * text_gap,
             (text_anchor_start.y + text_anchor_end.y) / 2.0 + normal.y * text_gap,
         )
-
         if self.manual_text_position is not None:
-            text_point = _point_from(self.manual_text_position)
+            text_point = _reapply_text_offset_on_line(self.manual_text_position, text_point, base_start, base_end)
+
+        return {
+            "center": center,
+            "edge": edge,
+            "radius": radius,
+            "dir_x": dir_x,
+            "dir_y": dir_y,
+            "normal": normal,
+            "base_start": base_start,
+            "base_end": base_end,
+            "text_point": text_point,
+            "text_height": text_height,
+            "text_angle": _normalized_text_angle(math.atan2(dir_y, dir_x)),
+        }
+
+    def _text_extension_requirements(self, state):
+        basis = self._radial_basis(state)
+        if basis is None:
+            return 0.0, 0.0, None
+
+        base_start = basis["base_start"]
+        base_end = basis["base_end"]
+        text_point = basis["text_point"]
+        length = math.hypot(base_end.x - base_start.x, base_end.y - base_start.y)
+        if length < 1e-9:
+            return 0.0, 0.0, basis
+
+        coord = (text_point.x - base_start.x) * basis["dir_x"] + (text_point.y - base_start.y) * basis["dir_y"]
+        half_span = self._approx_text_width_mm(state, text_height=basis["text_height"]) / 2.0
+        left_required = max(0.0, half_span - coord)
+        right_required = max(0.0, coord + half_span - length)
+        return left_required, right_required, basis
+
+    def _minimum_dim_line_extension_mm(self, state):
+        left_required, right_required, _ = self._text_extension_requirements(state)
+        if self.prefix == "R":
+            outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
+            return max(left_required, right_required, outside_min)
+        outside_min = 7.0 if self._outside_arrow_mode(state) else 0.0
+        return max(left_required, right_required, outside_min)
+
+    def resolve_geometry(self, state):
+        basis = self._radial_basis(state)
+        if basis is None:
+            return None
+
+        center = basis["center"]
+        edge = basis["edge"]
+        radius = basis["radius"]
+        dir_x = basis["dir_x"]
+        dir_y = basis["dir_y"]
+        normal = basis["normal"]
+        base_start = basis["base_start"]
+        base_end = basis["base_end"]
+        text_point = basis["text_point"]
+        dim_style_name = self._effective_dim_line_style_name(state)
+        text_height = basis["text_height"]
+        requested_extension = self._requested_dim_line_extension_mm(state)
+        left_required, right_required, _ = self._text_extension_requirements(state)
+        outside_mode = self._outside_arrow_mode(state)
+
+        if self.prefix == "⌀":
+            outside_left = 7.0 if outside_mode else 0.0
+            outside_right = 7.0 if outside_mode else 0.0
+            left_extension = max(requested_extension, outside_left, left_required)
+            right_extension = max(requested_extension, outside_right, right_required)
+            dim_start = Point(base_start.x - dir_x * left_extension, base_start.y - dir_y * left_extension)
+            dim_end = Point(base_end.x + dir_x * right_extension, base_end.y + dir_y * right_extension)
+            if outside_mode:
+                arrow_points = [
+                    {"point": base_start, "direction": Point(-dir_x, -dir_y)},
+                    {"point": base_end, "direction": Point(dir_x, dir_y)},
+                ]
+            else:
+                arrow_points = [
+                    {"point": base_start, "direction": Point(dir_x, dir_y)},
+                    {"point": base_end, "direction": Point(-dir_x, -dir_y)},
+                ]
+        else:
+            outside_left = 0.0
+            outside_right = 7.0 if outside_mode else 0.0
+            left_extension = max(requested_extension, outside_left, left_required)
+            right_extension = max(requested_extension, outside_right, right_required)
+            dim_start = Point(base_start.x - dir_x * left_extension, base_start.y - dir_y * left_extension)
+            dim_end = Point(base_end.x + dir_x * right_extension, base_end.y + dir_y * right_extension)
+            arrow_points = [
+                {"point": edge, "direction": Point(dir_x, dir_y) if outside_mode else Point(-dir_x, -dir_y)},
+            ]
 
         dimension_segments = [
             Segment(dim_start, dim_end, style_name=dim_style_name, color=self.color),
@@ -662,7 +879,7 @@ class RadialDimension(DimensionBase):
             "dimension_arcs": [],
             "text_point": text_point,
             "text": self.display_text(state),
-            "text_angle": _normalized_text_angle(math.atan2(dir_y, dir_x)),
+            "text_angle": basis["text_angle"],
             "text_height_mm": text_height,
             "arrow_points": arrow_points,
             "grips": {
@@ -671,9 +888,16 @@ class RadialDimension(DimensionBase):
             },
         }
 
-    def move_grip(self, grip_name, new_point: Point):
+    def move_grip(self, grip_name, new_point: Point, state=None):
         if grip_name == "line":
             old_edge = self.edge_ref.resolve()
+            old_basis = self._radial_basis(state) if state is not None else None
+            text_coord = None
+            if old_basis is not None and self.manual_text_position is not None:
+                text_coord = (
+                    (self.manual_text_position.x - old_basis["base_start"].x) * old_basis["dir_x"]
+                    + (self.manual_text_position.y - old_basis["base_start"].y) * old_basis["dir_y"]
+                )
             edge_object = self.edge_ref.source_object
             if isinstance(edge_object, (Circle, Arc)):
                 projected = _project_point_to_radial_object(edge_object, new_point)
@@ -683,16 +907,50 @@ class RadialDimension(DimensionBase):
                 self.edge_ref.source_object = edge_object
                 self.leader_ref.break_associativity(projected)
                 new_point = projected
+            elif isinstance(edge_object, Rectangle) and self.edge_ref.ref_kind == "rectangle_fillet_angle":
+                arcs = edge_object.fillet_arcs()
+                idx = int(self.edge_ref.ref_index if self.edge_ref.ref_index is not None else -1)
+                if 0 <= idx < len(arcs):
+                    projected = _project_point_to_radial_object(arcs[idx], new_point)
+                    self.edge_ref.kind = "associative"
+                    self.edge_ref.point = projected
+                    self.edge_ref.ref_kind = "rectangle_fillet_angle"
+                    self.edge_ref.source_object = edge_object
+                    self.edge_ref.ref_index = idx
+                    self.leader_ref.break_associativity(projected)
+                    new_point = projected
+                else:
+                    self.edge_ref.break_associativity(new_point)
+                    self.leader_ref.break_associativity(new_point)
             else:
                 self.edge_ref.break_associativity(new_point)
                 self.leader_ref.break_associativity(new_point)
 
             if self.manual_text_position is not None:
+                if state is not None and text_coord is not None:
+                    new_basis = self._radial_basis(state)
+                    if new_basis is not None:
+                        self.manual_text_position = Point(
+                            new_basis["base_start"].x + new_basis["dir_x"] * text_coord,
+                            new_basis["base_start"].y + new_basis["dir_y"] * text_coord,
+                        )
+                        return
                 self.manual_text_position = Point(
                     self.manual_text_position.x + (new_point.x - old_edge.x),
                     self.manual_text_position.y + (new_point.y - old_edge.y),
                 )
         elif grip_name == "text":
+            if state is not None:
+                geometry = self.resolve_geometry(state)
+                if geometry and geometry["dimension_segments"]:
+                    dim_segment = geometry["dimension_segments"][0]
+                    self.manual_text_position = _translate_text_along_line(
+                        new_point,
+                        geometry["text_point"],
+                        dim_segment.p1,
+                        dim_segment.p2,
+                    )
+                    return
             self.manual_text_position = _point_from(new_point)
 
 
@@ -738,6 +996,48 @@ class AngularDimension(DimensionBase):
     def _default_dim_line_extension_mm(self, state):
         return 7.0
 
+    def _text_extension_requirements(self, state):
+        p1, vertex, p2, arc_point, start, end = self._angles()
+        style = self._style(state)
+        text_height = self._effective_text_height_mm(state)
+        radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
+        radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
+        if radius < 1e-9:
+            return 0.0, 0.0, None
+
+        bisector = start + _ccw_delta(start, end) / 2.0
+        text_point = Point(
+            vertex.x + (radius + radial_offset) * math.cos(bisector),
+            vertex.y + (radius + radial_offset) * math.sin(bisector),
+        )
+        if self.manual_text_position is not None:
+            manual_angle = math.atan2(self.manual_text_position.y - vertex.y, self.manual_text_position.x - vertex.x)
+            text_point = Point(
+                vertex.x + (radius + radial_offset) * math.cos(manual_angle),
+                vertex.y + (radius + radial_offset) * math.sin(manual_angle),
+            )
+
+        text_angle = math.atan2(text_point.y - vertex.y, text_point.x - vertex.x)
+        half_span_angle = (self._approx_text_width_mm(state, text_height=text_height) / 2.0) / radius
+        left_required = max(0.0, -_signed_angle_delta(start, text_angle) + half_span_angle)
+        right_required = max(0.0, _signed_angle_delta(end, text_angle) + half_span_angle)
+        return left_required * radius, right_required * radius, {
+            "vertex": vertex,
+            "radius": radius,
+            "text_point": text_point,
+            "text_angle": text_angle,
+            "text_height": text_height,
+            "start": start,
+            "end": end,
+            "p1": p1,
+            "p2": p2,
+            "arc_point": arc_point,
+        }
+
+    def _minimum_dim_line_extension_mm(self, state):
+        left_required, right_required, _ = self._text_extension_requirements(state)
+        return max(7.0, left_required, right_required)
+
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
         style = self._style(state)
@@ -746,15 +1046,16 @@ class AngularDimension(DimensionBase):
         dim_style_name = self._effective_dim_line_style_name(state)
         text_height = self._effective_text_height_mm(state)
         radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
-        dim_line_extension = self._effective_dim_line_extension_mm(state)
         radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
         if radius < 1e-9:
             return None
 
-        arc_extension = max(0.0, dim_line_extension)
-        arc_extension_angle = arc_extension / radius if radius > 1e-9 else 0.0
-        dim_start = start - arc_extension_angle
-        dim_end = end + arc_extension_angle
+        requested_extension = self._requested_dim_line_extension_mm(state)
+        left_required, right_required, basis = self._text_extension_requirements(state)
+        left_extension = max(requested_extension, 7.0, left_required)
+        right_extension = max(requested_extension, 7.0, right_required)
+        dim_start = start - (left_extension / radius if radius > 1e-9 else 0.0)
+        dim_end = end + (right_extension / radius if radius > 1e-9 else 0.0)
 
         dim_arc = Arc.from_center_angles(
             _point_from(vertex),
@@ -782,9 +1083,14 @@ class AngularDimension(DimensionBase):
             vertex.y + (radius + radial_offset) * math.sin(bisector),
         )
         if self.manual_text_position is not None:
-            text_point = _point_from(self.manual_text_position)
+            manual_angle = math.atan2(self.manual_text_position.y - vertex.y, self.manual_text_position.x - vertex.x)
+            text_point = Point(
+                vertex.x + (radius + radial_offset) * math.cos(manual_angle),
+                vertex.y + (radius + radial_offset) * math.sin(manual_angle),
+            )
 
-        tangent_angle = _normalized_text_angle(bisector + math.pi / 2.0)
+        text_angle_at_arc = basis["text_angle"] if basis is not None else bisector
+        tangent_angle = _normalized_text_angle(text_angle_at_arc + math.pi / 2.0)
 
         extension_segments = [
             Segment(vertex, ex1_end, style_name=ext_style_name, color=self.color),
@@ -814,7 +1120,7 @@ class AngularDimension(DimensionBase):
             },
         }
 
-    def move_grip(self, grip_name, new_point: Point):
+    def move_grip(self, grip_name, new_point: Point, state=None):
         if grip_name == "p1":
             self.p1_ref.break_associativity(new_point)
         elif grip_name == "vertex":
@@ -830,6 +1136,18 @@ class AngularDimension(DimensionBase):
                     self.manual_text_position.y + (new_point.y - old_arc.y),
                 )
         elif grip_name == "text":
+            if state is not None:
+                geometry = self.resolve_geometry(state)
+                if geometry and geometry["dimension_arcs"]:
+                    vertex = self.vertex_ref.resolve()
+                    current_text = geometry["text_point"]
+                    radius = math.hypot(current_text.x - vertex.x, current_text.y - vertex.y)
+                    angle = math.atan2(new_point.y - vertex.y, new_point.x - vertex.x)
+                    self.manual_text_position = Point(
+                        vertex.x + radius * math.cos(angle),
+                        vertex.y + radius * math.sin(angle),
+                    )
+                    return
             self.manual_text_position = _point_from(new_point)
 
 
@@ -865,6 +1183,38 @@ def make_radial_dimension_from_object(obj, leader_point: Point, prefix="R", **kw
             angle = obj.start_angle + obj.sweep_angle / 2.0
         edge_point = Point(obj.center.x + obj.radius * math.cos(angle), obj.center.y + obj.radius * math.sin(angle))
         edge_ref = GeometryReference("associative", _point_from(edge_point), source_object=obj, ref_kind="arc_angle")
+        leader_ref = GeometryReference.static(_point_from(leader_point))
+        return RadialDimension(center_ref, edge_ref, leader_ref, prefix=prefix, **kwargs)
+
+    if isinstance(obj, Rectangle):
+        arcs = obj.fillet_arcs()
+        if not arcs:
+            return None
+
+        arc_index, arc = min(
+            enumerate(arcs),
+            key=lambda item: item[1].distance_to_point(leader_point.x, leader_point.y),
+        )
+        angle = math.atan2(leader_point.y - arc.center.y, leader_point.x - arc.center.x)
+        angle = _clamp_angle_to_arc(angle, arc)
+        edge_point = Point(
+            arc.center.x + arc.radius * math.cos(angle),
+            arc.center.y + arc.radius * math.sin(angle),
+        )
+        center_ref = GeometryReference(
+            "associative",
+            _point_from(arc.center),
+            source_object=obj,
+            ref_kind="rectangle_fillet_center",
+            ref_index=arc_index,
+        )
+        edge_ref = GeometryReference(
+            "associative",
+            _point_from(edge_point),
+            source_object=obj,
+            ref_kind="rectangle_fillet_angle",
+            ref_index=arc_index,
+        )
         leader_ref = GeometryReference.static(_point_from(leader_point))
         return RadialDimension(center_ref, edge_ref, leader_ref, prefix=prefix, **kwargs)
 

@@ -497,6 +497,12 @@ class Rectangle(GeometryPrimitive):
             segments.append(Segment(p1, p2, style_name=self.style_name, color=self.color))
         return segments, arcs
 
+    def fillet_arcs(self):
+        if self.corner_type != 'fillet' or self._clamped_corner_value() <= 0:
+            return []
+        _, arcs = self.build_edges()
+        return arcs
+
     def distance_to_point(self, mx, my):
 
         segments, arcs = self.build_edges()
@@ -628,6 +634,15 @@ class Ellipse(GeometryPrimitive):
             y = self.center.y + a * cos_a * e1y + b * sin_a * e2y
             pts.append(Point(x, y))
         return pts
+
+    def axis_snap_points(self):
+        e1x, e1y, a, e2x, e2y, b = self._basis()
+        return [
+            Point(self.center.x + a * e1x, self.center.y + a * e1y),
+            Point(self.center.x - a * e1x, self.center.y - a * e1y),
+            Point(self.center.x + b * e2x, self.center.y + b * e2y),
+            Point(self.center.x - b * e2x, self.center.y - b * e2y),
+        ]
 
     def bounding_box(self):
 
