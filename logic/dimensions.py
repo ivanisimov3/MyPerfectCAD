@@ -14,6 +14,95 @@ def _distance_point_to_segment(px, py, a: Point, b: Point):
     return Segment(a, b).distance_to_point(px, py)
 
 
+def _segment_segment_intersection(seg1: Segment, seg2: Segment):
+    x1, y1 = seg1.p1.x, seg1.p1.y
+    x2, y2 = seg1.p2.x, seg1.p2.y
+    x3, y3 = seg2.p1.x, seg2.p1.y
+    x4, y4 = seg2.p2.x, seg2.p2.y
+
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denom) < 1e-12:
+        return None
+
+    det1 = x1 * y2 - y1 * x2
+    det2 = x3 * y4 - y3 * x4
+    px = (det1 * (x3 - x4) - (x1 - x2) * det2) / denom
+    py = (det1 * (y3 - y4) - (y1 - y2) * det2) / denom
+
+    def within(a, b, v):
+        return min(a, b) - 1e-9 <= v <= max(a, b) + 1e-9
+
+    if (
+        within(x1, x2, px)
+        and within(y1, y2, py)
+        and within(x3, x4, px)
+        and within(y3, y4, py)
+    ):
+        return Point(px, py)
+    return None
+
+
+def _descriptor_depends_on(descriptor, obj):
+    if not isinstance(descriptor, tuple) or not descriptor:
+        return descriptor is obj
+    kind = descriptor[0]
+    if kind in {"segment_obj", "circle_obj", "arc_obj", "ellipse_obj"}:
+        return len(descriptor) > 1 and descriptor[1] is obj
+    if kind in {"rectangle_edge", "polygon_edge"}:
+        return len(descriptor) > 1 and descriptor[1] is obj
+    return any(_descriptor_depends_on(item, obj) for item in descriptor[1:] if isinstance(item, tuple))
+
+
+def _resolve_intersection_descriptor(descriptor):
+    if not isinstance(descriptor, tuple) or not descriptor:
+        return None, None
+    kind = descriptor[0]
+    if kind == "segment_obj" and len(descriptor) >= 2:
+        return descriptor[1], "segment"
+    if kind == "circle_obj" and len(descriptor) >= 2:
+        return descriptor[1], "circle"
+    if kind == "arc_obj" and len(descriptor) >= 2:
+        return descriptor[1], "arc"
+    if kind == "ellipse_obj" and len(descriptor) >= 2:
+        return descriptor[1], "ellipse"
+    if kind == "rectangle_edge" and len(descriptor) >= 3:
+        rect = descriptor[1]
+        idx = int(descriptor[2])
+        edges, _ = rect.build_edges()
+        if 0 <= idx < len(edges):
+            return edges[idx], "segment"
+    if kind == "polygon_edge" and len(descriptor) >= 3:
+        poly = descriptor[1]
+        idx = int(descriptor[2])
+        edges = poly.edges()
+        if 0 <= idx < len(edges):
+            return edges[idx], "segment"
+    return None, None
+
+
+def _dynamic_intersection_point(source_object, fallback_point: Point):
+    if not isinstance(source_object, tuple) or len(source_object) != 2:
+        return None
+    descriptor1, descriptor2 = source_object
+    obj1, type1 = _resolve_intersection_descriptor(descriptor1)
+    obj2, type2 = _resolve_intersection_descriptor(descriptor2)
+    if obj1 is None or obj2 is None or type1 is None or type2 is None:
+        return None
+
+    from logic.snap import SnapManager
+
+    snap_manager = SnapManager(None)
+    intersections = snap_manager._intersect_objects(obj1, type1, obj2, type2)
+    if not intersections:
+        return None
+
+    best_x, best_y = min(
+        intersections,
+        key=lambda item: (item[0] - fallback_point.x) ** 2 + (item[1] - fallback_point.y) ** 2,
+    )
+    return Point(best_x, best_y)
+
+
 def _project_point_to_segment(point: Point, a: Point, b: Point):
     dx = b.x - a.x
     dy = b.y - a.y
@@ -144,6 +233,17 @@ class GeometryReference:
                     obj.p1.x + (obj.p2.x - obj.p1.x) * t,
                     obj.p1.y + (obj.p2.y - obj.p1.y) * t,
                 )
+            if self.ref_kind == "dynamic_intersection":
+                point = _dynamic_intersection_point(obj, self.point)
+                if point is not None:
+                    return point
+                return self.clone_point()
+            if self.ref_kind == "segment_intersection":
+                if isinstance(obj, tuple) and len(obj) == 2 and all(isinstance(seg, Segment) for seg in obj):
+                    point = _segment_segment_intersection(obj[0], obj[1])
+                    if point is not None:
+                        return point
+                    return self.clone_point()
             if self.ref_kind == "circle_center":
                 return _point_from(obj.center)
             if self.ref_kind == "circle_angle":
@@ -236,6 +336,8 @@ class GeometryReference:
         self.ref_index = None
 
     def depends_on(self, obj):
+        if isinstance(self.source_object, tuple):
+            return any(_descriptor_depends_on(item, obj) for item in self.source_object)
         return self.source_object is obj
 
 

@@ -233,28 +233,37 @@ class SnapManager:
         priority = self.PRIORITY[SnapType.INTERSECTION]
         
         all_objects = []
-        all_objects.extend([(seg, 'segment') for seg in self.state.segments if self._is_obj_visible(seg)])
-        all_objects.extend([(circle, 'circle') for circle in self.state.circles if self._is_obj_visible(circle)])
-        all_objects.extend([(arc, 'arc') for arc in self.state.arcs if self._is_obj_visible(arc)])
-        all_objects.extend([(ellipse, 'ellipse') for ellipse in self.state.ellipses if self._is_obj_visible(ellipse)])
+        all_objects.extend([(seg, 'segment', ('segment_obj', seg)) for seg in self.state.segments if self._is_obj_visible(seg)])
+        all_objects.extend([(circle, 'circle', ('circle_obj', circle)) for circle in self.state.circles if self._is_obj_visible(circle)])
+        all_objects.extend([(arc, 'arc', ('arc_obj', arc)) for arc in self.state.arcs if self._is_obj_visible(arc)])
+        all_objects.extend([(ellipse, 'ellipse', ('ellipse_obj', ellipse)) for ellipse in self.state.ellipses if self._is_obj_visible(ellipse)])
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
             edges, _ = rect.build_edges()
-            for edge in edges:
-                all_objects.append((edge, 'segment'))
+            for idx, edge in enumerate(edges):
+                all_objects.append((edge, 'segment', ('rectangle_edge', rect, idx)))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
-            for edge in poly.edges():
-                all_objects.append((edge, 'segment'))
+            for idx, edge in enumerate(poly.edges()):
+                all_objects.append((edge, 'segment', ('polygon_edge', poly, idx)))
         
-        for i, (obj1, type1) in enumerate(all_objects):
-            for obj2, type2 in all_objects[i+1:]:
+        for i, (obj1, type1, descriptor1) in enumerate(all_objects):
+            for obj2, type2, descriptor2 in all_objects[i+1:]:
                 intersections = self._intersect_objects(obj1, type1, obj2, type2)
                 for ix, iy in intersections:
                     if self._in_range(ix, iy, cx, cy, radius):
-                        points.append(SnapPoint(ix, iy, SnapType.INTERSECTION, (obj1, obj2), priority))
+                        points.append(
+                            SnapPoint(
+                                ix,
+                                iy,
+                                SnapType.INTERSECTION,
+                                (descriptor1, descriptor2),
+                                priority,
+                                ref_kind='dynamic_intersection',
+                            )
+                        )
         
         return points
     
