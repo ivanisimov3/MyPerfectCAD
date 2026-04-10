@@ -598,7 +598,7 @@ class LinearDimension(DimensionBase):
         return self._format_linear(self.measured_value(state), state)
 
     def _outside_arrow_mode(self, state):
-        return self.measured_value(state) < 12.0
+        return self.measured_value(state) <= 12.0
 
     def _line_basis(self, state):
         p1, p2, line_pt = self._resolved_points()
@@ -617,6 +617,8 @@ class LinearDimension(DimensionBase):
             normal = Point(0.0, sign)
             text_point = Point((dim_p1.x + dim_p2.x) / 2.0, dim_y + sign * text_gap)
             text_angle = 0.0
+            axis_start = dim_p1 if dim_p1.x <= dim_p2.x else dim_p2
+            axis_end = dim_p2 if dim_p1.x <= dim_p2.x else dim_p1
         elif self.mode == "vertical":
             dim_dir = Point(0.0, 1.0)
             dim_x = line_pt.x
@@ -628,6 +630,8 @@ class LinearDimension(DimensionBase):
             normal = Point(sign, 0.0)
             text_point = Point(dim_x + sign * text_gap, (dim_p1.y + dim_p2.y) / 2.0)
             text_angle = math.pi / 2
+            axis_start = dim_p1 if dim_p1.y <= dim_p2.y else dim_p2
+            axis_end = dim_p2 if dim_p1.y <= dim_p2.y else dim_p1
         else:
             vx = p2.x - p1.x
             vy = p2.y - p1.y
@@ -651,9 +655,11 @@ class LinearDimension(DimensionBase):
                 (dim_p1.y + dim_p2.y) / 2.0 + normal.y * text_gap,
             )
             text_angle = _normalized_text_angle(math.atan2(uy, ux))
+            axis_start = dim_p1
+            axis_end = dim_p2
 
         if self.manual_text_position is not None:
-            text_point = _reapply_text_offset_on_line(self.manual_text_position, text_point, dim_p1, dim_p2)
+            text_point = _reapply_text_offset_on_line(self.manual_text_position, text_point, axis_start, axis_end)
 
         return {
             "p1": p1,
@@ -661,6 +667,8 @@ class LinearDimension(DimensionBase):
             "line_pt": line_pt,
             "dim_p1": dim_p1,
             "dim_p2": dim_p2,
+            "axis_start": axis_start,
+            "axis_end": axis_end,
             "base1": base1,
             "base2": base2,
             "dim_dir": dim_dir,
@@ -675,8 +683,8 @@ class LinearDimension(DimensionBase):
         if basis is None:
             return 0.0, 0.0, None
 
-        dim_p1 = basis["dim_p1"]
-        dim_p2 = basis["dim_p2"]
+        dim_p1 = basis["axis_start"]
+        dim_p2 = basis["axis_end"]
         dim_dir = basis["dim_dir"]
         text_point = basis["text_point"]
         length = math.hypot(dim_p2.x - dim_p1.x, dim_p2.y - dim_p1.y)
@@ -702,6 +710,8 @@ class LinearDimension(DimensionBase):
         line_pt = basis["line_pt"]
         dim_p1 = basis["dim_p1"]
         dim_p2 = basis["dim_p2"]
+        axis_start = basis["axis_start"]
+        axis_end = basis["axis_end"]
         base1 = basis["base1"]
         base2 = basis["base2"]
         dim_dir = basis["dim_dir"]
@@ -723,8 +733,8 @@ class LinearDimension(DimensionBase):
         ext1_end = Point(dim_p1.x + normal.x * extension_overrun, dim_p1.y + normal.y * extension_overrun)
         ext2_end = Point(dim_p2.x + normal.x * extension_overrun, dim_p2.y + normal.y * extension_overrun)
 
-        dim_start = Point(dim_p1.x - dim_dir.x * left_extension, dim_p1.y - dim_dir.y * left_extension)
-        dim_end = Point(dim_p2.x + dim_dir.x * right_extension, dim_p2.y + dim_dir.y * right_extension)
+        dim_start = Point(axis_start.x - dim_dir.x * left_extension, axis_start.y - dim_dir.y * left_extension)
+        dim_end = Point(axis_end.x + dim_dir.x * right_extension, axis_end.y + dim_dir.y * right_extension)
 
         extension_segments = [
             Segment(ext1_start, ext1_end, style_name=ext_style_name, color=self.color),
@@ -746,13 +756,13 @@ class LinearDimension(DimensionBase):
             "text_height_mm": text_height,
             "arrow_points": (
                 [
-                    {"point": dim_p1, "direction": Point(-dim_dir.x, -dim_dir.y)},
-                    {"point": dim_p2, "direction": Point(dim_dir.x, dim_dir.y)},
+                    {"point": axis_start, "direction": Point(-dim_dir.x, -dim_dir.y)},
+                    {"point": axis_end, "direction": Point(dim_dir.x, dim_dir.y)},
                 ]
                 if self._outside_arrow_mode(state)
                 else [
-                    {"point": dim_p1, "direction": Point(dim_dir.x, dim_dir.y)},
-                    {"point": dim_p2, "direction": Point(-dim_dir.x, -dim_dir.y)},
+                    {"point": axis_start, "direction": Point(dim_dir.x, dim_dir.y)},
+                    {"point": axis_end, "direction": Point(-dim_dir.x, -dim_dir.y)},
                 ]
             ),
             "grips": {
