@@ -1638,7 +1638,7 @@ class Renderer:
                 flat_coords.extend([x, y])
             self.canvas.create_line(*flat_coords, fill=draw_color, width=line_width, smooth=False)
 
-    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True, arrow_type="triangle"):
+    def _draw_dimension_arrow(self, point, direction, color, size_px, filled=True, arrow_type="triangle", edge_aligned=False, flare_sign=1.0):
         sx, sy = self.converter.world_to_screen(point.x, point.y)
         dx = direction.x
         dy = direction.y
@@ -1702,18 +1702,54 @@ class Renderer:
 
         back_x = sx + ux * size_px
         back_y = sy + uy * size_px
-        wing = size_px * 0.45
-        points = [
-            sx, sy,
-            back_x + nx * wing, back_y + ny * wing,
-            back_x - nx * wing, back_y - ny * wing,
-        ]
-        self.canvas.create_polygon(
-            *points,
-            outline=color,
-            fill=color if filled else "",
-            width=1,
-        )
+        apex_angle = math.radians(20.0)
+        half_apex_angle = apex_angle / 2.0
+        if edge_aligned:
+            edge_len = size_px / max(1e-9, math.cos(half_apex_angle))
+            primary_x = ux * edge_len
+            primary_y = uy * edge_len
+            cos_a = math.cos(apex_angle * flare_sign)
+            sin_a = math.sin(apex_angle * flare_sign)
+            secondary_x = primary_x * cos_a - primary_y * sin_a
+            secondary_y = primary_x * sin_a + primary_y * cos_a
+            if filled:
+                self.canvas.create_polygon(
+                    sx,
+                    sy,
+                    sx + primary_x,
+                    sy + primary_y,
+                    sx + secondary_x,
+                    sy + secondary_y,
+                    outline=color,
+                    fill=color,
+                    width=1,
+                )
+                return
+            self.canvas.create_line(sx, sy, sx + primary_x, sy + primary_y, fill=color, width=1)
+            self.canvas.create_line(sx, sy, sx + secondary_x, sy + secondary_y, fill=color, width=1)
+            return
+
+        wing = size_px * math.tan(half_apex_angle)
+        left_x = back_x + nx * wing
+        left_y = back_y + ny * wing
+        right_x = back_x - nx * wing
+        right_y = back_y - ny * wing
+        if filled:
+            self.canvas.create_polygon(
+                sx,
+                sy,
+                left_x,
+                left_y,
+                right_x,
+                right_y,
+                outline=color,
+                fill=color,
+                width=1,
+            )
+            return
+
+        self.canvas.create_line(sx, sy, left_x, left_y, fill=color, width=1)
+        self.canvas.create_line(sx, sy, right_x, right_y, fill=color, width=1)
 
     def _dimension_font_spec(self, font_name):
         normalized = (font_name or "").strip().lower()
@@ -1777,6 +1813,8 @@ class Renderer:
                 arrow_size_px,
                 filled=dimension._effective_arrow_filled(self.state),
                 arrow_type=arrow_type,
+                edge_aligned=bool(arrow.get("edge_aligned")),
+                flare_sign=float(arrow.get("flare_sign", 1.0)),
             )
 
         text_point = geometry.get("text_point")

@@ -480,6 +480,17 @@ class DimensionBase:
             return -1.0
         return 1.0
 
+    def _text_line_offset_mm(self, state, text_height=None):
+        position = self._effective_text_position_mode(state)
+        if position == "center":
+            return 0.0
+
+        style = self._style(state)
+        current_height = self._effective_text_height_mm(state) if text_height is None else max(0.1, float(text_height))
+        default_height = max(0.1, float(style.text_height_mm))
+        edge_clearance = max(0.0, float(style.text_gap_mm) - default_height * 0.5)
+        return edge_clearance + current_height * 0.5
+
     def _capture_appearance_state(self):
         return {attr: getattr(self, attr, None) for attr in self.APPEARANCE_ATTRS}
 
@@ -603,8 +614,8 @@ class LinearDimension(DimensionBase):
     def _line_basis(self, state):
         p1, p2, line_pt = self._resolved_points()
         style = self._style(state)
-        text_gap = style.text_gap_mm * self._text_offset_factor(state)
         text_height = self._effective_text_height_mm(state)
+        text_gap = self._text_line_offset_mm(state, text_height) * self._text_offset_factor(state)
 
         if self.mode == "horizontal":
             dim_dir = Point(1.0, 0.0)
@@ -859,9 +870,8 @@ class RadialDimension(DimensionBase):
     def _radial_basis(self, state):
         center = self.center_ref.resolve()
         edge = self.edge_ref.resolve()
-        style = self._style(state)
-        text_gap = style.text_gap_mm * self._text_offset_factor(state)
         text_height = self._effective_text_height_mm(state)
+        text_gap = self._text_line_offset_mm(state, text_height) * self._text_offset_factor(state)
 
         radius = math.hypot(edge.x - center.x, edge.y - center.y)
         if radius < 1e-9:
@@ -1195,6 +1205,22 @@ class AngularDimension(DimensionBase):
 
         text_angle_at_arc = basis["text_angle"] if basis is not None else bisector
         tangent_angle = _normalized_text_angle(text_angle_at_arc + math.pi / 2.0)
+        arrow_span_angle = min(
+            math.radians(30.0),
+            max(1e-6, self._effective_arrow_size_mm(state) / max(radius, 1e-6)),
+        )
+        start_base_angle = max(dim_start, start - arrow_span_angle)
+        end_base_angle = min(dim_end, end + arrow_span_angle)
+        start_base_mid = Point(
+            vertex.x + radius * math.cos(start_base_angle),
+            vertex.y + radius * math.sin(start_base_angle),
+        )
+        end_base_mid = Point(
+            vertex.x + radius * math.cos(end_base_angle),
+            vertex.y + radius * math.sin(end_base_angle),
+        )
+        start_direction = Point(start_base_mid.x - start_point.x, start_base_mid.y - start_point.y)
+        end_direction = Point(end_base_mid.x - end_point.x, end_base_mid.y - end_point.y)
 
         extension_segments = [
             Segment(vertex, ex1_end, style_name=ext_style_name, color=self.color),
@@ -1212,8 +1238,14 @@ class AngularDimension(DimensionBase):
             "text_angle": tangent_angle,
             "text_height_mm": text_height,
             "arrow_points": [
-                {"point": start_point, "direction": Point(math.sin(start), -math.cos(start))},
-                {"point": end_point, "direction": Point(-math.sin(end), math.cos(end))},
+                {
+                    "point": start_point,
+                    "direction": start_direction,
+                },
+                {
+                    "point": end_point,
+                    "direction": end_direction,
+                },
             ],
             "grips": {
                 "p1": p1,
