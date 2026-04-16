@@ -37,6 +37,7 @@ class SnapPoint:
 class SnapManager:
 
     SPLINE_SAMPLES_PER_SEGMENT = 32
+    MAX_SPLINE_MIDPOINT_CONTROL_POINTS = 200
 
     PRIORITY = {
         SnapType.ENDPOINT: 1,
@@ -231,6 +232,10 @@ class SnapManager:
 
         for spline in self.state.splines:
             if not self._is_obj_visible(spline): continue
+            if len(spline.control_points) > self.MAX_SPLINE_MIDPOINT_CONTROL_POINTS:
+                continue
+            if not self._spline_control_bbox_near_cursor(spline, cx, cy, radius):
+                continue
             midpoint = self._point_on_spline_fraction(spline, 0.5)
             if midpoint and self._in_range(midpoint.x, midpoint.y, cx, cy, radius):
                 points.append(SnapPoint(midpoint.x, midpoint.y, SnapType.MIDPOINT, spline, priority, ref_kind='spline_length_fraction', ref_index=0.5))
@@ -300,7 +305,7 @@ class SnapManager:
 
         for spline in self.state.splines:
             if not self._is_obj_visible(spline): continue
-            for idx, seg in enumerate(self._spline_segments(spline)):
+            for idx, seg in self._spline_segments(spline, cx, cy, radius):
                 all_objects.append((seg, 'segment', ('spline_segment', spline, idx, self.SPLINE_SAMPLES_PER_SEGMENT)))
         
         for i, (obj1, type1, descriptor1) in enumerate(all_objects):
@@ -323,15 +328,57 @@ class SnapManager:
         
         return points
 
-    def _spline_segments(self, spline: Spline) -> List[Segment]:
+    def _spline_segments(self, spline: Spline, cx: float = None, cy: float = None, radius: float = None) -> List[Tuple[int, Segment]]:
 
-        pts = spline.sample_points(self.SPLINE_SAMPLES_PER_SEGMENT)
+        control_points = spline.control_points
+        if len(control_points) < 2:
+            return []
+
+        use_cursor_filter = cx is not None and cy is not None and radius is not None
+        ext = [control_points[0]] + control_points + [control_points[-1]]
+        samples = self.SPLINE_SAMPLES_PER_SEGMENT
         segments = []
-        for p1, p2 in zip(pts[:-1], pts[1:]):
-            if (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2 < 1e-12:
+        segment_index = 0
+
+        for i in range(len(control_points) - 1):
+            p0, p1, p2, p3 = ext[i], ext[i + 1], ext[i + 2], ext[i + 3]
+
+            if use_cursor_filter and not self._points_bbox_near_cursor((p0, p1, p2, p3), cx, cy, radius):
+                segment_index += samples
                 continue
-            segments.append(Segment(p1, p2, style_name=spline.style_name, color=spline.color))
+
+            prev = spline._catmull_rom_point(p0, p1, p2, p3, 0.0)
+            for sample_idx in range(1, samples + 1):
+                t = sample_idx / samples
+                current = spline._catmull_rom_point(p0, p1, p2, p3, t)
+                if (current.x - prev.x) ** 2 + (current.y - prev.y) ** 2 >= 1e-12:
+                    seg = Segment(prev, current, style_name=spline.style_name, color=spline.color)
+                    if not use_cursor_filter or seg.distance_to_point(cx, cy) <= radius:
+                        segments.append((segment_index, seg))
+                segment_index += 1
+                prev = current
+
         return segments
+
+    def _spline_control_bbox_near_cursor(self, spline: Spline, cx: float, cy: float, radius: float) -> bool:
+
+        return self._points_bbox_near_cursor(spline.control_points, cx, cy, radius)
+
+    def _points_bbox_near_cursor(self, points, cx: float, cy: float, radius: float) -> bool:
+
+        if not points:
+            return False
+
+        min_x = min(p.x for p in points)
+        max_x = max(p.x for p in points)
+        min_y = min(p.y for p in points)
+        max_y = max(p.y for p in points)
+        margin = max(radius, 0.0) + 1e-9
+
+        return (
+            min_x - margin <= cx <= max_x + margin
+            and min_y - margin <= cy <= max_y + margin
+        )
 
     def _point_on_spline_fraction(self, spline: Spline, fraction: float) -> Optional[Point]:
 
@@ -736,7 +783,7 @@ class SnapManager:
             if not self._is_obj_visible(spline): continue
             best_perp = None
             best_dist_sq = None
-            for seg in self._spline_segments(spline):
+            for _, seg in self._spline_segments(spline, cx, cy, radius):
                 perp = self._perpendicular_to_segment(from_point, seg)
                 if not perp:
                     continue
