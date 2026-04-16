@@ -36,6 +36,8 @@ class SnapPoint:
 
 class SnapManager:
 
+    SPLINE_SAMPLES_PER_SEGMENT = 32
+
     PRIORITY = {
         SnapType.ENDPOINT: 1,
         SnapType.CENTER: 2,
@@ -128,10 +130,38 @@ class SnapManager:
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
-            corners = rect.corners()
-            for idx, corner in enumerate(corners):
-                if self._in_range(corner.x, corner.y, cx, cy, radius):
-                    points.append(SnapPoint(corner.x, corner.y, SnapType.ENDPOINT, rect, priority, ref_kind='rectangle_corner', ref_index=idx))
+            if rect.corner_type == 'none' or rect._clamped_corner_value() <= 0:
+                corners = rect.corners()
+                for idx, corner in enumerate(corners):
+                    if self._in_range(corner.x, corner.y, cx, cy, radius):
+                        points.append(SnapPoint(corner.x, corner.y, SnapType.ENDPOINT, rect, priority, ref_kind='rectangle_corner', ref_index=idx))
+            else:
+                seen = []
+
+                def append_endpoint(p, ref_kind, ref_index):
+                    if not self._in_range(p.x, p.y, cx, cy, radius):
+                        return
+                    if any((p.x - sx) ** 2 + (p.y - sy) ** 2 < 1e-10 for sx, sy in seen):
+                        return
+                    seen.append((p.x, p.y))
+                    points.append(SnapPoint(p.x, p.y, SnapType.ENDPOINT, rect, priority, ref_kind=ref_kind, ref_index=ref_index))
+
+                edges, arcs = rect.build_edges()
+                for edge_idx, edge in enumerate(edges):
+                    append_endpoint(edge.p1, 'rectangle_edge_endpoint', edge_idx * 2)
+                    append_endpoint(edge.p2, 'rectangle_edge_endpoint', edge_idx * 2 + 1)
+
+                for arc_idx, arc in enumerate(arcs):
+                    start = Point(
+                        arc.center.x + arc.radius * math.cos(arc.start_angle),
+                        arc.center.y + arc.radius * math.sin(arc.start_angle),
+                    )
+                    end = Point(
+                        arc.center.x + arc.radius * math.cos(arc.end_angle),
+                        arc.center.y + arc.radius * math.sin(arc.end_angle),
+                    )
+                    append_endpoint(start, 'rectangle_fillet_endpoint', arc_idx * 2)
+                    append_endpoint(end, 'rectangle_fillet_endpoint', arc_idx * 2 + 1)
 
         for ellipse in self.state.ellipses:
             if not self._is_obj_visible(ellipse): continue
@@ -168,12 +198,19 @@ class SnapManager:
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
-            edges, _ = rect.build_edges()
-            for edge in edges:
+            edges, arcs = rect.build_edges()
+            for edge_idx, edge in enumerate(edges):
                 mid_x = (edge.p1.x + edge.p2.x) / 2
                 mid_y = (edge.p1.y + edge.p2.y) / 2
                 if self._in_range(mid_x, mid_y, cx, cy, radius):
-                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, rect, priority, ref_kind='rectangle_edge_midpoint', ref_index=edges.index(edge)))
+                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, rect, priority, ref_kind='rectangle_edge_midpoint', ref_index=edge_idx))
+
+            for arc_idx, arc in enumerate(arcs):
+                mid_angle = arc.start_angle + arc.sweep_angle / 2
+                mid_x = arc.center.x + arc.radius * math.cos(mid_angle)
+                mid_y = arc.center.y + arc.radius * math.sin(mid_angle)
+                if self._in_range(mid_x, mid_y, cx, cy, radius):
+                    points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, rect, priority, ref_kind='rectangle_fillet_angle', ref_index=arc_idx))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
@@ -191,6 +228,12 @@ class SnapManager:
             mid_y = arc.center.y + arc.radius * math.sin(mid_angle)
             if self._in_range(mid_x, mid_y, cx, cy, radius):
                 points.append(SnapPoint(mid_x, mid_y, SnapType.MIDPOINT, arc, priority, ref_kind='arc_midpoint'))
+
+        for spline in self.state.splines:
+            if not self._is_obj_visible(spline): continue
+            midpoint = self._point_on_spline_fraction(spline, 0.5)
+            if midpoint and self._in_range(midpoint.x, midpoint.y, cx, cy, radius):
+                points.append(SnapPoint(midpoint.x, midpoint.y, SnapType.MIDPOINT, spline, priority, ref_kind='spline_length_fraction', ref_index=0.5))
         
         return points
     
@@ -219,6 +262,10 @@ class SnapManager:
             center = rect.center
             if self._in_range(center.x, center.y, cx, cy, radius):
                 points.append(SnapPoint(center.x, center.y, SnapType.CENTER, rect, priority, ref_kind='rectangle_center'))
+
+            for arc_idx, arc in enumerate(rect.fillet_arcs()):
+                if self._in_range(arc.center.x, arc.center.y, cx, cy, radius):
+                    points.append(SnapPoint(arc.center.x, arc.center.y, SnapType.CENTER, rect, priority, ref_kind='rectangle_fillet_center', ref_index=arc_idx))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
@@ -240,17 +287,26 @@ class SnapManager:
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
-            edges, _ = rect.build_edges()
+            edges, arcs = rect.build_edges()
             for idx, edge in enumerate(edges):
                 all_objects.append((edge, 'segment', ('rectangle_edge', rect, idx)))
+            for idx, arc in enumerate(arcs):
+                all_objects.append((arc, 'arc', ('rectangle_fillet_arc', rect, idx)))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
             for idx, edge in enumerate(poly.edges()):
                 all_objects.append((edge, 'segment', ('polygon_edge', poly, idx)))
+
+        for spline in self.state.splines:
+            if not self._is_obj_visible(spline): continue
+            for idx, seg in enumerate(self._spline_segments(spline)):
+                all_objects.append((seg, 'segment', ('spline_segment', spline, idx, self.SPLINE_SAMPLES_PER_SEGMENT)))
         
         for i, (obj1, type1, descriptor1) in enumerate(all_objects):
             for obj2, type2, descriptor2 in all_objects[i+1:]:
+                if self._should_skip_intersection_pair(descriptor1, descriptor2):
+                    continue
                 intersections = self._intersect_objects(obj1, type1, obj2, type2)
                 for ix, iy in intersections:
                     if self._in_range(ix, iy, cx, cy, radius):
@@ -266,6 +322,59 @@ class SnapManager:
                         )
         
         return points
+
+    def _spline_segments(self, spline: Spline) -> List[Segment]:
+
+        pts = spline.sample_points(self.SPLINE_SAMPLES_PER_SEGMENT)
+        segments = []
+        for p1, p2 in zip(pts[:-1], pts[1:]):
+            if (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2 < 1e-12:
+                continue
+            segments.append(Segment(p1, p2, style_name=spline.style_name, color=spline.color))
+        return segments
+
+    def _point_on_spline_fraction(self, spline: Spline, fraction: float) -> Optional[Point]:
+
+        pts = spline.sample_points(self.SPLINE_SAMPLES_PER_SEGMENT)
+        if not pts:
+            return None
+        if len(pts) == 1:
+            return Point(pts[0].x, pts[0].y)
+
+        lengths = []
+        total = 0.0
+        for p1, p2 in zip(pts[:-1], pts[1:]):
+            length = math.hypot(p2.x - p1.x, p2.y - p1.y)
+            lengths.append(length)
+            total += length
+
+        if total < 1e-12:
+            return Point(pts[0].x, pts[0].y)
+
+        target = max(0.0, min(1.0, float(fraction))) * total
+        traveled = 0.0
+        for idx, length in enumerate(lengths):
+            if length < 1e-12:
+                continue
+            if traveled + length >= target:
+                t = (target - traveled) / length
+                p1 = pts[idx]
+                p2 = pts[idx + 1]
+                return Point(
+                    p1.x + (p2.x - p1.x) * t,
+                    p1.y + (p2.y - p1.y) * t,
+                )
+            traveled += length
+
+        return Point(pts[-1].x, pts[-1].y)
+
+    def _should_skip_intersection_pair(self, descriptor1, descriptor2) -> bool:
+
+        if not (isinstance(descriptor1, tuple) and isinstance(descriptor2, tuple)):
+            return False
+        if descriptor1[0] == 'spline_segment' and descriptor2[0] == 'spline_segment':
+            return len(descriptor1) > 1 and len(descriptor2) > 1 and descriptor1[1] is descriptor2[1]
+        return False
     
     def _intersect_objects(self, obj1, type1: str, obj2, type2: str) -> List[Tuple[float, float]]:
 
@@ -583,11 +692,18 @@ class SnapManager:
         
         for rect in self.state.rectangles:
             if not self._is_obj_visible(rect): continue
-            edges, _ = rect.build_edges()
+            edges, arcs = rect.build_edges()
             for edge in edges:
                 perp = self._perpendicular_to_segment(from_point, edge)
                 if perp and self._in_range(perp[0], perp[1], cx, cy, radius):
                     points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, rect, priority))
+
+            for arc_idx, arc in enumerate(arcs):
+                perp = self._perpendicular_to_circle(from_point, Circle(arc.center, arc.radius))
+                if perp:
+                    angle = math.atan2(perp[1] - arc.center.y, perp[0] - arc.center.x)
+                    if self._angle_on_arc(angle, arc) and self._in_range(perp[0], perp[1], cx, cy, radius):
+                        points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, rect, priority, ref_kind='rectangle_fillet_angle', ref_index=arc_idx))
         
         for poly in self.state.polygons:
             if not self._is_obj_visible(poly): continue
@@ -615,6 +731,21 @@ class SnapManager:
             perp = self._perpendicular_to_ellipse(from_point, ellipse)
             if perp and self._in_range(perp[0], perp[1], cx, cy, radius):
                 points.append(SnapPoint(perp[0], perp[1], SnapType.PERPENDICULAR, ellipse, priority))
+
+        for spline in self.state.splines:
+            if not self._is_obj_visible(spline): continue
+            best_perp = None
+            best_dist_sq = None
+            for seg in self._spline_segments(spline):
+                perp = self._perpendicular_to_segment(from_point, seg)
+                if not perp:
+                    continue
+                dist_sq = (perp[0] - cx) ** 2 + (perp[1] - cy) ** 2
+                if dist_sq <= radius ** 2 and (best_dist_sq is None or dist_sq < best_dist_sq):
+                    best_perp = perp
+                    best_dist_sq = dist_sq
+            if best_perp:
+                points.append(SnapPoint(best_perp[0], best_perp[1], SnapType.PERPENDICULAR, spline, priority))
         
         return points
     
@@ -675,6 +806,14 @@ class SnapManager:
             for tx, ty in tangent_points:
                 if self._in_range(tx, ty, cx, cy, radius):
                     points.append(SnapPoint(tx, ty, SnapType.TANGENT, ellipse, priority))
+
+        for rect in self.state.rectangles:
+            if not self._is_obj_visible(rect): continue
+            for arc_idx, arc in enumerate(rect.fillet_arcs()):
+                tangent_points = self._tangent_to_arc(from_point, arc)
+                for tx, ty in tangent_points:
+                    if self._in_range(tx, ty, cx, cy, radius):
+                        points.append(SnapPoint(tx, ty, SnapType.TANGENT, rect, priority, ref_kind='rectangle_fillet_angle', ref_index=arc_idx))
         
         return points
     

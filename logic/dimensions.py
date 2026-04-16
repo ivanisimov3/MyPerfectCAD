@@ -48,7 +48,7 @@ def _descriptor_depends_on(descriptor, obj):
     kind = descriptor[0]
     if kind in {"segment_obj", "circle_obj", "arc_obj", "ellipse_obj"}:
         return len(descriptor) > 1 and descriptor[1] is obj
-    if kind in {"rectangle_edge", "polygon_edge"}:
+    if kind in {"rectangle_edge", "rectangle_fillet_arc", "polygon_edge", "spline_segment"}:
         return len(descriptor) > 1 and descriptor[1] is obj
     return any(_descriptor_depends_on(item, obj) for item in descriptor[1:] if isinstance(item, tuple))
 
@@ -71,12 +71,29 @@ def _resolve_intersection_descriptor(descriptor):
         edges, _ = rect.build_edges()
         if 0 <= idx < len(edges):
             return edges[idx], "segment"
+    if kind == "rectangle_fillet_arc" and len(descriptor) >= 3:
+        rect = descriptor[1]
+        idx = int(descriptor[2])
+        arcs = rect.fillet_arcs()
+        if 0 <= idx < len(arcs):
+            return arcs[idx], "arc"
     if kind == "polygon_edge" and len(descriptor) >= 3:
         poly = descriptor[1]
         idx = int(descriptor[2])
         edges = poly.edges()
         if 0 <= idx < len(edges):
             return edges[idx], "segment"
+    if kind == "spline_segment" and len(descriptor) >= 3:
+        spline = descriptor[1]
+        idx = int(descriptor[2])
+        samples = int(descriptor[3]) if len(descriptor) >= 4 else 32
+        pts = spline.sample_points(samples)
+        segments = []
+        for p1, p2 in zip(pts[:-1], pts[1:]):
+            if (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2 >= 1e-12:
+                segments.append(Segment(p1, p2))
+        if 0 <= idx < len(segments):
+            return segments[idx], "segment"
     return None, None
 
 
@@ -292,6 +309,25 @@ class GeometryReference:
                 if self.ref_index is not None and 0 <= self.ref_index < len(edges):
                     edge = edges[self.ref_index]
                     return Point((edge.p1.x + edge.p2.x) / 2.0, (edge.p1.y + edge.p2.y) / 2.0)
+            if self.ref_kind == "rectangle_edge_endpoint":
+                edges, _ = obj.build_edges()
+                idx = int(self.ref_index if self.ref_index is not None else 0)
+                edge_idx = idx // 2
+                point_idx = idx % 2
+                if 0 <= edge_idx < len(edges):
+                    return _point_from(edges[edge_idx].p1 if point_idx == 0 else edges[edge_idx].p2)
+            if self.ref_kind == "rectangle_fillet_endpoint":
+                arcs = obj.fillet_arcs()
+                idx = int(self.ref_index if self.ref_index is not None else 0)
+                arc_idx = idx // 2
+                point_idx = idx % 2
+                if 0 <= arc_idx < len(arcs):
+                    arc = arcs[arc_idx]
+                    angle = arc.start_angle if point_idx == 0 else arc.end_angle
+                    return Point(
+                        arc.center.x + arc.radius * math.cos(angle),
+                        arc.center.y + arc.radius * math.sin(angle),
+                    )
             if self.ref_kind == "rectangle_fillet_center":
                 arcs = obj.fillet_arcs()
                 idx = int(self.ref_index if self.ref_index is not None else 0)
@@ -323,6 +359,36 @@ class GeometryReference:
                 pts = obj.control_points
                 if self.ref_index is not None and 0 <= self.ref_index < len(pts):
                     return _point_from(pts[self.ref_index])
+            if self.ref_kind == "spline_length_fraction":
+                pts = obj.sample_points(32)
+                if not pts:
+                    return self.clone_point()
+                if len(pts) == 1:
+                    return _point_from(pts[0])
+                lengths = []
+                total = 0.0
+                for p1, p2 in zip(pts[:-1], pts[1:]):
+                    length = math.hypot(p2.x - p1.x, p2.y - p1.y)
+                    lengths.append(length)
+                    total += length
+                if total < 1e-12:
+                    return _point_from(pts[0])
+                fraction = max(0.0, min(1.0, float(self.ref_index if self.ref_index is not None else 0.5)))
+                target = fraction * total
+                traveled = 0.0
+                for idx, length in enumerate(lengths):
+                    if length < 1e-12:
+                        continue
+                    if traveled + length >= target:
+                        t = (target - traveled) / length
+                        p1 = pts[idx]
+                        p2 = pts[idx + 1]
+                        return Point(
+                            p1.x + (p2.x - p1.x) * t,
+                            p1.y + (p2.y - p1.y) * t,
+                        )
+                    traveled += length
+                return _point_from(pts[-1])
         except Exception:
             return self.clone_point()
 
