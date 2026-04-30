@@ -7,6 +7,8 @@
 
 import math
 import ezdxf
+from logic.dimension_styles import DEFAULT_DIMENSION_STYLES
+from logic.dimensions import AngularDimension, LinearDimension, RadialDimension
 from logic.styles import GOST_STYLES
 
 # Названия из tcad.lin, specline.def, папки LinePattern и https://tflexcad.ru/help/cad/15/index.html?graghics_parameters.htm
@@ -32,6 +34,165 @@ class DxfExporter:
             return (r // 256, g // 256, b // 256)
         except Exception:
             return (0, 0, 0)    # Черный по умолчанию
+
+    def _rgb_to_aci(self, rgb):
+        """Возвращает ближайший ACI-цвет для полей DIMSTYLE."""
+        best_index = 7
+        best_distance = float("inf")
+        for index in range(1, 256):
+            color_int = ezdxf.colors.DXF_DEFAULT_COLORS[index]
+            candidate = ezdxf.colors.int2rgb(color_int)
+            distance = (
+                (int(rgb[0]) - candidate[0]) ** 2
+                + (int(rgb[1]) - candidate[1]) ** 2
+                + (int(rgb[2]) - candidate[2]) ** 2
+            )
+            if distance < best_distance:
+                best_index = index
+                best_distance = distance
+        return best_index
+
+    def _lineweight_for_style(self, style_name, state):
+        valid_weights = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211]
+        gost_style = GOST_STYLES.get(style_name)
+        is_main = gost_style.is_main if gost_style else False
+        thickness_mm = state.base_thickness_mm if is_main else state.base_thickness_mm / 2.0
+        target_weight = int(thickness_mm * 100)
+        return min(valid_weights, key=lambda x: abs(x - target_weight))
+
+    def _point_tuple(self, point):
+        return (float(point.x), float(point.y))
+
+    def _dimension_style_attribs(self, style, root, diameter=False):
+        text_rgb = self._tk_color_to_rgb(style.text_color, root)
+        attribs = {
+            "dimtxt": max(0.1, float(style.text_height_mm)),
+            "dimasz": max(0.1, float(style.arrow_size_mm)),
+            "dimdec": int(style.decimal_places),
+            "dimgap": max(0.0, float(style.text_gap_mm)),
+            "dimexo": max(0.0, float(style.extension_offset_mm)),
+            "dimexe": max(0.0, float(style.extension_overrun_mm)),
+            "dimclrd": self._rgb_to_aci(text_rgb),
+            "dimclre": self._rgb_to_aci(text_rgb),
+            "dimclrt": self._rgb_to_aci(text_rgb),
+        }
+        if diameter:
+            attribs.update({
+                "dimtix": 1,
+                "dimatfit": 0,
+                "dimtmove": 0,
+                "dimtih": 0,
+                "dimtoh": 0,
+                "dimtad": 1,
+            })
+        return attribs
+
+    def _setup_dimension_styles(self, doc, state, root):
+        styles = getattr(state, "dimension_styles", DEFAULT_DIMENSION_STYLES)
+        for style_name, style in styles.items():
+            dxf_name = self._dimension_style_name(style_name)
+            if dxf_name in doc.dimstyles:
+                doc.dimstyles.get(dxf_name).update_dxf_attribs(self._dimension_style_attribs(style, root))
+            else:
+                doc.dimstyles.new(dxf_name, dxfattribs=self._dimension_style_attribs(style, root))
+
+            diameter_name = self._dimension_style_name(style_name, diameter=True)
+            diameter_attribs = self._dimension_style_attribs(style, root, diameter=True)
+            if diameter_name in doc.dimstyles:
+                doc.dimstyles.get(diameter_name).update_dxf_attribs(diameter_attribs)
+            else:
+                doc.dimstyles.new(diameter_name, dxfattribs=diameter_attribs)
+
+    def _dimension_style_name(self, style_name, diameter=False):
+        safe_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(style_name).upper())
+        suffix = "_DIAMETER" if diameter else ""
+        return f"MP_{safe_name}{suffix}"
+
+    def _dimension_text(self, dimension, state):
+        if getattr(dimension, "text_override", ""):
+            return dimension.display_text(state)
+        return "<>"
+
+    def _dimension_dxfattribs(self, dimension, state, root):
+        rgb = self._tk_color_to_rgb(getattr(dimension, "color", "black"), root)
+        return {
+            "layer": getattr(dimension, "layer", "0"),
+            "true_color": ezdxf.colors.rgb2int(rgb),
+            "lineweight": self._lineweight_for_style("solid_thin", state),
+        }
+
+    def _dimension_override(self, dimension, state, root):
+        ext_rgb = self._tk_color_to_rgb(dimension._effective_extension_line_color(state), root)
+        dim_rgb = self._tk_color_to_rgb(dimension._effective_dim_line_color(state), root)
+        text_rgb = self._tk_color_to_rgb(dimension._effective_text_color(state), root)
+        override = {
+            "dimtxt": max(0.1, float(dimension._effective_text_height_mm(state))),
+            "dimasz": max(0.1, float(dimension._effective_arrow_size_mm(state))),
+            "dimdec": int(dimension._style(state).decimal_places),
+            "dimgap": max(0.0, float(dimension._style(state).text_gap_mm)),
+            "dimexe": max(0.0, float(dimension._effective_extension_overrun_mm(state))),
+            "dimdle": max(0.0, float(dimension._effective_dim_line_extension_mm(state))),
+            "dimclrd": self._rgb_to_aci(dim_rgb),
+            "dimclre": self._rgb_to_aci(ext_rgb),
+            "dimclrt": self._rgb_to_aci(text_rgb),
+        }
+
+        if getattr(dimension, "dimension_type", None) == "diameter":
+            text_position = dimension._effective_text_position_mode(state)
+            override.update({
+                "dimtix": 1,       # держать текст внутри окружности
+                "dimatfit": 0,     # требуется CAD для принудительного текста внутри
+                "dimtmove": 0,     # перемещение текста не превращает размер в выноску
+                "dimtih": 0,       # текст внутри выравнивается по размерной линии
+                "dimtoh": 0,
+                "dimtad": {"above": 1, "center": 0, "below": 4}.get(text_position, 1),
+            })
+
+        return override
+
+    def _apply_dimension_format(self, dim_override, dimension, state):
+        arrow_type = dimension._effective_arrow_type(state)
+        arrow_size = dimension._effective_arrow_size_mm(state)
+        if arrow_type == "tick":
+            dim_override.set_tick(size=arrow_size)
+        else:
+            dim_override.set_arrows(size=arrow_size)
+
+        text_position = dimension._effective_text_position_mode(state)
+        if text_position == "center":
+            dim_override.set_text_align(valign="center")
+        elif text_position == "below":
+            dim_override.set_text_align(valign="below")
+        else:
+            dim_override.set_text_align(valign="above")
+
+    def _set_dimension_location(self, dim_override, dimension, state):
+        geometry = dimension.resolve_geometry(state)
+        if not geometry:
+            return
+        text_point = geometry.get("text_point")
+        if text_point is None:
+            return
+        try:
+            dim_override.set_location(self._point_tuple(text_point), leader=False, relative=False)
+        except Exception:
+            pass
+
+    def _render_dimension(self, dim_override, dimension, state, use_geometry_location=True):
+        self._apply_dimension_format(dim_override, dimension, state)
+        if use_geometry_location:
+            self._set_dimension_location(dim_override, dimension, state)
+        dim_override.render()
+
+    def _aligned_distance(self, p1, p2, line_point):
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            return 0.0
+        nx = -dy / length
+        ny = dx / length
+        return (line_point.x - p1.x) * nx + (line_point.y - p1.y) * ny
 
     def _setup_linetypes(self, doc):
         """Создает стандартные типы линий в DXF документе на основе текущих GOST_STYLES."""
@@ -127,6 +288,141 @@ class DxfExporter:
             'ltscale': ltscale
         }
 
+    def _export_dimension(self, msp, doc, dimension, state, root):
+        if isinstance(dimension, LinearDimension):
+            return self._export_linear_dimension(msp, doc, dimension, state, root)
+        if isinstance(dimension, RadialDimension):
+            return self._export_radial_dimension(msp, doc, dimension, state, root)
+        if isinstance(dimension, AngularDimension):
+            return self._export_angular_dimension(msp, doc, dimension, state, root)
+
+    def _export_linear_dimension(self, msp, doc, dimension, state, root):
+        p1, p2, line_point = dimension._resolved_points()
+        if math.hypot(p2.x - p1.x, p2.y - p1.y) < 1e-9:
+            return
+
+        dimstyle = self._dimension_style_name(
+            dimension.dimension_style_name,
+            diameter=dimension.dimension_type == "diameter",
+        )
+        override = self._dimension_override(dimension, state, root)
+        dxfattribs = self._dimension_dxfattribs(dimension, state, root)
+        text = self._dimension_text(dimension, state)
+
+        if dimension.mode == "horizontal":
+            dim_override = msp.add_linear_dim(
+                base=self._point_tuple(line_point),
+                p1=self._point_tuple(p1),
+                p2=self._point_tuple(p2),
+                angle=0.0,
+                text=text,
+                dimstyle=dimstyle,
+                override=override,
+                dxfattribs=dxfattribs,
+            )
+        elif dimension.mode == "vertical":
+            dim_override = msp.add_linear_dim(
+                base=self._point_tuple(line_point),
+                p1=self._point_tuple(p1),
+                p2=self._point_tuple(p2),
+                angle=90.0,
+                text=text,
+                dimstyle=dimstyle,
+                override=override,
+                dxfattribs=dxfattribs,
+            )
+        else:
+            dim_override = msp.add_aligned_dim(
+                p1=self._point_tuple(p1),
+                p2=self._point_tuple(p2),
+                distance=self._aligned_distance(p1, p2, line_point),
+                text=text,
+                dimstyle=dimstyle,
+                override=override,
+                dxfattribs=dxfattribs,
+            )
+
+        self._render_dimension(dim_override, dimension, state)
+
+    def _export_radial_dimension(self, msp, doc, dimension, state, root):
+        center = dimension.center_ref.resolve()
+        edge = dimension.edge_ref.resolve()
+        radius = math.hypot(edge.x - center.x, edge.y - center.y)
+        if radius < 1e-9:
+            return
+
+        dimstyle = self._dimension_style_name(
+            dimension.dimension_style_name,
+            diameter=dimension.dimension_type == "diameter",
+        )
+        override = self._dimension_override(dimension, state, root)
+        dxfattribs = self._dimension_dxfattribs(dimension, state, root)
+        text = self._dimension_text(dimension, state)
+        angle = math.degrees(math.atan2(edge.y - center.y, edge.x - center.x))
+
+        if dimension.dimension_type == "diameter":
+            opposite_edge = (
+                center.x - (edge.x - center.x),
+                center.y - (edge.y - center.y),
+            )
+            if hasattr(msp, "add_diameter_dim_2p"):
+                dim_override = msp.add_diameter_dim_2p(
+                    p1=self._point_tuple(edge),
+                    p2=opposite_edge,
+                    text=text,
+                    dimstyle=dimstyle,
+                    override=override,
+                    dxfattribs=dxfattribs,
+                )
+            else:
+                dim_override = msp.add_diameter_dim(
+                    center=self._point_tuple(center),
+                    mpoint=self._point_tuple(edge),
+                    text=text,
+                    dimstyle=dimstyle,
+                    override=override,
+                    dxfattribs=dxfattribs,
+                )
+        else:
+            dim_override = msp.add_radius_dim(
+                center=self._point_tuple(center),
+                radius=radius,
+                angle=angle,
+                text=text,
+                dimstyle=dimstyle,
+                override=override,
+                dxfattribs=dxfattribs,
+            )
+
+        self._render_dimension(
+            dim_override,
+            dimension,
+            state,
+            use_geometry_location=dimension.dimension_type != "diameter",
+        )
+
+    def _export_angular_dimension(self, msp, doc, dimension, state, root):
+        p1, vertex, p2, arc_point = dimension._resolved_points()
+        if (
+            math.hypot(p1.x - vertex.x, p1.y - vertex.y) < 1e-9
+            or math.hypot(p2.x - vertex.x, p2.y - vertex.y) < 1e-9
+            or math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y) < 1e-9
+        ):
+            return
+
+        dimstyle = self._dimension_style_name(dimension.dimension_style_name)
+        dim_override = msp.add_angular_dim_3p(
+            base=self._point_tuple(arc_point),
+            center=self._point_tuple(vertex),
+            p1=self._point_tuple(p1),
+            p2=self._point_tuple(p2),
+            text=self._dimension_text(dimension, state),
+            dimstyle=dimstyle,
+            override=self._dimension_override(dimension, state, root),
+            dxfattribs=self._dimension_dxfattribs(dimension, state, root),
+        )
+        self._render_dimension(dim_override, dimension, state)
+
     def export(self, state, filepath, root):
         """Собрать DXF и записать в файл.
 
@@ -153,6 +449,7 @@ class DxfExporter:
         msp = doc.modelspace()
         
         self._setup_linetypes(doc)
+        self._setup_dimension_styles(doc, state, root)
 
         # Проходим через все слои
         for layer in state.layers:
@@ -259,5 +556,8 @@ class DxfExporter:
                 continue
             fit_pts = [(p.x, p.y) for p in spline.control_points]
             msp.add_spline(fit_pts, dxfattribs=self._get_attribs(spline.layer, spline, root, state))
+
+        for dimension in state.dimensions:
+            self._export_dimension(msp, doc, dimension, state, root)
 
         doc.saveas(filepath)

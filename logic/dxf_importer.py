@@ -1,6 +1,7 @@
 import ezdxf
 import math
 import re
+from logic.dimensions import AngularDimension, GeometryReference, LinearDimension, RadialDimension
 from logic.geometry import Point, Segment, Circle, Arc, Ellipse, Spline
 from logic.state import Layer
 from logic.styles import GOST_STYLES
@@ -30,6 +31,118 @@ class DxfImporter:
         Берем это число и возвращаем соответствующий ему символ Unicode.
         """
         return re.sub(r'\\U\+([0-9A-Fa-f]{4})', lambda m: chr(int(m.group(1), 16)), text)
+
+    def _vec_to_point(self, vec):
+        return Point(vec.x, vec.y)
+
+    def _static_ref(self, point):
+        return GeometryReference.static(point)
+
+    def _dimension_text_override(self, entity):
+        text = entity.dxf.text if entity.dxf.hasattr("text") else ""
+        text = self._decode_autocad_text(text or "")
+        if text in ("", "<>"):
+            return ""
+        return text
+
+    def _apply_dimension_common(self, dimension, entity, layer_name, color_hex):
+        dimension.layer = layer_name
+        dimension.color = color_hex
+        dimension.text_override = self._dimension_text_override(entity)
+        if entity.dxf.hasattr("text_midpoint"):
+            dimension.manual_text_position = self._vec_to_point(entity.dxf.text_midpoint)
+        return dimension
+
+    def _angle_mode(self, angle_degrees):
+        normalized = angle_degrees % 180.0
+        if abs(normalized) < 1e-6 or abs(normalized - 180.0) < 1e-6:
+            return "horizontal"
+        if abs(normalized - 90.0) < 1e-6:
+            return "vertical"
+        return "aligned"
+
+    def _import_dimension(self, entity, doc, state, layer_name, color_hex):
+        dimtype = entity.dimtype
+
+        try:
+            if dimtype == 0:
+                if not (entity.dxf.hasattr("defpoint") and entity.dxf.hasattr("defpoint2") and entity.dxf.hasattr("defpoint3")):
+                    return
+
+                p1 = self._vec_to_point(entity.dxf.defpoint2)
+                p2 = self._vec_to_point(entity.dxf.defpoint3)
+                line_point = self._vec_to_point(entity.dxf.defpoint)
+                angle = float(entity.dxf.angle) if entity.dxf.hasattr("angle") else math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+                dimension = LinearDimension(
+                    self._static_ref(p1),
+                    self._static_ref(p2),
+                    self._static_ref(line_point),
+                    mode=self._angle_mode(angle),
+                    color=color_hex,
+                    layer=layer_name,
+                )
+                state.dimensions.append(self._apply_dimension_common(dimension, entity, layer_name, color_hex))
+                return
+
+            if dimtype == 4:
+                if not (entity.dxf.hasattr("defpoint") and entity.dxf.hasattr("defpoint4")):
+                    return
+
+                center = self._vec_to_point(entity.dxf.defpoint)
+                edge = self._vec_to_point(entity.dxf.defpoint4)
+                dimension = RadialDimension(
+                    self._static_ref(center),
+                    self._static_ref(edge),
+                    self._static_ref(edge),
+                    prefix="R",
+                    color=color_hex,
+                    layer=layer_name,
+                )
+                state.dimensions.append(self._apply_dimension_common(dimension, entity, layer_name, color_hex))
+                return
+
+            if dimtype == 3:
+                if not (entity.dxf.hasattr("defpoint") and entity.dxf.hasattr("defpoint4")):
+                    return
+
+                edge1 = self._vec_to_point(entity.dxf.defpoint)
+                edge2 = self._vec_to_point(entity.dxf.defpoint4)
+                center = Point((edge1.x + edge2.x) / 2.0, (edge1.y + edge2.y) / 2.0)
+                dimension = RadialDimension(
+                    self._static_ref(center),
+                    self._static_ref(edge1),
+                    self._static_ref(edge1),
+                    prefix="⌀",
+                    color=color_hex,
+                    layer=layer_name,
+                )
+                state.dimensions.append(self._apply_dimension_common(dimension, entity, layer_name, color_hex))
+                return
+
+            if dimtype == 5:
+                if not (
+                    entity.dxf.hasattr("defpoint")
+                    and entity.dxf.hasattr("defpoint2")
+                    and entity.dxf.hasattr("defpoint3")
+                    and entity.dxf.hasattr("defpoint4")
+                ):
+                    return
+
+                arc_point = self._vec_to_point(entity.dxf.defpoint)
+                p1 = self._vec_to_point(entity.dxf.defpoint2)
+                p2 = self._vec_to_point(entity.dxf.defpoint3)
+                vertex = self._vec_to_point(entity.dxf.defpoint4)
+                dimension = AngularDimension(
+                    self._static_ref(p1),
+                    self._static_ref(vertex),
+                    self._static_ref(p2),
+                    self._static_ref(arc_point),
+                    color=color_hex,
+                    layer=layer_name,
+                )
+                state.dimensions.append(self._apply_dimension_common(dimension, entity, layer_name, color_hex))
+        except Exception:
+            return
 
     def _get_entity_style(self, entity, doc):
         """ Получаем слой, стиль и цвет линии из DXF сущности """
@@ -173,7 +286,10 @@ class DxfImporter:
                 # https://ezdxf.readthedocs.io/en/stable/dxfentities/index.html
                 # Здесь можно узнать все параметры, которые можно получить у каждого примитива
 
-                if entity.dxftype() == 'LINE':
+                if entity.dxftype() == 'DIMENSION':
+                    self._import_dimension(entity, doc, state, layer_name, color_hex)
+
+                elif entity.dxftype() == 'LINE':
                     p1 = Point(entity.dxf.start.x, entity.dxf.start.y)
                     p2 = Point(entity.dxf.end.x, entity.dxf.end.y)
                     segment = Segment(p1, p2, style_name=style_name, color=color_hex)
@@ -333,7 +449,8 @@ class DxfImporter:
             print(f"DXF успешно импортирован. Версия: {doc.dxfversion}")
             print(f"Загружено: отрезков {len(state.segments)}, точек {len(state.points)}, "
                   f"окружностей {len(state.circles)}, дуг {len(state.arcs)}, "
-                  f"эллипсов {len(state.ellipses)}, сплайнов {len(state.splines)}")
+                  f"эллипсов {len(state.ellipses)}, сплайнов {len(state.splines)}, "
+                  f"размеров {len(state.dimensions)}")
             
         except IOError:
             raise Exception(f"Невозможно прочитать файл: {filepath}")
