@@ -434,11 +434,15 @@ class DimensionBase:
         layer="0",
         dimension_style_name="gost_default",
         text_override="",
+        text_prefix_override=None,
+        text_suffix_override=None,
     ):
         self.color = color
         self.layer = layer
         self.dimension_style_name = dimension_style_name
         self.text_override = text_override
+        self.text_prefix_override = text_prefix_override
+        self.text_suffix_override = text_suffix_override
         self.manual_text_position = None
         self.extension_line_color = None
         self.extension_line_style_name = None
@@ -462,6 +466,8 @@ class DimensionBase:
     def copy_display_overrides_from(self, other):
         attrs = [
             "text_override",
+            "text_prefix_override",
+            "text_suffix_override",
         ] + list(self.APPEARANCE_ATTRS)
         for attr in attrs:
             setattr(self, attr, getattr(other, attr, None))
@@ -475,12 +481,38 @@ class DimensionBase:
         return f"{value:.{style.decimal_places}f}"
 
     def _format_angular(self, value_rad, state):
+        return f"{self._format_angular_value(value_rad, state)}°"
+
+    def _format_angular_value(self, value_rad, state):
         style = self._style(state)
         value_deg = math.degrees(value_rad)
-        return f"{value_deg:.{style.decimal_places}f}°"
+        return f"{value_deg:.{style.decimal_places}f}"
+
+    def _default_text_prefix(self):
+        return ""
+
+    def _default_text_suffix(self):
+        return ""
+
+    def _effective_text_prefix(self):
+        return self._default_text_prefix() if self.text_prefix_override is None else self.text_prefix_override
+
+    def _effective_text_suffix(self):
+        return self._default_text_suffix() if self.text_suffix_override is None else self.text_suffix_override
+
+    def _display_text_body(self, state):
+        if self.text_override:
+            return self._override_display_text(state)
+        return self.default_text_body(state)
+
+    def _compose_display_text(self, body):
+        return f"{self._effective_text_prefix()}{body}{self._effective_text_suffix()}"
+
+    def has_text_display_override(self):
+        return bool(self.text_override) or self.text_prefix_override is not None or self.text_suffix_override is not None
 
     def _override_display_text(self, state):
-        return self.text_override
+        return self.text_override.strip()
 
     def _effective_extension_line_color(self, state):
         return self.extension_line_color or self.color
@@ -595,11 +627,12 @@ class DimensionBase:
         self.dimension_style_name = style_name
 
     def display_text(self, state):
-        if self.text_override:
-            return self._override_display_text(state)
-        return self.default_text(state)
+        return self._compose_display_text(self._display_text_body(state))
 
     def default_text(self, state):
+        return self._compose_display_text(self.default_text_body(state))
+
+    def default_text_body(self, state):
         raise NotImplementedError
 
     def resolve_geometry(self, state):
@@ -672,6 +705,9 @@ class LinearDimension(DimensionBase):
         return math.hypot(p2.x - p1.x, p2.y - p1.y)
 
     def default_text(self, state):
+        return super().default_text(state)
+
+    def default_text_body(self, state):
         return self._format_linear(self.measured_value(state), state)
 
     def _outside_arrow_mode(self, state):
@@ -914,16 +950,17 @@ class RadialDimension(DimensionBase):
             return radius * 2.0
         return radius
 
-    def default_text(self, state):
-        return f"{self.prefix}{self._format_linear(self.measured_value(state), state)}"
+    def _default_text_prefix(self):
+        return self.prefix
+
+    def default_text_body(self, state):
+        return self._format_linear(self.measured_value(state), state)
 
     def _override_display_text(self, state):
         raw = self.text_override.strip()
-        if self.prefix == "R":
-            raw = raw.removeprefix("R").strip()
-            return f"R{raw}"
-        raw = raw.removeprefix("⌀").strip()
-        return f"⌀{raw}"
+        for prefix in ("R", "⌀"):
+            raw = raw.removeprefix(prefix).strip()
+        return raw
 
     def _outside_arrow_mode(self, state):
         return self.measured_value(state) < 12.0
@@ -1166,13 +1203,16 @@ class AngularDimension(DimensionBase):
         _, _, _, _, start, end = self._angles()
         return _ccw_delta(start, end)
 
-    def default_text(self, state):
-        return self._format_angular(self.measured_value(state), state)
+    def _default_text_suffix(self):
+        return "°"
+
+    def default_text_body(self, state):
+        return self._format_angular_value(self.measured_value(state), state)
 
     def _override_display_text(self, state):
         raw = self.text_override.strip()
         raw = raw.removesuffix("°").strip()
-        return f"{raw}°"
+        return raw
 
     def _default_dim_line_extension_mm(self, state):
         return 7.0

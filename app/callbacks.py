@@ -125,6 +125,36 @@ class Callbacks:
             return ids[idx]
         return combobox.get().strip()
 
+    def _selected_dimension_text_prefix(self):
+        idx = self.view.dimension_text_prefix_combobox.current()
+        if 0 <= idx < len(self.view.dimension_text_prefix_ids):
+            return self.view.dimension_text_prefix_ids[idx]
+        return None
+
+    def _selected_dimension_text_suffix(self):
+        idx = self.view.dimension_text_suffix_combobox.current()
+        if 0 <= idx < len(self.view.dimension_text_suffix_ids):
+            return self.view.dimension_text_suffix_ids[idx]
+        return None
+
+    def _sync_dimension_text_override_controls(self, dimension=None):
+        self.view.dimension_text_override_entry.delete(0, tk.END)
+        if dimension is not None and dimension.text_override:
+            self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+
+        prefix = None if dimension is None else getattr(dimension, "text_prefix_override", None)
+        suffix = None if dimension is None else getattr(dimension, "text_suffix_override", None)
+
+        if prefix in self.view.dimension_text_prefix_ids:
+            self.view.dimension_text_prefix_combobox.current(self.view.dimension_text_prefix_ids.index(prefix))
+        else:
+            self.view.dimension_text_prefix_combobox.current(0)
+
+        if suffix in self.view.dimension_text_suffix_ids:
+            self.view.dimension_text_suffix_combobox.current(self.view.dimension_text_suffix_ids.index(suffix))
+        else:
+            self.view.dimension_text_suffix_combobox.current(0)
+
     def _sync_dimension_appearance_controls(self, dimension=None):
         if dimension is None:
             self.view.dimension_extension_note_var.set("")
@@ -901,9 +931,7 @@ class Callbacks:
                 f"Значение: {geometry.get('text', '—') if geometry else '—'}"
             )
             self.view.dimension_layer_var.set(f"Слой: {editing_dimension.layer}")
-            self.view.dimension_text_override_entry.delete(0, tk.END)
-            if editing_dimension.text_override:
-                self.view.dimension_text_override_entry.insert(0, editing_dimension.text_override)
+            self._sync_dimension_text_override_controls(editing_dimension)
             self._sync_dimension_appearance_controls(editing_dimension)
             self._refresh_settings_context_panel()
             return
@@ -931,7 +959,7 @@ class Callbacks:
             self.view.dimension_type_var.set("—")
             self.view.dimension_value_var.set("—")
             self.view.dimension_layer_var.set("Слой: —")
-            self.view.dimension_text_override_entry.delete(0, tk.END)
+            self._sync_dimension_text_override_controls()
             self._sync_dimension_appearance_controls()
             self._refresh_settings_context_panel()
             return
@@ -982,21 +1010,19 @@ class Callbacks:
                     f"Значение: {geometry.get('text', '—') if geometry else '—'}"
                 )
                 self.view.dimension_layer_var.set(f"Слой: {dimension.layer}")
-                self.view.dimension_text_override_entry.delete(0, tk.END)
-                if dimension.text_override:
-                    self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+                self._sync_dimension_text_override_controls(dimension)
                 self._sync_dimension_appearance_controls(dimension)
             else:
                 self.view.dimension_type_var.set("Несколько размеров")
                 self.view.dimension_value_var.set("Значение: Разные")
                 self.view.dimension_layer_var.set("Слой: Разные")
-                self.view.dimension_text_override_entry.delete(0, tk.END)
+                self._sync_dimension_text_override_controls()
                 self._sync_dimension_appearance_controls()
         else:
             self.view.dimension_type_var.set("—")
             self.view.dimension_value_var.set("—")
             self.view.dimension_layer_var.set("Слой: —")
-            self.view.dimension_text_override_entry.delete(0, tk.END)
+            self._sync_dimension_text_override_controls()
             self._sync_dimension_appearance_controls()
 
         self._refresh_settings_context_panel()
@@ -2136,9 +2162,7 @@ class Callbacks:
         self.state.current_color = dimension.color
         self.state.current_dimension_style_name = dimension.dimension_style_name
         self.view.set_dimension_style_selection(dimension.dimension_style_name)
-        self.view.dimension_text_override_entry.delete(0, tk.END)
-        if dimension.text_override:
-            self.view.dimension_text_override_entry.insert(0, dimension.text_override)
+        self._sync_dimension_text_override_controls(dimension)
 
         if isinstance(dimension, LinearDimension):
             self.state.dimension_creation_refs = [
@@ -2309,6 +2333,8 @@ class Callbacks:
         if dimension is None:
             return
         dimension.text_override = self.view.dimension_text_override_entry.get().strip()
+        dimension.text_prefix_override = self._selected_dimension_text_prefix()
+        dimension.text_suffix_override = self._selected_dimension_text_suffix()
         self._sync_preview_dimension_from_editing_object()
         self._sync_ui_with_selection()
         self.redraw_all()
@@ -2318,7 +2344,9 @@ class Callbacks:
         if dimension is None:
             return
         dimension.text_override = ""
-        self.view.dimension_text_override_entry.delete(0, tk.END)
+        dimension.text_prefix_override = None
+        dimension.text_suffix_override = None
+        self._sync_dimension_text_override_controls(dimension)
         self._sync_preview_dimension_from_editing_object()
         self._sync_ui_with_selection()
         self.redraw_all()

@@ -109,7 +109,7 @@ class DxfExporter:
         return f"MP_{safe_name}{suffix}"
 
     def _dimension_text(self, dimension, state):
-        if getattr(dimension, "text_override", ""):
+        if getattr(dimension, "has_text_display_override", lambda: False)():
             return dimension.display_text(state)
         return "<>"
 

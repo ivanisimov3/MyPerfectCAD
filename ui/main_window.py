@@ -784,7 +784,37 @@ class MainWindow:
         ttk.Label(text_frame, text="Переопределение:").pack(anchor=tk.W, padx=5, pady=(4, 2))
         self.dimension_text_override_entry = ttk.Entry(text_frame)
         self.dimension_text_override_entry.pack(fill=tk.X, padx=5, pady=(0, 5))
-        ttk.Button(text_frame, text="Применить текст", command=callbacks.on_apply_dimension_text_override).pack(fill=tk.X, padx=5, pady=(0, 2))
+
+        sign_frame = ttk.Frame(text_frame)
+        sign_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        self.dimension_text_prefix_ids = [None, "", "R", "⌀"]
+        self.dimension_text_prefix_names = ["По умолчанию", "Нет", "R", "⌀"]
+        self.dimension_text_suffix_ids = [None, "", "°"]
+        self.dimension_text_suffix_names = ["По умолчанию", "Нет", "°"]
+
+        ttk.Label(sign_frame, text="Перед:").grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
+        self.dimension_text_prefix_combobox = ttk.Combobox(
+            sign_frame,
+            values=self.dimension_text_prefix_names,
+            state="readonly",
+            width=14,
+        )
+        self.dimension_text_prefix_combobox.grid(row=0, column=1, sticky=tk.EW, padx=(0, 6))
+        self.dimension_text_prefix_combobox.current(0)
+
+        ttk.Label(sign_frame, text="После:").grid(row=0, column=2, sticky=tk.W, padx=(0, 4))
+        self.dimension_text_suffix_combobox = ttk.Combobox(
+            sign_frame,
+            values=self.dimension_text_suffix_names,
+            state="readonly",
+            width=14,
+        )
+        self.dimension_text_suffix_combobox.grid(row=0, column=3, sticky=tk.EW)
+        self.dimension_text_suffix_combobox.current(0)
+        sign_frame.columnconfigure(1, weight=1)
+        sign_frame.columnconfigure(3, weight=1)
+
+        ttk.Button(text_frame, text="Применить", command=callbacks.on_apply_dimension_text_override).pack(fill=tk.X, padx=5, pady=(0, 2))
         ttk.Button(text_frame, text="Сбросить переопределение", command=callbacks.on_reset_dimension_text_override).pack(fill=tk.X, padx=5, pady=(0, 5))
 
         style_frame = ttk.LabelFrame(parent, text="Стиль размера")
