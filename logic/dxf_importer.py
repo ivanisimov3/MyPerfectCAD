@@ -9,6 +9,8 @@ from logic.styles import GOST_STYLES
 class DxfImporter:
     """Импортирует данные из DXF файла во внутренние примитивы приложения."""
 
+    POLYLINE_SPLINE_POINT_LIMIT = 80
+
     def _rgb_to_hex(self, rgb):
         """ Переводим из rgb формата типа (255, 255, 255) в hex формат типа #ffffff """
 
@@ -34,6 +36,61 @@ class DxfImporter:
 
     def _vec_to_point(self, vec):
         return Point(vec.x, vec.y)
+
+    def _point_line_distance(self, point, start, end):
+        dx = end.x - start.x
+        dy = end.y - start.y
+        length_sq = dx * dx + dy * dy
+        if length_sq < 1e-12:
+            return math.hypot(point.x - start.x, point.y - start.y)
+
+        t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / length_sq
+        t = max(0.0, min(1.0, t))
+        proj_x = start.x + t * dx
+        proj_y = start.y + t * dy
+        return math.hypot(point.x - proj_x, point.y - proj_y)
+
+    def _rdp_simplify(self, points, tolerance):
+        if len(points) <= 2:
+            return points[:]
+
+        start = points[0]
+        end = points[-1]
+        max_distance = -1.0
+        max_index = 0
+
+        for index in range(1, len(points) - 1):
+            distance = self._point_line_distance(points[index], start, end)
+            if distance > max_distance:
+                max_distance = distance
+                max_index = index
+
+        if max_distance > tolerance:
+            left = self._rdp_simplify(points[:max_index + 1], tolerance)
+            right = self._rdp_simplify(points[max_index:], tolerance)
+            return left[:-1] + right
+
+        return [start, end]
+
+    def _simplify_spline_polyline_points(self, points):
+        """T-FLEX часто экспортирует сплайны как сотни вершин POLYLINE."""
+        if len(points) <= self.POLYLINE_SPLINE_POINT_LIMIT:
+            return points
+
+        min_x = min(p.x for p in points)
+        max_x = max(p.x for p in points)
+        min_y = min(p.y for p in points)
+        max_y = max(p.y for p in points)
+        diagonal = math.hypot(max_x - min_x, max_y - min_y)
+        tolerance = max(0.05, diagonal * 0.005)
+        max_tolerance = max(tolerance, diagonal * 0.05)
+
+        simplified = self._rdp_simplify(points, tolerance)
+        while len(simplified) > self.POLYLINE_SPLINE_POINT_LIMIT and tolerance < max_tolerance:
+            tolerance *= 1.5
+            simplified = self._rdp_simplify(points, tolerance)
+
+        return simplified
 
     def _static_ref(self, point):
         return GeometryReference.static(point)
@@ -389,6 +446,7 @@ class DxfImporter:
                         continue
                         
                     if len(points_to_use) > 20:
+                        points_to_use = self._simplify_spline_polyline_points(points_to_use)
                         
                         spline = Spline(points_to_use, style_name=style_name, color=color_hex)
                         spline.layer = layer_name
