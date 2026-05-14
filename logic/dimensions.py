@@ -424,6 +424,7 @@ class DimensionBase:
         "text_color",
         "text_font_family",
         "text_height_mm",
+        "text_gap_mm",
         "text_position_mode",
     ]
 
@@ -456,6 +457,7 @@ class DimensionBase:
         self.text_color = None
         self.text_font_family = None
         self.text_height_mm = None
+        self.text_gap_mm = None
         self.text_position_mode = None
         self.custom_style_snapshot = {}
 
@@ -566,6 +568,10 @@ class DimensionBase:
         style = self._style(state)
         return style.text_height_mm if self.text_height_mm is None else max(0.1, float(self.text_height_mm))
 
+    def _effective_text_gap_mm(self, state):
+        style = self._style(state)
+        return max(0.0, float(style.text_gap_mm if self.text_gap_mm is None else self.text_gap_mm))
+
     def _effective_text_position_mode(self, state):
         position = (self.text_position_mode or "above").lower()
         return position if position in self.TEXT_POSITIONS else "above"
@@ -583,11 +589,8 @@ class DimensionBase:
         if position == "center":
             return 0.0
 
-        style = self._style(state)
         current_height = self._effective_text_height_mm(state) if text_height is None else max(0.1, float(text_height))
-        default_height = max(0.1, float(style.text_height_mm))
-        edge_clearance = max(0.0, float(style.text_gap_mm) - default_height * 0.5)
-        return edge_clearance + current_height * 0.5
+        return self._effective_text_gap_mm(state) + current_height * 0.5
 
     def _capture_appearance_state(self):
         return {attr: getattr(self, attr, None) for attr in self.APPEARANCE_ATTRS}
@@ -1219,9 +1222,8 @@ class AngularDimension(DimensionBase):
 
     def _text_extension_requirements(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
-        style = self._style(state)
         text_height = self._effective_text_height_mm(state)
-        radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
+        radial_offset = self._text_line_offset_mm(state, text_height) * self._text_offset_factor(state)
         radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
         if radius < 1e-9:
             return 0.0, 0.0, None
@@ -1260,12 +1262,11 @@ class AngularDimension(DimensionBase):
 
     def resolve_geometry(self, state):
         p1, vertex, p2, arc_point, start, end = self._angles()
-        style = self._style(state)
         extension_overrun = self._effective_extension_overrun_mm(state)
         ext_style_name = self._effective_extension_line_style_name(state)
         dim_style_name = self._effective_dim_line_style_name(state)
         text_height = self._effective_text_height_mm(state)
-        radial_offset = (style.text_gap_mm + text_height * 0.5) * self._text_offset_factor(state)
+        radial_offset = self._text_line_offset_mm(state, text_height) * self._text_offset_factor(state)
         radius = math.hypot(arc_point.x - vertex.x, arc_point.y - vertex.y)
         if radius < 1e-9:
             return None

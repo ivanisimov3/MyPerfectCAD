@@ -129,7 +129,7 @@ class DxfExporter:
             "dimtxt": max(0.1, float(dimension._effective_text_height_mm(state))),
             "dimasz": max(0.1, float(dimension._effective_arrow_size_mm(state))),
             "dimdec": int(dimension._style(state).decimal_places),
-            "dimgap": max(0.0, float(dimension._style(state).text_gap_mm)),
+            "dimgap": max(0.0, float(dimension._effective_text_gap_mm(state))),
             "dimexe": max(0.0, float(dimension._effective_extension_overrun_mm(state))),
             "dimdle": max(0.0, float(dimension._effective_dim_line_extension_mm(state))),
             "dimclrd": self._rgb_to_aci(dim_rgb),

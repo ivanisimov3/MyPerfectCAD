@@ -13,7 +13,7 @@ class DimensionStyle:
     extension_offset_mm: float = 1.0
     extension_overrun_mm: float = 2.0
     dim_line_extension_mm: float = 0.0
-    text_gap_mm: float = 2.0
+    text_gap_mm: float = 1.0
     decimal_places: int = 2
 
 
@@ -29,7 +29,7 @@ DEFAULT_DIMENSION_STYLES = {
         extension_offset_mm=1.0,
         extension_overrun_mm=2.0,
         dim_line_extension_mm=0.0,
-        text_gap_mm=3.0,
+        text_gap_mm=1.0,
         decimal_places=2,
     ),
     "user_custom": DimensionStyle(
@@ -43,7 +43,7 @@ DEFAULT_DIMENSION_STYLES = {
         extension_offset_mm=1.0,
         extension_overrun_mm=2.0,
         dim_line_extension_mm=0.0,
-        text_gap_mm=3.0,
+        text_gap_mm=1.0,
         decimal_places=2,
     ),
 }
