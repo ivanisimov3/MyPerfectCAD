@@ -55,6 +55,10 @@ class Callbacks:
         self.state.preview_dimension = None
         self.state.dimension_grip_drag = None
 
+    def _clear_tangent_creation_state(self):
+        self.state.tangent_creation_circles = []
+        self.state.preview_segment = None
+
     def _clear_all_selection(self):
         self.state.selected_segments = []
         self.state.selected_circles = []
@@ -399,6 +403,7 @@ class Callbacks:
 
         mode_to_panel = {
             "CREATING_SEGMENT": ("segment", "Создание: Отрезок"),
+            "CREATING_TANGENT_SEGMENT": ("segment", "Создание: Касательная"),
             "CREATING_CIRCLE": ("circle", "Создание: Окружность"),
             "CREATING_ARC": ("arc", "Создание: Дуга"),
             "CREATING_RECTANGLE": ("rectangle", "Создание: Прямоугольник"),
@@ -458,6 +463,7 @@ class Callbacks:
         prev_mode = self.state.app_mode
         self.state.app_mode = mode
         is_creating_segment = (mode == 'CREATING_SEGMENT')
+        is_creating_tangent_segment = (mode == 'CREATING_TANGENT_SEGMENT')
         is_creating_circle = mode.startswith('CREATING_CIRCLE')
         is_creating_arc = mode.startswith('CREATING_ARC')
         is_creating_rectangle = mode.startswith('CREATING_RECTANGLE')
@@ -467,6 +473,7 @@ class Callbacks:
         is_creating_dimension = mode.startswith('CREATING_DIMENSION')
         is_creating = (
             is_creating_segment
+            or is_creating_tangent_segment
             or is_creating_circle
             or is_creating_arc
             or is_creating_rectangle
@@ -477,7 +484,7 @@ class Callbacks:
         )
         is_panning = (mode == 'PANNING')
 
-        if is_creating_segment:
+        if is_creating_segment or is_creating_tangent_segment:
             self.state.preview_circle = None
             self.state.preview_arc = None
             self.state.preview_rectangle = None
@@ -626,6 +633,7 @@ class Callbacks:
             self.state.active_p4 = None
             self.state.spline_control_points = []
             self._clear_dimension_creation_state()
+            self._clear_tangent_creation_state()
             try:
                 self._update_spline_points_listbox()
             except Exception:
@@ -646,6 +654,18 @@ class Callbacks:
             self.state.points_clicked = 0
             self.root.bind("<Return>", self.finalize_segment)
             self.view.canvas.bind("<Button-1>", self.on_lmb_click)
+            self.view.canvas.config(cursor="crosshair")
+        elif is_creating_tangent_segment:
+            for entry in entries: entry.config(state='disabled')
+            for entry in circle_entries: entry.config(state='disabled')
+            for entry in arc_entries: entry.config(state='disabled')
+            for entry in rect_entries: entry.config(state='disabled')
+            for entry in ellipse_entries: entry.config(state='disabled')
+            for entry in polygon_entries: entry.config(state='disabled')
+            for entry in spline_entries: entry.config(state='disabled')
+            self.state.points_clicked = len(self.state.tangent_creation_circles)
+            self.root.bind("<Return>", self.finalize_segment)
+            self.view.canvas.bind("<Button-1>", self.on_lmb_click_tangent_segment)
             self.view.canvas.config(cursor="crosshair")
         elif is_creating_circle:
             for entry in entries: entry.config(state=entry_state)
@@ -1253,6 +1273,7 @@ class Callbacks:
         self.redraw_all()
 
     def on_new_segment_mode(self, event=None):
+        self._clear_tangent_creation_state()
         self.set_app_state('CREATING_SEGMENT')
 
         self.view.p1_x_entry.delete(0, tk.END)
@@ -1261,6 +1282,11 @@ class Callbacks:
         self.view.p2_y_entry.delete(0, tk.END)
 
         self.view.p1_x_entry.focus_set()
+
+    def on_new_tangent_segment_mode(self, event=None):
+        self._clear_tangent_creation_state()
+        self.set_app_state('CREATING_TANGENT_SEGMENT')
+        self.view.canvas.focus_set()
 
     def on_new_circle_mode(self, event=None):
         self.set_app_state('CREATING_CIRCLE')
@@ -1649,6 +1675,7 @@ class Callbacks:
                 )
                 final_segment.layer = self.state.active_layer
                 self.state.segments.append(final_segment)
+            self._clear_tangent_creation_state()
             self.set_app_state('IDLE')
 
     def finalize_circle(self, event=None):
@@ -1827,10 +1854,11 @@ class Callbacks:
             self.set_app_state('IDLE')
 
     def on_escape_key(self, event=None):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING'] or self._is_dimension_mode():
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_TANGENT_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE', 'PANNING'] or self._is_dimension_mode():
             self.state.editing_object = None
             self.state.editing_object_type = None
             self._clear_dimension_creation_state()
+            self._clear_tangent_creation_state()
             self.set_app_state('IDLE')
         elif self.state.selected_segments or self.state.selected_circles or self.state.selected_arcs or self.state.selected_rectangles or self.state.selected_ellipses or self.state.selected_polygons or self.state.selected_splines or self.state.selected_dimensions:
             self._clear_all_selection()
@@ -2510,6 +2538,62 @@ class Callbacks:
                     return rect
         return None
 
+    def _find_circle_under_cursor(self, wx, wy):
+        hit_threshold_world = 8 / self.state.zoom
+        for circle in self.state.circles:
+            if not self.state.is_layer_visible(circle.layer):
+                continue
+            if circle.distance_to_point(wx, wy) < hit_threshold_world * 1.5:
+                return circle
+        return None
+
+    def _circle_tangent_segments(self, circle1, circle2):
+        x1, y1 = circle1.center.x, circle1.center.y
+        x2, y2 = circle2.center.x, circle2.center.y
+        dx = x2 - x1
+        dy = y2 - y1
+        dist_sq = dx * dx + dy * dy
+        if dist_sq < 1e-12:
+            return []
+
+        result = []
+        for radius_sign in (1.0, -1.0):
+            radius_delta = circle1.radius - radius_sign * circle2.radius
+            h_sq = dist_sq - radius_delta * radius_delta
+            if h_sq < -1e-9:
+                continue
+            h = math.sqrt(max(0.0, h_sq))
+            for side in (1.0, -1.0):
+                vx = (dx * radius_delta - dy * h * side) / dist_sq
+                vy = (dy * radius_delta + dx * h * side) / dist_sq
+                p1 = Point(x1 + vx * circle1.radius, y1 + vy * circle1.radius)
+                p2 = Point(x2 + vx * radius_sign * circle2.radius, y2 + vy * radius_sign * circle2.radius)
+                candidate = Segment(
+                    p1,
+                    p2,
+                    style_name=self.state.current_style_name,
+                    color=self.state.current_color,
+                )
+                is_duplicate = any(
+                    candidate.p1.distance_to_point(seg.p1.x, seg.p1.y) < 1e-7
+                    and candidate.p2.distance_to_point(seg.p2.x, seg.p2.y) < 1e-7
+                    for seg in result
+                )
+                if not is_duplicate:
+                    result.append(candidate)
+        return result
+
+    def _update_tangent_segment_preview(self, wx, wy):
+        circles = self.state.tangent_creation_circles
+        if len(circles) < 2:
+            self.state.preview_segment = None
+            return
+        candidates = self._circle_tangent_segments(circles[0], circles[1])
+        if not candidates:
+            self.state.preview_segment = None
+            return
+        self.state.preview_segment = min(candidates, key=lambda seg: seg.distance_to_point(wx, wy))
+
     def on_lmb_click(self, event):
         wx, wy = self._get_snapped_coordinates(event.x, event.y)
         if self.state.points_clicked == 0:
@@ -2520,6 +2604,31 @@ class Callbacks:
             self._update_p2_entries(Point(wx, wy))
             self.state.points_clicked = 2
         self.update_preview_segment()
+
+    def on_lmb_click_tangent_segment(self, event):
+        wx, wy = self.converter.screen_to_world(event.x, event.y)
+        circles = self.state.tangent_creation_circles
+
+        if len(circles) < 2:
+            circle = self._find_circle_under_cursor(wx, wy)
+            if circle is None:
+                messagebox.showinfo("Касательная", "Кликни по окружности.")
+                return
+            if circles and circle is circles[0]:
+                messagebox.showinfo("Касательная", "Выбери вторую окружность.")
+                return
+            circles.append(circle)
+            self.state.points_clicked = len(circles)
+            if len(circles) == 2:
+                self._update_tangent_segment_preview(wx, wy)
+                if self.state.preview_segment is None:
+                    messagebox.showerror("Касательная", "Для этих окружностей общая касательная не найдена.")
+                    self._clear_tangent_creation_state()
+            self.redraw_all()
+            return
+
+        self._update_tangent_segment_preview(wx, wy)
+        self.finalize_segment()
 
     def on_lmb_click_circle(self, event):
         wx, wy = self._get_snapped_coordinates(event.x, event.y)
@@ -3041,6 +3150,15 @@ class Callbacks:
             self.view.p1_x_entry.delete(0, tk.END); self.view.p1_y_entry.delete(0, tk.END)
             self.state.points_clicked = 0
         self.update_preview_segment()
+
+    def on_rmb_click_tangent_segment(self, event):
+        if self.state.tangent_creation_circles:
+            self.state.tangent_creation_circles.pop()
+            self.state.points_clicked = len(self.state.tangent_creation_circles)
+            self.state.preview_segment = None
+            self.redraw_all()
+        else:
+            self.set_app_state('IDLE')
 
     def on_rmb_click_circle(self, event):
 
@@ -3770,6 +3888,8 @@ class Callbacks:
         
         if mode == 'CREATING_SEGMENT':
             self._update_segment_preview_mouse(wx, wy)
+        elif mode == 'CREATING_TANGENT_SEGMENT':
+            self._update_tangent_segment_preview(wx, wy)
         elif mode == 'CREATING_CIRCLE':
             self._update_circle_preview_mouse(wx, wy)
         elif mode == 'CREATING_ARC':
@@ -4093,6 +4213,7 @@ class Callbacks:
             modes = {
                 'IDLE': "Ожидание",
                 'CREATING_SEGMENT': "Создание отрезка",
+                'CREATING_TANGENT_SEGMENT': "Касательная к двум окружностям",
                 'CREATING_CIRCLE': "Создание окружности",
                 'CREATING_ARC': "Создание дуги",
                 'CREATING_RECTANGLE': "Создание прямоугольника",
@@ -4132,9 +4253,11 @@ class Callbacks:
                 self.view.status_layer.config(text="Разные слои")
 
     def show_context_menu(self, event):
-        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE'] or self._is_dimension_mode():
+        if self.state.app_mode in ['CREATING_SEGMENT', 'CREATING_TANGENT_SEGMENT', 'CREATING_CIRCLE', 'CREATING_ARC', 'CREATING_RECTANGLE', 'CREATING_ELLIPSE', 'CREATING_POLYGON', 'CREATING_SPLINE'] or self._is_dimension_mode():
             if self.state.app_mode == 'CREATING_SEGMENT':
                 self.on_rmb_click(event)
+            elif self.state.app_mode == 'CREATING_TANGENT_SEGMENT':
+                self.on_rmb_click_tangent_segment(event)
             elif self.state.app_mode == 'CREATING_CIRCLE':
                 self.on_rmb_click_circle(event)
             elif self.state.app_mode == 'CREATING_ARC':

@@ -138,6 +138,7 @@ class MainWindow:
 
         _add_icon_button("—", callbacks.on_new_segment_mode, [
             ("Отрезок (2 точки)", callbacks.on_new_segment_mode),
+            ("Касательная к 2 окружностям", callbacks.on_new_tangent_segment_mode),
         ])
 
         _add_icon_button("◯", callbacks.on_new_circle_mode, [

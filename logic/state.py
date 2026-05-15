@@ -58,6 +58,7 @@ class AppState:
         self.dimension_creation_refs = []
         self.dimension_creation_object = None
         self.dimension_grip_drag = None
+        self.tangent_creation_circles = []
         
         self.pan_x, self.pan_y = 0, 0
         self.zoom = 5.0 

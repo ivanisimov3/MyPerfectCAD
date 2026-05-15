@@ -134,7 +134,7 @@ class DxfExporter:
             suffix = self._dxf_text_content(dimension._effective_text_suffix())
             return f"{prefix}<>{suffix}"
         if getattr(dimension, "has_text_display_override", lambda: False)():
-            return dimension.display_text(state)
+            return self._dxf_text_content(dimension.display_text(state))
         return "<>"
 
     def _dimension_dxfattribs(self, dimension, state, root):
