@@ -69,6 +69,7 @@ class DxfExporter:
             "dimtxt": max(0.1, float(style.text_height_mm)),
             "dimasz": max(0.1, float(style.arrow_size_mm)),
             "dimdec": int(style.decimal_places),
+            "dimzin": 8,
             "dimgap": max(0.0, float(style.text_gap_mm)),
             "dimexo": max(0.0, float(style.extension_offset_mm)),
             "dimexe": max(0.0, float(style.extension_overrun_mm)),
@@ -108,7 +109,30 @@ class DxfExporter:
         suffix = "_DIAMETER" if diameter else ""
         return f"MP_{safe_name}{suffix}"
 
+    def _dxf_text_content(self, text):
+        return (
+            str(text or "")
+            .replace("⌀", "%%c")
+            .replace("Ø", "%%c")
+            .replace("ø", "%%c")
+            .replace("°", "%%d")
+            .replace("±", "%%p")
+        )
+
+    def _dimension_uses_text_template(self, dimension):
+        return (
+            not bool(getattr(dimension, "text_override", ""))
+            and (
+                getattr(dimension, "text_prefix_override", None) is not None
+                or getattr(dimension, "text_suffix_override", None) is not None
+            )
+        )
+
     def _dimension_text(self, dimension, state):
+        if self._dimension_uses_text_template(dimension):
+            prefix = self._dxf_text_content(dimension._effective_text_prefix())
+            suffix = self._dxf_text_content(dimension._effective_text_suffix())
+            return f"{prefix}<>{suffix}"
         if getattr(dimension, "has_text_display_override", lambda: False)():
             return dimension.display_text(state)
         return "<>"
@@ -129,6 +153,7 @@ class DxfExporter:
             "dimtxt": max(0.1, float(dimension._effective_text_height_mm(state))),
             "dimasz": max(0.1, float(dimension._effective_arrow_size_mm(state))),
             "dimdec": int(dimension._style(state).decimal_places),
+            "dimzin": 8,
             "dimgap": max(0.0, float(dimension._effective_text_gap_mm(state))),
             "dimexe": max(0.0, float(dimension._effective_extension_overrun_mm(state))),
             "dimdle": max(0.0, float(dimension._effective_dim_line_extension_mm(state))),

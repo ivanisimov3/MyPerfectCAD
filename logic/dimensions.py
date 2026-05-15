@@ -480,7 +480,7 @@ class DimensionBase:
 
     def _format_linear(self, value, state):
         style = self._style(state)
-        return f"{value:.{style.decimal_places}f}"
+        return self._format_number(value, style.decimal_places)
 
     def _format_angular(self, value_rad, state):
         return f"{self._format_angular_value(value_rad, state)}°"
@@ -488,7 +488,14 @@ class DimensionBase:
     def _format_angular_value(self, value_rad, state):
         style = self._style(state)
         value_deg = math.degrees(value_rad)
-        return f"{value_deg:.{style.decimal_places}f}"
+        return self._format_number(value_deg, style.decimal_places)
+
+    def _format_number(self, value, decimal_places):
+        places = max(0, int(decimal_places))
+        rounded = round(float(value), places)
+        if abs(rounded - round(rounded)) < 10 ** -(places + 1):
+            return str(int(round(rounded)))
+        return f"{rounded:.{places}f}"
 
     def _default_text_prefix(self):
         return ""

@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, colorchooser, filedialog, simpledialog, ttk
 import math
+import os
+from datetime import datetime
 from logic.geometry import Point, Segment, Circle, Arc, Rectangle, Ellipse, RegularPolygon, Spline
 from logic.dimensions import (
     AngularDimension,
@@ -244,18 +246,51 @@ class Callbacks:
         else:
             self.view.dimension_text_font_combobox.set(font_name)
 
+    def _update_document_path_display(self):
+        if self.view and hasattr(self.view, "set_document_path"):
+            self.view.set_document_path(self.state.current_dxf_path, self.state.current_dxf_saved_at)
+
+    def _ask_dxf_save_path(self, title="Сохранить DXF"):
+        current_path = self.state.current_dxf_path
+        options = {
+            "title": title,
+            "defaultextension": ".dxf",
+            "filetypes": [("DXF файлы", "*.dxf"), ("Все файлы", "*.*")],
+        }
+        if current_path:
+            current_dir = os.path.dirname(current_path)
+            if current_dir:
+                options["initialdir"] = current_dir
+            options["initialfile"] = os.path.basename(current_path)
+        return filedialog.asksaveasfilename(**options)
+
+    def _save_dxf(self, filepath):
+        exporter = DxfExporter()
+        exporter.export(self.state, filepath, self.view.root)
+        self.state.current_dxf_path = filepath
+        self.state.current_dxf_saved_at = datetime.now()
+        self._update_document_path_display()
+
+    def on_save_dxf(self, event=None):
+        """Быстрое сохранение DXF: первый раз спрашивает имя, потом перезаписывает файл."""
+        filepath = self.state.current_dxf_path
+        if not filepath:
+            filepath = self._ask_dxf_save_path()
+        if not filepath:
+            return "break"
+        try:
+            self._save_dxf(filepath)
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить DXF:\n{e}")
+        return "break"
+
     def on_export_dxf(self):
-        """Экспорт чертежа в файл DXF."""
-        filepath = filedialog.asksaveasfilename(
-            title="Экспорт в DXF",
-            defaultextension=".dxf",
-            filetypes=[("DXF файлы", "*.dxf"), ("Все файлы", "*.*")]
-        )
+        """Экспорт чертежа в новый файл DXF."""
+        filepath = self._ask_dxf_save_path("Экспорт в DXF как")
         if not filepath:
             return
         try:
-            exporter = DxfExporter()
-            exporter.export(self.state, filepath, self.view.root)
+            self._save_dxf(filepath)
             messagebox.showinfo("Экспорт DXF", f"Файл успешно сохранён:\n{filepath}")
         except Exception as e:
             messagebox.showerror("Ошибка экспорта", f"Не удалось сохранить DXF:\n{e}")
@@ -273,6 +308,9 @@ class Callbacks:
         try:
             importer = DxfImporter()
             importer.import_dxf(self.state, filepath, self.view.root)
+            self.state.current_dxf_path = filepath
+            self.state.current_dxf_saved_at = None
+            self._update_document_path_display()
             
             # Обновляем UI после импорта
             self.view.refresh_layers_list(self.state)
@@ -412,6 +450,7 @@ class Callbacks:
         self.view.polygon_sides_var.set(str(self.state.polygon_sides))
 
         self.view.refresh_layers_list(self.state)
+        self._update_document_path_display()
 
         self.set_app_state(self.state.app_mode)
 

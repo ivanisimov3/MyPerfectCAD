@@ -10,6 +10,7 @@ class MainWindow:
         self.root = root
         self.callbacks = callbacks 
         self.dimension_font_names = self._load_dimension_fonts()
+        self.document_name_var = tk.StringVar(value="Файл: неизвестно")
         
         root.title("MyPerfectCAD")
         root.minsize(950, 600)
@@ -67,6 +68,8 @@ class MainWindow:
         self.root.bind("<Right>", callbacks.on_rotate_right)
         self.root.bind("<Shift-Left>", callbacks.on_rotate_left)
         self.root.bind("<Shift-Right>", callbacks.on_rotate_right)
+        self.root.bind_all("<Control-s>", callbacks.on_save_dxf)
+        self.root.bind_all("<Control-S>", callbacks.on_save_dxf)
 
     def _load_dimension_fonts(self):
         fallback_names = [
@@ -200,6 +203,8 @@ class MainWindow:
         style_mb["menu"] = style_menu
         style_mb.pack(side=tk.LEFT, padx=2)
 
+        ttk.Label(parent, textvariable=self.document_name_var, anchor=tk.E).pack(side=tk.RIGHT, padx=6)
+
     def setup_main_menu(self, root, callbacks):
 
         menubar = tk.Menu(root)
@@ -207,7 +212,8 @@ class MainWindow:
         
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Импорт из DXF...", command=callbacks.on_import_dxf)
-        file_menu.add_command(label="Экспорт в DXF...", command=callbacks.on_export_dxf)
+        file_menu.add_command(label="Сохранить DXF\tCtrl+S", command=callbacks.on_save_dxf)
+        file_menu.add_command(label="Экспорт в DXF как...", command=callbacks.on_export_dxf)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=root.quit)
         menubar.add_cascade(label="Файл", menu=file_menu)
@@ -228,6 +234,12 @@ class MainWindow:
         view_menu.add_separator()
         view_menu.add_command(label="Сбросить вид", command=callbacks.on_reset_view)
         menubar.add_cascade(label="Вид", menu=view_menu)
+
+    def set_document_path(self, filepath, saved_at=None):
+        name = os.path.basename(filepath) if filepath else "неизвестно"
+        saved_text = saved_at.strftime("%H:%M:%S") if saved_at else "не сохранено"
+        self.document_name_var.set(f"Файл: {name} | {saved_text}")
+        self.root.title(f"MyPerfectCAD - {name}")
 
     def setup_status_bar(self, parent):
         self.status_coords = ttk.Label(parent, text="X: 0.00  Y: 0.00", width=20)

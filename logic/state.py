@@ -78,6 +78,8 @@ class AppState:
         self.current_style_name = 'solid_main'
         self.current_dimension_style_name = 'gost_default'
         self.current_color = 'black'
+        self.current_dxf_path = None
+        self.current_dxf_saved_at = None
 
         self.circle_creation_method = 'center_radius'
 
